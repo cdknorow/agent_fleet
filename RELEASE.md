@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.0
+
+### Improvements
+- **Smoother startup** — Yield to event loop between file indexing to prevent CPU spike during dashboard startup.
+- **Simplified launch-corral** — Skip agent launching by default; hooks are now installed automatically on session create/resume.
+
+### Docs
+- Updated README and marketing materials.
+
 ## v0.3.0
 
 ### New Features
