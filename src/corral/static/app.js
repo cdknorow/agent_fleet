@@ -16,6 +16,7 @@ import { loadAgentNotes, initNotesMd } from './agent_notes.js';
 import { switchAgenticTab, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
 import { copyBranchName } from './utils.js';
+import { initScheduler, selectScheduledJob, toggleScheduledJob, deleteScheduledJob, editScheduledJob, showJobModal, hideJobModal, validateCronPreview, saveScheduledJob } from './scheduler.js';
 
 // ── Expose functions to HTML onclick handlers ─────────────────────────────
 window.sendCommand = sendCommand;
@@ -81,6 +82,14 @@ window.showFilterPopup = showFilterPopup;
 window.hideFilterPopup = hideFilterPopup;
 window.toggleHistoryEventFilter = toggleHistoryEventFilter;
 window.toggleAllHistoryEventFilters = toggleAllHistoryEventFilters;
+window.selectScheduledJob = selectScheduledJob;
+window.toggleScheduledJob = toggleScheduledJob;
+window.deleteScheduledJob = deleteScheduledJob;
+window.editScheduledJob = editScheduledJob;
+window.showJobModal = showJobModal;
+window.hideJobModal = hideJobModal;
+window.validateCronPreview = validateCronPreview;
+window.saveScheduledJob = saveScheduledJob;
 
 // ── History search/filter/pagination state ───────────────────────────────
 let historyPage = 1;
@@ -123,6 +132,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadHistorySessions();
     connectCorralWs();
     populateTagFilter();
+    initScheduler();
 
     // Search bar with debounce
     const searchInput = document.getElementById('history-search');
