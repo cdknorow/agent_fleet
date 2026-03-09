@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any
 
 from corral.store.connection import DatabaseManager
@@ -74,8 +74,7 @@ class WebhookStore(DatabaseManager):
 
     async def create_webhook_config(
         self, name: str, platform: str, url: str,
-        event_filter: str = "*", idle_threshold_seconds: int = 0,
-        agent_filter: str | None = None, low_confidence_only: bool = False,
+        agent_filter: str | None = None,
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         conn = await self._get_conn()
@@ -84,9 +83,8 @@ class WebhookStore(DatabaseManager):
                (name, platform, url, enabled, event_filter,
                 idle_threshold_seconds, agent_filter, low_confidence_only,
                 consecutive_failures, created_at, updated_at)
-               VALUES (?, ?, ?, 1, ?, ?, ?, ?, 0, ?, ?)""",
-            (name, platform, url, event_filter, idle_threshold_seconds,
-             agent_filter, int(low_confidence_only), now, now),
+               VALUES (?, ?, ?, 1, '*', 0, ?, 0, 0, ?, ?)""",
+            (name, platform, url, agent_filter, now, now),
         )
         await conn.commit()
         return await self.get_webhook_config(cur.lastrowid)
@@ -198,29 +196,6 @@ class WebhookStore(DatabaseManager):
             (webhook_id, limit),
         )).fetchall()
         return [dict(r) for r in rows]
-
-    async def get_last_event_times_by_agent(self) -> dict[str, str]:
-        conn = await self._get_conn()
-        rows = await (await conn.execute(
-            "SELECT agent_name, MAX(created_at) as last_ts "
-            "FROM agent_events GROUP BY agent_name"
-        )).fetchall()
-        return {r["agent_name"]: r["last_ts"] for r in rows if r["last_ts"]}
-
-    async def idle_notification_exists(
-        self, webhook_id: int, agent_name: str, threshold_seconds: int
-    ) -> bool:
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
-        ).isoformat()
-        conn = await self._get_conn()
-        row = await (await conn.execute(
-            "SELECT COUNT(*) as cnt FROM webhook_deliveries "
-            "WHERE webhook_id = ? AND agent_name = ? AND event_type = 'idle' "
-            "AND created_at >= ?",
-            (webhook_id, agent_name, cutoff),
-        )).fetchone()
-        return bool(row and row["cnt"] > 0)
 
     async def increment_consecutive_failures(self, webhook_id: int) -> int:
         """Increment failure counter and return new value."""

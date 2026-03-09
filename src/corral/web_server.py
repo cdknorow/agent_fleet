@@ -83,8 +83,6 @@ async def lifespan(app: FastAPI):
     # Store indexer on app state so endpoints can trigger refresh
     app.state.indexer = indexer
 
-    # Wire dispatcher into the API layer
-    live_sessions_api.webhook_dispatcher = dispatcher
     app.state.webhook_dispatcher = dispatcher
 
     yield

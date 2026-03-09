@@ -245,20 +245,13 @@
                         <input id="wh-url" type="url"
                                placeholder="https://hooks.slack.com/..." required>
                     </label>
-                    <label>Event Types
-                        <div id="wh-event-filter-group" class="event-filter-group"></div>
-                    </label>
-                    <label>Idle Threshold (seconds — 0 to disable)
-                        <input id="wh-idle-threshold" type="number" min="0" value="0">
-                    </label>
                     <label>Agent Filter (blank = all agents)
                         <input id="wh-agent-filter" type="text"
                                placeholder="claude-agent-1">
                     </label>
-                    <label class="checkbox-label">
-                        <input id="wh-low-confidence-only" type="checkbox">
-                        Only notify on CONFIDENCE:Low (skip CONFIDENCE:High)
-                    </label>
+                    <p style="color:var(--text-muted);font-size:12px;margin:4px 0 8px">
+                        Sends a notification when an agent needs input and has been idle for 5+ minutes.
+                    </p>
                     <label class="checkbox-label">
                         <input id="wh-enabled" type="checkbox" checked>
                         Enabled

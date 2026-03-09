@@ -31,30 +31,6 @@ class WebhookDispatcher:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
-    # ── Entry point called from API layer ─────────────────────────────
-
-    async def dispatch(
-        self,
-        agent_name: str,
-        event_type: str,
-        summary: str,
-        session_id: str | None = None,
-    ) -> None:
-        """Match event against enabled webhooks and enqueue deliveries."""
-        try:
-            configs = await self._store.list_webhook_configs(enabled_only=True)
-            for cfg in configs:
-                if self._matches(cfg, agent_name, event_type, summary):
-                    await self._store.create_webhook_delivery(
-                        webhook_id=cfg["id"],
-                        agent_name=agent_name,
-                        session_id=session_id,
-                        event_type=event_type,
-                        event_summary=summary,
-                    )
-        except Exception:
-            log.exception("WebhookDispatcher.dispatch error")
-
     # ── Background flush loop ─────────────────────────────────────────
 
     async def run_forever(self, interval: float = 15) -> None:
@@ -77,24 +53,6 @@ class WebhookDispatcher:
             else:
                 failed += 1
         return {"delivered": delivered, "failed": failed}
-
-    # ── Event matching ────────────────────────────────────────────────
-
-    def _matches(
-        self, cfg: dict, agent_name: str, event_type: str, summary: str
-    ) -> bool:
-        if cfg["agent_filter"] and cfg["agent_filter"] != agent_name:
-            return False
-        if cfg["event_filter"] != "*":
-            allowed = {e.strip() for e in cfg["event_filter"].split(",")}
-            if event_type not in allowed:
-                return False
-        if cfg["low_confidence_only"]:
-            if event_type != "confidence":
-                return False
-            if not summary.lower().startswith("low "):
-                return False
-        return True
 
     # ── HTTP delivery ─────────────────────────────────────────────────
 
@@ -185,11 +143,8 @@ def _build_payload(platform: str, delivery: dict) -> dict:
 
 def _slack_payload(delivery: dict) -> dict:
     emoji = {
-        "confidence": ":warning:",
-        "idle":       ":zzz:",
-        "stop":       ":red_circle:",
-        "status":     ":large_blue_circle:",
-        "goal":       ":white_circle:",
+        "needs_input": ":raising_hand:",
+        "status":      ":large_blue_circle:",
     }.get(delivery["event_type"], ":bell:")
     return {
         "blocks": [{
@@ -208,9 +163,7 @@ def _slack_payload(delivery: dict) -> dict:
 
 def _discord_payload(delivery: dict) -> dict:
     color = {
-        "confidence": 0xD29922,  # amber
-        "idle":       0xF85149,  # red
-        "stop":       0xF85149,
+        "needs_input": 0xD29922,  # amber
     }.get(delivery["event_type"], 0x58A6FF)  # blue default
     return {
         "embeds": [{

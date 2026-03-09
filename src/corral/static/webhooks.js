@@ -2,16 +2,6 @@
 
 import { showToast, escapeHtml } from './utils.js';
 
-// ── Valid event types for multi-select ────────────────────────────────────
-
-const EVENT_TYPES = [
-    { value: "status",     label: "Status" },
-    { value: "goal",       label: "Goal" },
-    { value: "confidence", label: "Confidence" },
-    { value: "idle",       label: "Idle" },
-    { value: "stop",       label: "Stop" },
-];
-
 // ── Modal open/close ──────────────────────────────────────────────────────
 
 export function showWebhookModal() {
@@ -68,11 +58,8 @@ function renderWebhookList(webhooks) {
                 <div class="webhook-row-info">
                     <span class="webhook-name">${escapeHtml(w.name)}</span>
                     <span class="webhook-meta">
-                        ${escapeHtml(w.platform)} &middot;
-                        filter: ${escapeHtml(w.event_filter)}
-                        ${w.idle_threshold_seconds > 0
-                            ? ` &middot; idle &ge;${w.idle_threshold_seconds}s`
-                            : ''}
+                        ${escapeHtml(w.platform)}
+                        ${w.agent_filter ? ` &middot; agent: ${escapeHtml(w.agent_filter)}` : ''}
                     </span>
                     ${statusLabel}
                 </div>
@@ -90,34 +77,12 @@ function renderWebhookList(webhooks) {
 
 // ── Create / Edit form ────────────────────────────────────────────────────
 
-function _renderEventFilterCheckboxes(selected) {
-    const selectedSet = selected === "*"
-        ? new Set(EVENT_TYPES.map(e => e.value))
-        : new Set(selected.split(",").map(s => s.trim()));
-    return EVENT_TYPES.map(e => `
-        <label class="checkbox-label checkbox-inline">
-            <input type="checkbox" class="wh-event-cb" value="${e.value}"
-                   ${selectedSet.has(e.value) ? 'checked' : ''}>
-            ${e.label}
-        </label>
-    `).join('');
-}
-
-function _getSelectedEventFilter() {
-    const checked = [...document.querySelectorAll('.wh-event-cb:checked')]
-        .map(cb => cb.value);
-    if (checked.length === 0 || checked.length === EVENT_TYPES.length) return "*";
-    return checked.join(",");
-}
-
 export function showWebhookCreate() {
     _showView("form");
     document.getElementById("webhook-form-title").textContent = "Add Webhook";
     document.getElementById("webhook-form").reset();
     document.getElementById("webhook-form-id").value = "";
     document.getElementById("wh-enabled").checked = true;
-    document.getElementById("wh-event-filter-group").innerHTML =
-        _renderEventFilterCheckboxes("*");
 }
 
 export async function showWebhookEdit(webhookId) {
@@ -132,12 +97,7 @@ export async function showWebhookEdit(webhookId) {
         document.getElementById("wh-name").value = w.name;
         document.getElementById("wh-platform").value = w.platform;
         document.getElementById("wh-url").value = w.url;
-        document.getElementById("wh-event-filter-group").innerHTML =
-            _renderEventFilterCheckboxes(w.event_filter);
-        document.getElementById("wh-idle-threshold").value = w.idle_threshold_seconds;
         document.getElementById("wh-agent-filter").value = w.agent_filter || "";
-        document.getElementById("wh-low-confidence-only").checked =
-            !!w.low_confidence_only;
         document.getElementById("wh-enabled").checked = !!w.enabled;
     } catch (e) {
         showToast("Failed to load webhook", true);
@@ -150,13 +110,8 @@ export async function saveWebhook() {
         name:    document.getElementById("wh-name").value.trim(),
         platform: document.getElementById("wh-platform").value,
         url:     document.getElementById("wh-url").value.trim(),
-        event_filter: _getSelectedEventFilter(),
-        idle_threshold_seconds:
-            parseInt(document.getElementById("wh-idle-threshold").value || "0"),
         agent_filter:
             document.getElementById("wh-agent-filter").value.trim() || null,
-        low_confidence_only:
-            document.getElementById("wh-low-confidence-only").checked ? 1 : 0,
         enabled: document.getElementById("wh-enabled").checked ? 1 : 0,
     };
     if (!payload.name || !payload.url) {

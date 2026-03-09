@@ -334,13 +334,10 @@ class CorralStore(DatabaseManager):
         return await self._webhooks.get_webhook_config(webhook_id)
 
     async def create_webhook_config(self, name: str, platform: str, url: str,
-                                     event_filter: str = "*", idle_threshold_seconds: int = 0,
-                                     agent_filter: str | None = None,
-                                     low_confidence_only: bool = False) -> dict[str, Any]:
+                                     agent_filter: str | None = None) -> dict[str, Any]:
         await self._get_conn()
         return await self._webhooks.create_webhook_config(
-            name, platform, url, event_filter, idle_threshold_seconds,
-            agent_filter, low_confidence_only)
+            name, platform, url, agent_filter)
 
     async def update_webhook_config(self, webhook_id: int, **fields) -> None:
         await self._get_conn()
@@ -371,15 +368,6 @@ class CorralStore(DatabaseManager):
     async def list_webhook_deliveries(self, webhook_id: int, limit: int = 50) -> list[dict[str, Any]]:
         await self._get_conn()
         return await self._webhooks.list_webhook_deliveries(webhook_id, limit)
-
-    async def get_last_event_times_by_agent(self) -> dict[str, str]:
-        await self._get_conn()
-        return await self._webhooks.get_last_event_times_by_agent()
-
-    async def idle_notification_exists(self, webhook_id: int, agent_name: str,
-                                        threshold_seconds: int) -> bool:
-        await self._get_conn()
-        return await self._webhooks.idle_notification_exists(webhook_id, agent_name, threshold_seconds)
 
     async def increment_consecutive_failures(self, webhook_id: int) -> int:
         await self._get_conn()

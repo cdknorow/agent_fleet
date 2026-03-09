@@ -61,10 +61,7 @@ async def create_webhook(body: dict):
         name=name,
         platform=platform,
         url=url,
-        event_filter=body.get("event_filter", "*"),
-        idle_threshold_seconds=int(body.get("idle_threshold_seconds", 0)),
         agent_filter=body.get("agent_filter") or None,
-        low_confidence_only=bool(body.get("low_confidence_only", False)),
     )
 
 
@@ -96,7 +93,7 @@ async def test_webhook(webhook_id: int):
         webhook_id=webhook_id,
         agent_name="corral-test",
         session_id=None,
-        event_type="status",
+        event_type="needs_input",
         event_summary="Test notification from Corral dashboard",
     )
     dispatcher = getattr(_app.state, "webhook_dispatcher", None) if _app else None
