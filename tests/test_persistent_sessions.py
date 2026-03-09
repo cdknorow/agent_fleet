@@ -1,0 +1,254 @@
+"""Tests for persistent live sessions (resume on restart)."""
+
+import os
+import pytest
+import pytest_asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
+
+from corral.session_store import SessionStore
+
+
+@pytest_asyncio.fixture
+async def store(tmp_path):
+    """Create a SessionStore backed by a temp DB and close it after the test."""
+    s = SessionStore(db_path=tmp_path / "test.db")
+    yield s
+    await s.close()
+
+
+# ── SessionStore: live_sessions table ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_live_sessions_table_exists(store):
+    """The live_sessions table should be created by schema init."""
+    conn = await store._get_conn()
+    rows = await (await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='live_sessions'"
+    )).fetchall()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_register_and_get_live_session(store):
+    """Registering a session should make it appear in get_all_live_sessions."""
+    await store.register_live_session(
+        "sid-1", "claude", "worktree_1", "/tmp/worktree_1", "My Agent",
+    )
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 1
+    s = sessions[0]
+    assert s["session_id"] == "sid-1"
+    assert s["agent_type"] == "claude"
+    assert s["agent_name"] == "worktree_1"
+    assert s["working_dir"] == "/tmp/worktree_1"
+    assert s["display_name"] == "My Agent"
+    assert s["created_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_register_multiple_sessions(store):
+    """Multiple sessions can be registered and retrieved."""
+    await store.register_live_session("sid-1", "claude", "wt1", "/tmp/wt1")
+    await store.register_live_session("sid-2", "gemini", "wt2", "/tmp/wt2")
+    await store.register_live_session("sid-3", "claude", "wt3", "/tmp/wt3")
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 3
+    ids = {s["session_id"] for s in sessions}
+    assert ids == {"sid-1", "sid-2", "sid-3"}
+
+
+@pytest.mark.asyncio
+async def test_unregister_live_session(store):
+    """Unregistering a session should remove it from the table."""
+    await store.register_live_session("sid-1", "claude", "wt1", "/tmp/wt1")
+    await store.register_live_session("sid-2", "claude", "wt2", "/tmp/wt2")
+
+    await store.unregister_live_session("sid-1")
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == "sid-2"
+
+
+@pytest.mark.asyncio
+async def test_unregister_nonexistent_session(store):
+    """Unregistering a session that doesn't exist should not raise."""
+    await store.unregister_live_session("nonexistent")  # should not raise
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 0
+
+
+@pytest.mark.asyncio
+async def test_replace_live_session(store):
+    """Replacing a session should remove old and insert new atomically."""
+    await store.register_live_session("old-sid", "claude", "wt1", "/tmp/wt1", "My Agent")
+
+    await store.replace_live_session(
+        "old-sid", "new-sid", "claude", "wt1", "/tmp/wt1", "My Agent",
+    )
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == "new-sid"
+    assert sessions[0]["display_name"] == "My Agent"
+
+
+@pytest.mark.asyncio
+async def test_replace_preserves_other_sessions(store):
+    """Replacing one session should not affect others."""
+    await store.register_live_session("sid-1", "claude", "wt1", "/tmp/wt1")
+    await store.register_live_session("sid-2", "claude", "wt2", "/tmp/wt2")
+
+    await store.replace_live_session("sid-1", "sid-3", "claude", "wt1", "/tmp/wt1")
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 2
+    ids = {s["session_id"] for s in sessions}
+    assert ids == {"sid-2", "sid-3"}
+
+
+@pytest.mark.asyncio
+async def test_register_overwrites_on_duplicate(store):
+    """Registering with the same session_id should overwrite (INSERT OR REPLACE)."""
+    await store.register_live_session("sid-1", "claude", "wt1", "/tmp/wt1", "First")
+    await store.register_live_session("sid-1", "claude", "wt1", "/tmp/wt1", "Second")
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["display_name"] == "Second"
+
+
+@pytest.mark.asyncio
+async def test_get_all_returns_empty_initially(store):
+    """An empty table should return an empty list."""
+    sessions = await store.get_all_live_sessions()
+    assert sessions == []
+
+
+# ── Resume logic (_resume_persistent_sessions) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resume_skips_already_running(store, tmp_path):
+    """Sessions that already have a matching tmux session should not be relaunched."""
+    await store.register_live_session("sid-1", "claude", "wt1", str(tmp_path))
+
+    mock_agents = [{"session_id": "sid-1", "agent_type": "claude", "agent_name": "wt1", "working_directory": str(tmp_path)}]
+
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock(return_value=mock_agents)), \
+         patch("corral.session_manager.launch_claude_session", AsyncMock()) as mock_launch:
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    mock_launch.assert_not_called()
+    # Session should still be registered
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_relaunches_missing_session(store, tmp_path):
+    """Sessions not in tmux should be relaunched and old record cleaned up."""
+    work_dir = str(tmp_path)
+    await store.register_live_session("old-sid", "claude", "wt1", work_dir, "My Agent")
+
+    launch_result = {
+        "session_name": "claude-new-sid",
+        "session_id": "new-sid",
+        "log_file": "/tmp/claude_corral_new-sid.log",
+        "working_dir": work_dir,
+        "agent_type": "claude",
+    }
+
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock(return_value=[])), \
+         patch("corral.session_manager.launch_claude_session", AsyncMock(return_value=launch_result)) as mock_launch:
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    mock_launch.assert_called_once_with(work_dir, "claude", display_name="My Agent")
+    # Old session should be cleaned up (new one registered by launch_claude_session)
+    sessions = await store.get_all_live_sessions()
+    old_ids = {s["session_id"] for s in sessions}
+    assert "old-sid" not in old_ids
+
+
+@pytest.mark.asyncio
+async def test_resume_removes_stale_missing_dir(store, tmp_path):
+    """Sessions whose working directory no longer exists should be removed."""
+    missing_dir = str(tmp_path / "gone")  # does not exist
+    await store.register_live_session("sid-1", "claude", "wt1", missing_dir)
+
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock(return_value=[])), \
+         patch("corral.session_manager.launch_claude_session", AsyncMock()) as mock_launch:
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    mock_launch.assert_not_called()
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 0
+
+
+@pytest.mark.asyncio
+async def test_resume_handles_launch_failure(store, tmp_path):
+    """If relaunching fails, the old session record should be cleaned up."""
+    work_dir = str(tmp_path)
+    await store.register_live_session("sid-1", "claude", "wt1", work_dir)
+
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock(return_value=[])), \
+         patch("corral.session_manager.launch_claude_session", AsyncMock(return_value={"error": "tmux not found"})):
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    sessions = await store.get_all_live_sessions()
+    assert len(sessions) == 0
+
+
+@pytest.mark.asyncio
+async def test_resume_multiple_sessions(store, tmp_path):
+    """Multiple missing sessions should all be relaunched."""
+    dir1 = tmp_path / "wt1"
+    dir2 = tmp_path / "wt2"
+    dir1.mkdir()
+    dir2.mkdir()
+
+    await store.register_live_session("sid-1", "claude", "wt1", str(dir1))
+    await store.register_live_session("sid-2", "gemini", "wt2", str(dir2))
+
+    call_count = 0
+
+    async def mock_launch(working_dir, agent_type, display_name=None):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "session_name": f"{agent_type}-new-{call_count}",
+            "session_id": f"new-{call_count}",
+            "log_file": f"/tmp/{agent_type}_corral_new-{call_count}.log",
+            "working_dir": working_dir,
+            "agent_type": agent_type,
+        }
+
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock(return_value=[])), \
+         patch("corral.session_manager.launch_claude_session", AsyncMock(side_effect=mock_launch)):
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resume_no_registered_sessions(store):
+    """With no registered sessions, resume should be a no-op."""
+    with patch("corral.web_server.store", store), \
+         patch("corral.session_manager.discover_corral_agents", AsyncMock()) as mock_discover:
+        from corral.web_server import _resume_persistent_sessions
+        await _resume_persistent_sessions()
+
+    # discover_corral_agents should not even be called when table is empty
+    mock_discover.assert_not_called()
