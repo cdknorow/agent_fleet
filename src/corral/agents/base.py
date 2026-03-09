@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+@dataclass
+class ExtractedSession:
+    """Data extracted from a history file for a single session.
+
+    Returned by ``BaseAgent.extract_sessions`` and consumed by the
+    ``SessionIndexer`` to insert into the store.
+    """
+
+    session_id: str
+    source_type: str
+    first_timestamp: str | None = None
+    last_timestamp: str | None = None
+    message_count: int = 0
+    display_summary: str = "(no messages)"
+    fts_body: str = ""
 
 
 class BaseAgent(ABC):
@@ -15,6 +34,7 @@ class BaseAgent(ABC):
     - Loading / indexing history files
     - Installing hooks
     - Preparing for session resume
+    - Processing hook payloads (tool summaries, task sync, events)
     """
 
     @property
@@ -61,11 +81,82 @@ class BaseAgent(ABC):
         """Load all messages for a specific historical session."""
 
     @abstractmethod
-    async def index_file(self, path: Path, mtime: float, store: Any) -> int:
-        """Index a single history file into the store. Returns session count."""
+    def extract_sessions(self, path: Path) -> list[ExtractedSession]:
+        """Extract session data from a history file.
+
+        Returns a list of ``ExtractedSession`` objects — one per session found
+        in the file. The caller (``SessionIndexer``) is responsible for
+        inserting them into the store.
+        """
 
     def install_hooks(self, working_dir: str) -> None:
         """Install agent-specific hooks into a working directory. Default: no-op."""
 
     def prepare_resume(self, session_id: str, working_dir: str) -> None:
         """Prepare for resuming a session (e.g. copy files). Default: no-op."""
+
+    # ── Hook Processing Interface ─────────────────────────────────────────
+
+    def resolve_agent_name(self, hook_data: dict) -> str:
+        """Extract the agent/worktree name from hook payload data.
+
+        Default implementation uses the basename of the cwd field.
+        """
+        cwd = hook_data.get("cwd", "")
+        return os.path.basename(cwd.rstrip("/"))
+
+    def parse_agentic_event(self, hook_data: dict) -> dict | None:
+        """Parse a hook payload into an agentic event dict for the dashboard.
+
+        Returns a dict with keys: event_type, summary, tool_name, detail_json, session_id.
+        Returns None if the payload doesn't represent a recognized event.
+
+        Subclasses override this to handle agent-specific hook formats.
+        """
+        return None
+
+    def parse_task_event(self, hook_data: dict) -> dict | None:
+        """Parse a hook payload into a task sync event dict.
+
+        Returns a dict with keys: action ("create"|"update"), subject, task_id, status,
+        session_id.
+        Returns None if the payload doesn't represent a task event.
+
+        Subclasses override this to handle agent-specific task formats.
+        """
+        return None
+
+    def parse_task_response(self, resp) -> dict:
+        """Parse a tool response to extract task id and subject.
+
+        Returns a dict with keys: task_id, subject.
+        Default returns empty strings.
+        """
+        return {"task_id": "", "subject": ""}
+
+    # ── Transcript Parsing Interface ──────────────────────────────────────
+
+    def resolve_transcript_path(self, session_id: str, working_directory: str = "") -> Path | None:
+        """Find the transcript file for a session.
+
+        *working_directory* is an optional hint for fast lookup.
+        Returns the Path to the transcript file, or None if not found.
+        """
+        return None
+
+    def parse_transcript_entry(
+        self, entry: dict[str, Any], tool_use_names: dict[str, str]
+    ) -> list[dict[str, Any]] | dict[str, Any] | None:
+        """Convert a raw transcript entry into normalized frontend message(s).
+
+        *tool_use_names* maps tool_use_id → tool_name for labeling results.
+        The method should also populate this dict when it encounters tool_use blocks.
+
+        Return format (each message dict must include a "type" key):
+        - ``{"type": "user", "timestamp": str, "content": str}``
+        - ``{"type": "assistant", "timestamp": str, "text": str, "tool_uses": list}``
+        - ``{"type": "tool_result", "timestamp": str, "content": str, ...}``
+        - A list of the above (for entries that expand to multiple messages)
+        - None to skip the entry
+        """
+        return None

@@ -13,7 +13,7 @@ Usage::
 
 from __future__ import annotations
 
-from corral.agents.base import BaseAgent
+from corral.agents.base import BaseAgent, ExtractedSession
 from corral.agents.claude import ClaudeAgent
 from corral.agents.gemini import GeminiAgent
 
@@ -46,4 +46,4 @@ def register_agent(agent: BaseAgent) -> None:
     _REGISTRY[agent.agent_type] = agent
 
 
-__all__ = ["BaseAgent", "ClaudeAgent", "GeminiAgent", "get_agent", "get_all_agents", "register_agent"]
+__all__ = ["BaseAgent", "ExtractedSession", "ClaudeAgent", "GeminiAgent", "get_agent", "get_all_agents", "register_agent"]

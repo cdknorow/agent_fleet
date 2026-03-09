@@ -40,8 +40,22 @@ class SessionIndexer:
                 if known_mtimes.get(str(history_file), 0.0) >= mtime:
                     skipped += 1
                     continue
-                count = await agent.index_file(history_file, mtime, self._store)
-                indexed += count
+                sessions = agent.extract_sessions(history_file)
+                for s in sessions:
+                    await self._store.upsert_session_index(
+                        session_id=s.session_id,
+                        source_type=s.source_type,
+                        source_file=str(history_file),
+                        first_timestamp=s.first_timestamp,
+                        last_timestamp=s.last_timestamp,
+                        message_count=s.message_count,
+                        display_summary=s.display_summary,
+                        file_mtime=mtime,
+                    )
+                    if s.fts_body:
+                        await self._store.upsert_fts(s.session_id, s.fts_body)
+                    await self._store.enqueue_for_summarization(s.session_id)
+                indexed += len(sessions)
                 await asyncio.sleep(0)  # yield to event loop between files
 
         return {"indexed": indexed, "skipped": skipped}

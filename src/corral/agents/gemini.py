@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from corral.agents.base import BaseAgent
+from corral.agents.base import BaseAgent, ExtractedSession
 from corral.utils import GEMINI_HISTORY_BASE
 
 SUMMARY_RE = re.compile(r"^[\s\u25cf\u23fa]*\|\|PULSE:SUMMARY (.*?)\|\|", re.MULTILINE)
@@ -144,18 +144,18 @@ class GeminiAgent(BaseAgent):
 
         return []
 
-    async def index_file(self, path: Path, mtime: float, store: Any) -> int:
-        """Parse a Gemini session JSON file and upsert. Returns 0 or 1."""
+    def extract_sessions(self, path: Path) -> list[ExtractedSession]:
+        """Parse a Gemini session JSON file and return extracted session data."""
         from corral.session_manager import SUMMARY_RE as SM_SUMMARY_RE, clean_match
 
         try:
             data = json.loads(path.read_text(errors="replace"))
         except (OSError, json.JSONDecodeError):
-            return 0
+            return []
 
         sid = data.get("sessionId")
         if not sid:
-            return 0
+            return []
 
         messages = data.get("messages", [])
         first_ts = data.get("startTime")
@@ -183,17 +183,13 @@ class GeminiAgent(BaseAgent):
                 first_user = text[:100]
 
         summary = summary_marker or first_user or "(no messages)"
-        await store.upsert_session_index(
+        body = "\n".join(texts)[:FTS_BODY_CAP]
+        return [ExtractedSession(
             session_id=sid,
             source_type="gemini",
-            source_file=str(path),
             first_timestamp=first_ts,
             last_timestamp=last_ts,
             message_count=len(messages),
             display_summary=summary,
-            file_mtime=mtime,
-        )
-        body = "\n".join(texts)[:FTS_BODY_CAP]
-        await store.upsert_fts(sid, body)
-        await store.enqueue_for_summarization(sid)
-        return 1
+            fts_body=body,
+        )]

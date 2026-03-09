@@ -189,6 +189,10 @@ class CorralStore(DatabaseManager):
             old_session_id, new_session_id, agent_type, agent_name, working_dir,
             display_name, resume_from_id, flags)
 
+    async def get_agent_type_for_session(self, session_id: str) -> str:
+        await self._get_conn()
+        return await self._sessions.get_agent_type_for_session(session_id)
+
     async def get_all_live_sessions(self) -> list[dict[str, Any]]:
         await self._get_conn()
         return await self._sessions.get_all_live_sessions()

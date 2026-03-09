@@ -470,6 +470,14 @@ class SessionStore(DatabaseManager):
         )
         await conn.commit()
 
+    async def get_agent_type_for_session(self, session_id: str) -> str:
+        """Look up the agent_type for a live session. Returns 'claude' as default."""
+        conn = await self._get_conn()
+        row = await (await conn.execute(
+            "SELECT agent_type FROM live_sessions WHERE session_id = ?", (session_id,)
+        )).fetchone()
+        return row["agent_type"] if row else "claude"
+
     async def get_all_live_sessions(self) -> list[dict[str, Any]]:
         import json as _json
         conn = await self._get_conn()

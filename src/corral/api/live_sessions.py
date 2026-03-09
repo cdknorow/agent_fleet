@@ -24,7 +24,7 @@ from corral.session_manager import (
 )
 from corral.agents import get_agent
 from corral.log_streamer import get_log_snapshot
-from corral.task_detector import scan_log_for_pulse_events
+from corral.pulse_detector import scan_log_for_pulse_events
 
 if TYPE_CHECKING:
     from corral.store import CorralStore
@@ -141,8 +141,9 @@ async def get_live_chat(
     """Get chat messages from the JSONL transcript for a live session."""
     if not session_id:
         return {"messages": [], "total": 0}
+    agent_type = await store.get_agent_type_for_session(session_id)
     new_msgs, total = await asyncio.to_thread(
-        jsonl_reader.read_new_messages, session_id, working_directory or ""
+        jsonl_reader.read_new_messages, session_id, working_directory or "", agent_type
     )
     return {"messages": jsonl_reader._cache[session_id].messages[after:], "total": total}
 

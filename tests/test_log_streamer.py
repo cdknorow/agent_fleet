@@ -58,8 +58,8 @@ def test_pulse_regex_with_spinner_prefix():
 
 
 def test_pulse_event_regex_with_spinner_prefix():
-    """PULSE_EVENT_RE in task_detector must match spinner-prefixed lines."""
-    from corral.task_detector import PULSE_EVENT_RE
+    """PULSE_EVENT_RE in pulse_detector must match spinner-prefixed lines."""
+    from corral.pulse_detector import PULSE_EVENT_RE
 
     # Bare
     m = PULSE_EVENT_RE.search("||PULSE:CONFIDENCE Low Unfamiliar with library||")

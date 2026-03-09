@@ -6,7 +6,13 @@ from httpx import ASGITransport, AsyncClient
 
 from corral.web_server import app
 from corral.store import CorralStore as SessionStore
-from corral.hook_agentic_state import _make_summary, _make_detail_json, _truncate
+from corral.agents.claude import ClaudeAgent
+from corral.hooks.utils import truncate
+
+# Use static methods from ClaudeAgent for summary/detail generation
+_make_summary = ClaudeAgent.make_tool_summary
+_make_detail_json = ClaudeAgent.make_tool_detail
+_truncate = truncate
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────

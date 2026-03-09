@@ -19,7 +19,7 @@ from corral.session_manager import (
     clean_match,
 )
 from corral.log_streamer import get_log_snapshot
-from corral.task_detector import PULSE_EVENT_RE
+from corral.pulse_detector import PULSE_EVENT_RE
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ class TestRegexAfterRejoin:
 
 
 # ---------------------------------------------------------------------------
-# PULSE_EVENT_RE (task_detector) multiline matching
+# PULSE_EVENT_RE (pulse_detector) multiline matching
 # ---------------------------------------------------------------------------
 
 class TestPulseEventRegexMultiline:

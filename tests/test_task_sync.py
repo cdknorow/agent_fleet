@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from corral.agents.claude import ClaudeAgent
 from corral.web_server import app, store as _default_store
 from corral.store import CorralStore as SessionStore
 
@@ -338,40 +339,32 @@ async def test_full_lifecycle_pending_inprogress_completed(client, tmp_store):
 
 
 class TestParseResponse:
-    """Test _parse_response with various tool_response formats."""
+    """Test parse_task_response with various tool_response formats."""
+
+    _parse_response = ClaudeAgent().parse_task_response
 
     def test_structured_dict(self):
-        from corral.hook_task_sync import _parse_response
-
         resp = {"task": {"id": "10", "subject": "Fix bug"}}
-        parsed = _parse_response(resp)
+        parsed = self._parse_response(resp)
         assert parsed["task_id"] == "10"
         assert parsed["subject"] == "Fix bug"
 
     def test_string_with_task_number(self):
-        from corral.hook_task_sync import _parse_response
-
-        parsed = _parse_response("Task #7 created successfully: Do stuff")
+        parsed = self._parse_response("Task #7 created successfully: Do stuff")
         assert parsed["task_id"] == "7"
         assert parsed["subject"] == ""
 
     def test_flat_dict_with_taskId(self):
-        from corral.hook_task_sync import _parse_response
-
         resp = {"success": True, "taskId": "15", "updatedFields": ["status"]}
-        parsed = _parse_response(resp)
+        parsed = self._parse_response(resp)
         assert parsed["task_id"] == "15"
 
     def test_empty_string(self):
-        from corral.hook_task_sync import _parse_response
-
-        parsed = _parse_response("")
+        parsed = self._parse_response("")
         assert parsed["task_id"] == ""
         assert parsed["subject"] == ""
 
     def test_empty_dict(self):
-        from corral.hook_task_sync import _parse_response
-
-        parsed = _parse_response({})
+        parsed = self._parse_response({})
         assert parsed["task_id"] == ""
         assert parsed["subject"] == ""
