@@ -271,17 +271,79 @@ body {
 }
 
 .session-dot.active { background: var(--success); }
-.session-dot.recent { background: var(--warning); }
 .session-dot.stale { background: var(--text-muted); }
+.session-dot.working {
+    background: #3b82f6;
+    animation: pulse-working 1.5s ease-in-out infinite;
+}
 .session-dot.waiting {
     background: var(--warning);
     animation: pulse-waiting 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-working {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
 }
 
 @keyframes pulse-waiting {
     0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.5); }
     50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(255, 193, 7, 0); }
 }
+
+/* Session hover tooltip */
+.session-group-item {
+    position: relative;
+}
+
+.session-tooltip {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: 0;
+    margin-left: 8px;
+    z-index: 100;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 10px 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    white-space: nowrap;
+    min-width: 220px;
+}
+
+.session-group-item:hover .session-tooltip {
+    display: block;
+}
+
+.session-tooltip-table {
+    border-collapse: collapse;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.session-tooltip-table td {
+    padding: 1px 0;
+}
+
+.tt-label {
+    color: var(--text-muted);
+    padding-right: 12px;
+    font-weight: 500;
+}
+
+.tt-value {
+    color: var(--text-primary);
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tt-state-working { color: #3b82f6; font-weight: 600; }
+.tt-state-waiting-for-input { color: var(--warning); font-weight: 600; }
+.tt-state-active { color: var(--success); font-weight: 600; }
+.tt-state-idle { color: var(--text-muted); }
 
 .session-time {
     font-size: 11px;
@@ -522,6 +584,11 @@ body {
     border-radius: 50%;
     margin-right: 6px;
     background: var(--success);
+}
+
+.status-dot.working {
+    background: #3b82f6;
+    animation: pulse-working 1.5s ease-in-out infinite;
 }
 
 .status-dot.waiting {
