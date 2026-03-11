@@ -1,6 +1,7 @@
 /* xterm.js terminal renderer — streams raw ANSI output via WebSocket */
 
 import { state } from './state.js';
+import { sendRawKeys } from './controls.js';
 
 let terminal = null;
 let fitAddon = null;
@@ -91,6 +92,27 @@ export function createTerminal(containerEl) {
         if (!hasSelection) {
             _flushPending();
         }
+    });
+
+    // Forward special keys to the live tmux session when xterm has focus.
+    // disableStdin prevents xterm from processing input, but it still
+    // captures keyboard events — use attachCustomKeyEventHandler to
+    // intercept and relay them.
+    const _xtermKeyMap = {
+        "Escape": ["Escape"],
+        "ArrowUp": ["Up"],
+        "ArrowDown": ["Down"],
+        "Enter": ["Enter"],
+    };
+    terminal.attachCustomKeyEventHandler((ev) => {
+        if (ev.type !== "keydown") return true;
+        const keys = _xtermKeyMap[ev.key];
+        if (keys && state.currentSession && state.currentSession.type === "live") {
+            ev.preventDefault();
+            sendRawKeys(keys);
+            return false;  // prevent xterm from handling it
+        }
+        return true;
     });
 
     terminal.open(containerEl);
