@@ -10,6 +10,8 @@ Stop losing track of what your AI coding agents are doing. As you scale your wor
 
 Corral is an MIT-licensed multi-agent orchestration application built with tmux, FastAPI, and vanilla HTML5/JS for easy extensibility and modification. We welcome feedback and contributions.
 
+**[Read the full documentation →](https://cdknorow.github.io/corral/)**
+
 
 ![main_loop](https://github.com/user-attachments/assets/6af60c92-1d72-45bd-9b46-7f1eab2ce5fe)
 
