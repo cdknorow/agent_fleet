@@ -57,6 +57,7 @@
                     <div class="agentic-state" id="agentic-state">
                         <div class="agentic-state-tabs">
                             <button class="agentic-tab active" onclick="switchAgenticTab('activity')" id="agentic-tab-activity">Activity</button>
+                            <button class="agentic-tab" onclick="switchAgenticTab('files')" id="agentic-tab-files">Files <span id="files-bar-count" class="task-bar-count"></span></button>
                             <button class="agentic-tab" onclick="switchAgenticTab('tasks')" id="agentic-tab-tasks">Tasks <span id="task-bar-count" class="task-bar-count"></span></button>
                             <button class="agentic-tab" onclick="switchAgenticTab('notes')" id="agentic-tab-notes">Notes <span id="note-bar-count" class="task-bar-count"></span></button>
                             <button class="agentic-tab" onclick="switchAgenticTab('history')" id="agentic-tab-history">History</button>
@@ -70,6 +71,15 @@
                                 </div>
                             </div>
                             <div id="live-activity-chart" class="activity-chart activity-chart-bottom"></div>
+                        </div>
+                        <!-- Files tab -->
+                        <div id="agentic-panel-files" class="agentic-panel">
+                            <div class="changed-files-header" id="changed-files-header">
+                                <span class="changed-files-title" id="changed-files-title">0 files changed</span>
+                            </div>
+                            <div class="changed-files-list" id="changed-files-list">
+                                <div class="file-empty">No changed files</div>
+                            </div>
                         </div>
                         <!-- Tasks tab -->
                         <div id="agentic-panel-tasks" class="agentic-panel">

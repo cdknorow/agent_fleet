@@ -3226,6 +3226,134 @@ body {
     flex-shrink: 0;
 }
 
+/* ── Changed Files Panel ────────────────────────────────────────── */
+
+.changed-files-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.changed-files-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.changed-files-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.file-empty {
+    text-align: center;
+    padding: 20px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid transparent;
+    transition: background 0.1s;
+    cursor: pointer;
+}
+
+.file-item:hover {
+    background: var(--bg-hover);
+}
+
+.file-status-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.file-modified .file-status-icon {
+    color: var(--warning);
+    background: rgba(210, 153, 34, 0.12);
+}
+
+.file-added .file-status-icon {
+    color: var(--success);
+    background: rgba(63, 185, 80, 0.12);
+}
+
+.file-deleted .file-status-icon {
+    color: var(--error);
+    background: rgba(248, 81, 73, 0.12);
+}
+
+.file-renamed .file-status-icon {
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.12);
+}
+
+.file-path-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.file-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-dir {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-stats {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.file-adds {
+    color: var(--success);
+    background: rgba(63, 185, 80, 0.12);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.file-dels {
+    color: var(--error);
+    background: rgba(248, 81, 73, 0.12);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
 /* ── Notes Panel (Markdown) ──────────────────────────────────────── */
 
 .note-md-rendered {

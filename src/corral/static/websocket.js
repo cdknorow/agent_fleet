@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { renderLiveSessions, updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator } from './render.js';
 import { renderLiveJobs } from './live_jobs.js';
+import { updateChangedFileCount } from './changed_files.js';
 
 export function connectCorralWs() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -57,6 +58,7 @@ export function connectCorralWs() {
                     updateSessionSummary(s.summary);
                     updateSessionBranch(s.branch);
                     updateWaitingIndicator(s.waiting_for_input, s.working, s.waiting_reason);
+                    updateChangedFileCount(s.changed_file_count || 0);
                 }
             }
         }

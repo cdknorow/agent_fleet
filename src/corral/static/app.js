@@ -17,6 +17,7 @@ import { loadSessionNotes, saveNotes, resummarize, toggleNotesEdit, cancelNotesE
 import { loadSessionTags, addTagToSession, removeTagFromSession, showTagDropdown, hideTagDropdown, createTag, loadAllTags } from './tags.js';
 import { loadSessionCommits } from './commits.js';
 import { loadAgentTasks, addAgentTask, toggleAgentTask, deleteAgentTask, editAgentTaskTitle } from './tasks.js';
+import { loadChangedFiles, openFileDiff } from './changed_files.js';
 import { loadAgentNotes, initNotesMd } from './agent_notes.js';
 import { switchAgenticTab, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
@@ -79,6 +80,8 @@ window.showTagDropdown = showTagDropdown;
 window.hideTagDropdown = hideTagDropdown;
 window.createTag = createTag;
 window.loadHistoryPage = loadHistoryPage;
+window.loadChangedFiles = loadChangedFiles;
+window.openFileDiff = openFileDiff;
 window.loadAgentTasks = loadAgentTasks;
 window.addAgentTask = addAgentTask;
 window.toggleAgentTask = toggleAgentTask;

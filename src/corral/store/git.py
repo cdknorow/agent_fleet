@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -154,3 +155,75 @@ class GitStore(DatabaseManager):
             (row["first_timestamp"], row["last_timestamp"], limit),
         )).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Changed Files ─────────────────────────────────────────────────────
+
+    async def replace_changed_files(
+        self,
+        agent_name: str,
+        working_directory: str,
+        files: list[dict[str, Any]],
+        session_id: str | None = None,
+    ) -> None:
+        """Replace all changed-file records for an agent with a fresh snapshot."""
+        now = datetime.now(timezone.utc).isoformat()
+        conn = await self._get_conn()
+
+        # Delete old records for this agent
+        if session_id:
+            await conn.execute(
+                "DELETE FROM git_changed_files WHERE session_id = ?",
+                (session_id,),
+            )
+        else:
+            await conn.execute(
+                "DELETE FROM git_changed_files WHERE agent_name = ? AND session_id IS NULL",
+                (agent_name,),
+            )
+
+        # Insert fresh records
+        for f in files:
+            await conn.execute(
+                """INSERT INTO git_changed_files
+                   (agent_name, session_id, working_directory, filepath,
+                    additions, deletions, status, recorded_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (agent_name, session_id, working_directory,
+                 f["filepath"], f.get("additions", 0), f.get("deletions", 0),
+                 f.get("status", "M"), now),
+            )
+        await conn.commit()
+
+    async def get_changed_files(
+        self, agent_name: str, session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return current changed files for an agent/session."""
+        conn = await self._get_conn()
+        if session_id:
+            rows = await (await conn.execute(
+                """SELECT filepath, additions, deletions, status, recorded_at
+                   FROM git_changed_files
+                   WHERE session_id = ?
+                   ORDER BY filepath""",
+                (session_id,),
+            )).fetchall()
+        else:
+            rows = await (await conn.execute(
+                """SELECT filepath, additions, deletions, status, recorded_at
+                   FROM git_changed_files
+                   WHERE agent_name = ? AND session_id IS NULL
+                   ORDER BY filepath""",
+                (agent_name,),
+            )).fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_all_changed_file_counts(self) -> dict[str, int]:
+        """Return {session_id_or_agent_name: file_count} for all agents."""
+        conn = await self._get_conn()
+        rows = await (await conn.execute(
+            """SELECT COALESCE(session_id, agent_name) AS key,
+                      COUNT(*) AS cnt
+               FROM git_changed_files
+               GROUP BY key"""
+        )).fetchall()
+        return {r["key"]: r["cnt"] for r in rows}

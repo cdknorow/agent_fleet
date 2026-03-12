@@ -234,6 +234,25 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending
                 ON webhook_deliveries(status, next_retry_at)
                 WHERE status = 'pending';
+
+            -- Per-file change tracking (working tree diff stats)
+            CREATE TABLE IF NOT EXISTS git_changed_files (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name        TEXT NOT NULL,
+                session_id        TEXT,
+                working_directory TEXT NOT NULL,
+                filepath          TEXT NOT NULL,
+                additions         INTEGER NOT NULL DEFAULT 0,
+                deletions         INTEGER NOT NULL DEFAULT 0,
+                status            TEXT NOT NULL DEFAULT 'M',
+                recorded_at       TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_git_changed_files_session
+                ON git_changed_files(session_id);
+
+            CREATE INDEX IF NOT EXISTS idx_git_changed_files_agent
+                ON git_changed_files(agent_name);
         """)
 
         # Migrations: add columns that may not exist in older schemas

@@ -25,6 +25,7 @@ from corral.tools.tmux_manager import (
     kill_session,
     open_terminal_attached,
     resize_pane,
+    _find_pane,
 )
 from corral.agents import get_agent
 from corral.tools.log_streamer import get_log_snapshot
@@ -85,6 +86,7 @@ async def get_live_sessions():
     """List active corral agents with their current status."""
     agents = await discover_corral_agents()
     git_state = await store.get_all_latest_git_state()
+    file_counts = await store.get_all_changed_file_counts()
     session_ids = [a["session_id"] for a in agents if a.get("session_id")]
     display_names = await store.get_display_names(session_ids)
     latest_events = await store.get_latest_event_types(session_ids)
@@ -97,6 +99,9 @@ async def get_live_sessions():
         git = git_state.get(sid) if sid else None
         if not git:
             git = git_state.get(name)
+        fc = file_counts.get(sid) if sid else None
+        if fc is None:
+            fc = file_counts.get(name, 0)
         latest_ev = latest_events.get(sid) if sid else None
         waiting = latest_ev in ("stop", "notification")
         working = latest_ev == "tool_use" and (log_info["staleness_seconds"] or 999) < 120
@@ -116,6 +121,7 @@ async def get_live_sessions():
             "waiting_for_input": waiting,
             "waiting_reason": latest_ev if waiting else None,
             "working": working,
+            "changed_file_count": fc,
         }
         results.append(entry)
         await _track_status_summary_events(name, log_info["status"], log_info["summary"], session_id=sid)
@@ -196,6 +202,75 @@ async def get_live_session_info(name: str, agent_type: str | None = None, sessio
         info["git_commit_hash"] = git["commit_hash"]
         info["git_commit_subject"] = git["commit_subject"]
     return info
+
+
+@router.get("/api/sessions/live/{name}/files")
+async def get_live_session_files(name: str, session_id: str | None = None):
+    """Return changed files (working tree diff) for a live agent."""
+    files = await store.get_changed_files(name, session_id=session_id)
+    return {"agent_name": name, "files": files}
+
+
+@router.get("/api/sessions/live/{name}/diff")
+async def get_file_diff(name: str, filepath: str = Query(...), session_id: str | None = None):
+    """Return the unified diff for a single file in the agent's working tree."""
+    from corral.tools.utils import run_cmd
+
+    # Resolve working directory from tmux pane or git snapshot
+    workdir = None
+    pane = await _find_pane(name, None, session_id=session_id)
+    if pane:
+        workdir = pane.get("current_path")
+    if not workdir:
+        git = None
+        if session_id:
+            git = await store.get_latest_git_state_by_session(session_id)
+        if not git:
+            git = await store.get_latest_git_state(name)
+        if git:
+            workdir = git.get("working_directory")
+    if not workdir:
+        return {"error": "Could not determine working directory"}
+
+    # Get combined diff (staged + unstaged) for this file
+    # First try unstaged changes
+    rc, unstaged, _ = await run_cmd(
+        "git", "-C", workdir, "diff", "--", filepath, timeout=10.0,
+    )
+    # Then staged changes
+    rc2, staged, _ = await run_cmd(
+        "git", "-C", workdir, "diff", "--cached", "--", filepath, timeout=10.0,
+    )
+
+    diff_text = ""
+    if staged:
+        diff_text += staged
+    if unstaged:
+        if diff_text:
+            diff_text += "\n"
+        diff_text += unstaged
+
+    # For untracked files, show the file content as a "new file" diff
+    if not diff_text:
+        import os
+        full_path = os.path.join(workdir, filepath)
+        if os.path.isfile(full_path):
+            try:
+                with open(full_path, "r", errors="replace") as f:
+                    content = f.read()
+                lines = content.split("\n")
+                diff_text = (
+                    f"diff --git a/{filepath} b/{filepath}\n"
+                    f"new file mode 100644\n"
+                    f"--- /dev/null\n"
+                    f"+++ b/{filepath}\n"
+                    f"@@ -0,0 +1,{len(lines)} @@\n"
+                )
+                diff_text += "\n".join(f"+{line}" for line in lines)
+            except Exception:
+                diff_text = f"(Unable to read {filepath})"
+
+    return {"filepath": filepath, "diff": diff_text, "working_directory": workdir}
 
 
 @router.get("/api/sessions/live/{name}/git")
@@ -511,6 +586,7 @@ async def ws_corral(websocket: WebSocket):
         while True:
             agents = await discover_corral_agents()
             git_state = await store.get_all_latest_git_state()
+            ws_file_counts = await store.get_all_changed_file_counts()
             ws_session_ids = [a["session_id"] for a in agents if a.get("session_id")]
             ws_display_names = await store.get_display_names(ws_session_ids)
             ws_latest_events = await store.get_latest_event_types(ws_session_ids)
@@ -523,6 +599,9 @@ async def ws_corral(websocket: WebSocket):
                 git = git_state.get(sid) if sid else None
                 if not git:
                     git = git_state.get(name)
+                ws_fc = ws_file_counts.get(sid) if sid else None
+                if ws_fc is None:
+                    ws_fc = ws_file_counts.get(name, 0)
                 latest_ev = ws_latest_events.get(sid) if sid else None
                 waiting = latest_ev in ("stop", "notification")
                 working = latest_ev == "tool_use" and (log_info["staleness_seconds"] or 999) < 120
@@ -540,6 +619,7 @@ async def ws_corral(websocket: WebSocket):
                     "waiting_for_input": waiting,
                     "waiting_reason": latest_ev if waiting else None,
                     "working": working,
+                    "changed_file_count": ws_fc,
                 })
                 await _track_status_summary_events(name, log_info["status"], log_info["summary"], session_id=sid)
                 await scan_log_for_pulse_events(store, name, agent["log_path"], session_id=sid)

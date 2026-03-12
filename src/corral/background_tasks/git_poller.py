@@ -21,7 +21,7 @@ class GitPoller:
     def __init__(self, store: CorralStore) -> None:
         self._store = store
 
-    async def run_forever(self, interval: float = 120) -> None:
+    async def run_forever(self, interval: float = 30) -> None:
         while True:
             try:
                 await self.poll_once()
@@ -53,6 +53,7 @@ class GitPoller:
                 git_info = await self._query_git(workdir)
                 if not git_info:
                     continue
+                changed_files = await self._query_changed_files(workdir)
                 # Store a snapshot for each session in this directory
                 for agent in dir_agents:
                     await self._store.upsert_git_snapshot(
@@ -65,6 +66,12 @@ class GitPoller:
                         commit_timestamp=git_info["commit_timestamp"],
                         session_id=agent.get("session_id"),
                         remote_url=git_info.get("remote_url"),
+                    )
+                    await self._store.replace_changed_files(
+                        agent_name=agent["agent_name"],
+                        working_directory=workdir,
+                        files=changed_files,
+                        session_id=agent.get("session_id"),
                     )
                     polled += 1
             except Exception:
@@ -112,3 +119,69 @@ class GitPoller:
             }
         except (asyncio.TimeoutError, OSError, FileNotFoundError):
             return None
+
+    async def _query_changed_files(self, workdir: str) -> list[dict[str, Any]]:
+        """Query git for changed files in the working tree (staged + unstaged)."""
+        files: list[dict[str, Any]] = {}  # type: ignore[assignment]
+        file_map: dict[str, dict[str, Any]] = {}
+
+        try:
+            # git diff --numstat for unstaged changes (additions/deletions)
+            rc, stdout, _ = await run_cmd(
+                "git", "-C", workdir, "diff", "--numstat", timeout=5.0,
+            )
+            if rc == 0 and stdout:
+                for line in stdout.strip().split("\n"):
+                    if not line.strip():
+                        continue
+                    parts = line.split("\t", 2)
+                    if len(parts) < 3:
+                        continue
+                    added, removed, filepath = parts
+                    # Binary files show "-" for counts
+                    a = int(added) if added != "-" else 0
+                    d = int(removed) if removed != "-" else 0
+                    file_map[filepath] = {"filepath": filepath, "additions": a, "deletions": d, "status": "M"}
+
+            # git diff --cached --numstat for staged changes
+            rc, stdout, _ = await run_cmd(
+                "git", "-C", workdir, "diff", "--cached", "--numstat", timeout=5.0,
+            )
+            if rc == 0 and stdout:
+                for line in stdout.strip().split("\n"):
+                    if not line.strip():
+                        continue
+                    parts = line.split("\t", 2)
+                    if len(parts) < 3:
+                        continue
+                    added, removed, filepath = parts
+                    a = int(added) if added != "-" else 0
+                    d = int(removed) if removed != "-" else 0
+                    if filepath in file_map:
+                        file_map[filepath]["additions"] += a
+                        file_map[filepath]["deletions"] += d
+                    else:
+                        file_map[filepath] = {"filepath": filepath, "additions": a, "deletions": d, "status": "M"}
+
+            # git status --porcelain for status codes and untracked files
+            rc, stdout, _ = await run_cmd(
+                "git", "-C", workdir, "status", "--porcelain", timeout=5.0,
+            )
+            if rc == 0 and stdout:
+                for line in stdout.strip().split("\n"):
+                    if len(line) < 4:
+                        continue
+                    status_code = line[:2].strip()
+                    filepath = line[3:]
+                    # Handle renames: "R  old -> new"
+                    if " -> " in filepath:
+                        filepath = filepath.split(" -> ", 1)[1]
+                    if filepath not in file_map:
+                        file_map[filepath] = {"filepath": filepath, "additions": 0, "deletions": 0, "status": status_code}
+                    else:
+                        file_map[filepath]["status"] = status_code
+
+        except (asyncio.TimeoutError, OSError, FileNotFoundError):
+            pass
+
+        return list(file_map.values())

@@ -241,6 +241,20 @@ class CorralStore(DatabaseManager):
         await self._get_conn()
         return await self._git.get_git_snapshots_for_session(session_id, limit)
 
+    async def replace_changed_files(self, agent_name: str, working_directory: str,
+                                     files: list[dict[str, Any]],
+                                     session_id: str | None = None) -> None:
+        await self._get_conn()
+        return await self._git.replace_changed_files(agent_name, working_directory, files, session_id)
+
+    async def get_changed_files(self, agent_name: str, session_id: str | None = None) -> list[dict[str, Any]]:
+        await self._get_conn()
+        return await self._git.get_changed_files(agent_name, session_id)
+
+    async def get_all_changed_file_counts(self) -> dict[str, int]:
+        await self._get_conn()
+        return await self._git.get_all_changed_file_counts()
+
     # ── Delegate: TaskStore methods ────────────────────────────────────────
 
     async def list_agent_tasks(self, agent_name: str, session_id: str | None = None) -> list[dict[str, Any]]:

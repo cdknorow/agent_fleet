@@ -171,6 +171,12 @@ async def index(request: Request):
     return templates.TemplateResponse(request=request, name="index.html", context={"corral_root": os.getcwd()})
 
 
+@app.get("/diff", response_class=HTMLResponse)
+async def diff_view(request: Request):
+    """Serve the standalone diff viewer page."""
+    return templates.TemplateResponse(request=request, name="diff.html")
+
+
 # ── Entry Point ──────────────────────────────────────────────────────────────
 
 
@@ -188,7 +194,16 @@ def main():
 
     if not args.no_browser:
         url = f"http://localhost:{args.port}"
-        threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+
+        def _open_browser():
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+        t = threading.Timer(1.5, _open_browser)
+        t.daemon = True
+        t.start()
 
     uvicorn.run(
         "corral.web_server:app",
