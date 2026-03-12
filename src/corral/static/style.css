@@ -105,7 +105,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-    width: 260px;
+    width: 286px;
     min-width: 140px;
     max-width: 50vw;
     background: var(--bg-secondary);
@@ -2713,7 +2713,7 @@ body {
 }
 
 .agentic-state {
-    width: 390px;
+    width: 351px;
     min-width: 230px;
     max-width: 620px;
     display: flex;
@@ -3243,7 +3243,6 @@ body {
 /* Activity bar chart */
 .activity-chart {
     padding: 10px 14px 6px;
-    border-bottom: 1px solid var(--border-light);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -3252,8 +3251,6 @@ body {
     display: none;
 }
 .activity-chart-bottom {
-    border-bottom: none;
-    border-top: 1px solid var(--border-light);
     padding: 6px 14px 10px;
 }
 .activity-chart-row {
