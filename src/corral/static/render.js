@@ -244,7 +244,7 @@ export function updateSessionStatus(status) {
     const el = document.getElementById("session-status");
     if (status) {
         el.querySelector(".status-text").textContent = status;
-        el.style.display = "";
+        // Status line is hidden in the header — only Goal is shown
     }
 }
 

@@ -250,8 +250,8 @@
         <img src="/static/corral.png" alt="Corral" class="diff-header-icon">
         <div class="diff-filepath" id="diff-filepath">Loading...</div>
         <div class="diff-toolbar">
-            <button id="btn-unified" class="active" onclick="setViewMode('line-by-line')">Unified</button>
-            <button id="btn-split" onclick="setViewMode('side-by-side')">Split</button>
+            <button id="btn-unified" onclick="setViewMode('line-by-line')">Unified</button>
+            <button id="btn-split" class="active" onclick="setViewMode('side-by-side')">Split</button>
             <button id="btn-refresh" onclick="refreshDiff()" title="Refresh diff">&#x21bb;</button>
         </div>
     </div>
@@ -265,7 +265,7 @@
         const agentName = params.get('agent');
         const filepath = params.get('file');
         const sessionId = params.get('session_id');
-        let viewMode = 'line-by-line';
+        let viewMode = 'side-by-side';
         let lastDiff = '';
 
         function splitPath(fp) {

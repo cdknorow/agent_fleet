@@ -2,6 +2,7 @@
 
 import { state } from './state.js';
 import { startLiveHistoryPoll, stopLiveHistoryPoll } from './live_chat.js';
+import { loadChangedFiles } from './changed_files.js';
 
 const TOOL_ICONS = {
     Read:       { char: '&#xe8f4;', cls: 'tool-read' },
@@ -411,5 +412,10 @@ export function switchAgenticTab(tabName) {
         startLiveHistoryPoll();
     } else {
         stopLiveHistoryPoll();
+    }
+
+    // Refresh changed files when switching to the files tab
+    if (tabName === 'files' && state.currentSession && state.currentSession.type === 'live') {
+        loadChangedFiles(state.currentSession.name, state.currentSession.session_id);
     }
 }

@@ -8,9 +8,10 @@ let fitAddon = null;
 let terminalWs = null;
 let _selectionDisposable = null;
 
-// Buffered content for when updates are paused due to text selection
+// Buffered content for when updates are paused due to text selection or scroll
 let _pendingContent = null;
 let _xtermSelecting = false;
+let _userScrolledUp = false;
 
 // Track which session_id the terminal WS is currently connected to,
 // and a generation counter to suppress stale onclose reconnects.
@@ -19,17 +20,27 @@ let _wsGeneration = 0;
 
 function _setPauseBadge(visible) {
     const badge = document.getElementById("selection-pause-badge");
-    if (badge) badge.style.display = visible ? "" : "none";
+    if (badge) {
+        badge.style.display = visible ? "" : "none";
+        // Allow clicking the badge to resume
+        badge.onclick = () => resumeScroll();
+    }
 }
 
-/** Write buffered content to the terminal (called when selection clears). */
+/** Resume auto-scroll and flush any buffered content. */
+export function resumeScroll() {
+    _userScrolledUp = false;
+    state.autoScroll = true;
+    _setPauseBadge(false);
+    _flushPending();
+}
+
+/** Write buffered content to the terminal (called when selection/scroll clears). */
 function _flushPending() {
     if (_pendingContent !== null && terminal) {
         const converted = _pendingContent.replace(/\n/g, '\r\n');
         terminal.write('\x1b[2J\x1b[H' + converted);
-        if (state.autoScroll) {
-            terminal.scrollToBottom();
-        }
+        terminal.scrollToBottom();
         _pendingContent = null;
     }
 }
@@ -94,6 +105,25 @@ export function createTerminal(containerEl) {
         }
     });
 
+    // Track user scroll: mouse wheel up pauses updates, scroll down resumes.
+    const xtermEl = containerEl;
+    let _scrollUpCount = 0;
+    xtermEl.addEventListener("wheel", (e) => {
+        if (e.deltaY < 0) {
+            // Scrolling up — pause after a couple of ticks to avoid accidental triggers
+            _scrollUpCount++;
+            if (_scrollUpCount >= 2 && !_userScrolledUp) {
+                _userScrolledUp = true;
+                state.autoScroll = false;
+                _setPauseBadge(true);
+            }
+        } else if (e.deltaY > 0 && _userScrolledUp) {
+            // Scrolling down — resume updates
+            _scrollUpCount = 0;
+            resumeScroll();
+        }
+    }, { passive: true });
+
     // Forward special keys to the live tmux session when xterm has focus.
     // disableStdin prevents xterm from processing input, but it still
     // captures keyboard events — use attachCustomKeyEventHandler to
@@ -155,8 +185,8 @@ export function connectTerminalWs(name, agentType, sessionId) {
     terminalWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "terminal_update" && terminal) {
-            // Buffer the update if user has text selected
-            if (_xtermSelecting) {
+            // Buffer the update if user has text selected or scrolled up
+            if (_xtermSelecting || _userScrolledUp) {
                 _pendingContent = data.content;
                 return;
             }
@@ -165,9 +195,7 @@ export function connectTerminalWs(name, agentType, sessionId) {
             // clears the screen before the new content is drawn.
             const converted = data.content.replace(/\n/g, '\r\n');
             terminal.write('\x1b[2J\x1b[H' + converted);
-            if (state.autoScroll) {
-                terminal.scrollToBottom();
-            }
+            terminal.scrollToBottom();
         }
     };
 
