@@ -685,14 +685,20 @@ body {
 .welcome-actions {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 .welcome-action-card {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     padding: 20px 28px;
+    width: 120px;
+    height: 100px;
+    text-decoration: none;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 12px;
