@@ -397,6 +397,37 @@
             setTimeout(() => btn.classList.remove('refreshing'), 300);
         }
 
+        // Inject file path and line number into copied text
+        document.addEventListener('copy', function(e) {
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !filepath) return;
+
+            // Find the line number from the row where the selection starts
+            let node = sel.anchorNode;
+            if (!node) return;
+            if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+
+            // Walk up to find the table row
+            const row = node.closest('tr');
+            if (!row) return;
+
+            // Look for line number in this row — try the "new" side first (right),
+            // then fall back to the "old" side (left)
+            let lineNum = null;
+            const lineNumCells = row.querySelectorAll('.d2h-code-linenumber, .d2h-code-side-linenumber');
+            for (const cell of lineNumCells) {
+                const text = cell.textContent.trim();
+                if (text && /^\d+$/.test(text)) {
+                    lineNum = text;
+                }
+            }
+
+            const selectedText = sel.toString();
+            const header = filepath + (lineNum ? ':' + lineNum : '');
+            e.clipboardData.setData('text/plain', header + '\n' + selectedText);
+            e.preventDefault();
+        });
+
         updateTitle();
         loadDiff();
 
