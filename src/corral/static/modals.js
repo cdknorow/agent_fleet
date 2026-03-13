@@ -234,11 +234,11 @@ export async function loadSettings() {
         }
         state.settings = s;
 
-        // Apply theme from settings
-        if (s.custom_theme) {
-            await applyCustomThemeByName(s.custom_theme);
-        } else {
-            applyTheme(s.theme || "dark");
+        // Apply theme from settings (default to GhostV3 if no theme configured)
+        const themeName = s.custom_theme || "GhostV3";
+        await applyCustomThemeByName(themeName);
+        if (!s.custom_theme) {
+            state.settings.custom_theme = "GhostV3";
         }
     } catch (e) {
         console.error("Failed to load settings:", e);

@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
     from corral.background_tasks import SessionIndexer, BatchSummarizer, GitPoller, WebhookDispatcher, IdleDetector
     from corral.agents import get_agent
     from corral.tools.session_manager import discover_corral_agents, resume_persistent_sessions
+    from corral.api.themes import seed_bundled_themes
+
+    # Seed bundled themes (e.g. GhostV3) into ~/.corral/themes/ on first run
+    seed_bundled_themes()
 
     # Resume any persistent live sessions that are no longer running in tmux
     # (excludes sessions owned by scheduled/oneshot job runs)

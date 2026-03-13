@@ -15,10 +15,25 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 THEMES_DIR = Path.home() / ".corral" / "themes"
+BUNDLED_DIR = Path(__file__).resolve().parent.parent / "bundled_themes"
+
+DEFAULT_THEME = "GhostV3"
 
 
 def _ensure_dir():
     THEMES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def seed_bundled_themes():
+    """Copy bundled themes to user themes dir if they don't already exist."""
+    _ensure_dir()
+    if not BUNDLED_DIR.is_dir():
+        return
+    for src in BUNDLED_DIR.glob("*.json"):
+        dest = THEMES_DIR / src.name
+        if not dest.exists():
+            shutil.copy2(src, dest)
+            log.info("Seeded bundled theme: %s", src.stem)
 
 
 def _theme_path(name: str) -> Path:
