@@ -223,9 +223,12 @@
 
         /* Line number columns */
         .d2h-code-linenumber, .d2h-code-side-linenumber {
-            min-width: 40px !important;
-            padding: 0 8px !important;
+            min-width: 50px !important;
+            width: 50px !important;
+            padding: 0 10px !important;
             text-align: right !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
         }
 
         /* Table layout */
@@ -234,6 +237,7 @@
             border-collapse: collapse !important;
             border-spacing: 0 !important;
             background: var(--d2h-code-bg) !important;
+            table-layout: auto !important;
         }
 
         .d2h-diff-table *,
