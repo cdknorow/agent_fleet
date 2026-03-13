@@ -111,8 +111,8 @@ export function renderLiveSessions(sessions) {
                 <div class="session-info">
                     <div class="session-name-row">
                         <span class="session-label">${escapeHtml(displayLabel)}${typeTag}</span>
-                        ${editBtn}
                         <span class="session-name-spacer"></span>
+                        ${editBtn}
                         ${waitingBadge}
                     </div>
                     <span class="session-goal">${goal}</span>

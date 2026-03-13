@@ -48,12 +48,42 @@ class JobScheduler:
 
     async def run_forever(self) -> None:
         log.info("JobScheduler started (tick every %ds, max concurrent: %d)", TICK_INTERVAL, self._max_concurrent)
+        # Reap any stale runs left from a previous server crash/restart
+        await self._reap_stale_runs()
         while True:
             try:
                 await self._tick()
             except Exception:
                 log.exception("JobScheduler tick error")
             await asyncio.sleep(TICK_INTERVAL)
+
+    async def _reap_stale_runs(self) -> None:
+        """Mark runs stuck in pending/running past their max_duration as killed."""
+        conn = await self._store._get_conn()
+        rows = await (await conn.execute(
+            """SELECT r.id, r.started_at, j.max_duration_s, j.name
+               FROM scheduled_runs r
+               JOIN scheduled_jobs j ON j.id = r.job_id
+               WHERE r.status IN ('pending', 'running')"""
+        )).fetchall()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            started = row["started_at"]
+            if not started:
+                continue
+            started_dt = datetime.fromisoformat(started)
+            max_dur = row["max_duration_s"] or 3600
+            elapsed = (now - started_dt).total_seconds()
+            if elapsed > max_dur * 2:  # generous 2x buffer
+                log.warning(
+                    "Reaping stale run %d (%s) — running for %.0fs, max_duration=%ds",
+                    row["id"], row["name"], elapsed, max_dur,
+                )
+                await self._store.update_scheduled_run(
+                    row["id"], status="killed",
+                    exit_reason="timeout_reap",
+                    finished_at=now.isoformat(),
+                )
 
     async def _tick(self) -> None:
         jobs = await self._store.list_scheduled_jobs(enabled_only=True)
