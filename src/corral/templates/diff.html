@@ -1,29 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+        (function() {
+            var t = 'dark';
+            try { t = localStorage.getItem('corral-theme') || 'dark'; } catch(_) {}
+            if (t === 'system') t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Diff View — Corral</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/css/variables.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
     <style>
-        :root {
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-tertiary: #21262d;
-            --border: #30363d;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #484f58;
-            --accent: #58a6ff;
-            --success: #3fb950;
-            --error: #f85149;
-        }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
@@ -117,7 +113,7 @@
             padding: 0;
         }
 
-        /* Dark theme overrides for diff2html */
+        /* Theme-aware overrides for diff2html */
         .d2h-wrapper {
             background: var(--bg-primary) !important;
         }
@@ -137,13 +133,12 @@
 
         .d2h-code-line,
         .d2h-code-side-line {
-            background: #0d1117 !important;
+            background: var(--d2h-code-bg) !important;
             color: var(--text-primary) !important;
             font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace !important;
             font-size: 12px !important;
             padding: 0 10px !important;
         }
-
 
         .d2h-code-line-prefix {
             display: none !important;
@@ -151,7 +146,7 @@
 
         /* Line numbers — default (context lines) */
         .d2h-code-linenumber, .d2h-code-side-linenumber {
-            background: #161b22 !important;
+            background: var(--d2h-gutter-bg) !important;
             color: var(--text-muted) !important;
             border-right: 1px solid var(--border) !important;
             border-left: none !important;
@@ -159,7 +154,7 @@
             user-select: none;
         }
 
-        /* Addition lines — opaque colors to prevent dark bleed-through */
+        /* Addition lines */
         .d2h-ins,
         .d2h-ins td,
         .d2h-ins .d2h-code-side-line,
@@ -167,22 +162,22 @@
         .d2h-ins .d2h-code-linenumber,
         .d2h-ins .d2h-code-side-linenumber,
         .d2h-ins .d2h-emptyplaceholder {
-            background: #1a3326 !important;
+            background: var(--d2h-ins-bg) !important;
         }
 
         .d2h-ins .d2h-code-linenumber,
         .d2h-ins .d2h-code-side-linenumber {
-            background: #1c3828 !important;
+            background: var(--d2h-ins-gutter-bg) !important;
             color: var(--success) !important;
         }
 
         ins {
-            background: #264d35 !important;
+            background: var(--d2h-ins-highlight) !important;
             text-decoration: none !important;
             color: var(--text-primary) !important;
         }
 
-        /* Deletion lines — opaque colors */
+        /* Deletion lines */
         .d2h-del,
         .d2h-del td,
         .d2h-del .d2h-code-side-line,
@@ -190,32 +185,32 @@
         .d2h-del .d2h-code-linenumber,
         .d2h-del .d2h-code-side-linenumber,
         .d2h-del .d2h-emptyplaceholder {
-            background: #331a1f !important;
+            background: var(--d2h-del-bg) !important;
         }
 
         .d2h-del .d2h-code-linenumber,
         .d2h-del .d2h-code-side-linenumber {
-            background: #381c22 !important;
+            background: var(--d2h-del-gutter-bg) !important;
             color: var(--error) !important;
         }
 
         del {
-            background: #4d262d !important;
+            background: var(--d2h-del-highlight) !important;
             text-decoration: none !important;
             color: var(--text-primary) !important;
         }
 
-        /* Empty placeholder rows (opposite side of side-by-side additions/deletions) */
+        /* Empty placeholder rows */
         .d2h-emptyplaceholder,
         .d2h-code-side-emptyplaceholder,
         tr.d2h-ins .d2h-emptyplaceholder,
         tr.d2h-del .d2h-emptyplaceholder {
-            background: #151b22 !important;
+            background: var(--d2h-empty-bg) !important;
         }
 
         /* Hunk headers */
         .d2h-info {
-            background: #111a24 !important;
+            background: var(--d2h-hunk-bg) !important;
             color: var(--accent) !important;
             border: none !important;
             padding: 6px 12px !important;
@@ -226,19 +221,19 @@
             padding-left: 8px !important;
         }
 
-        /* Line number columns — ensure they don't overlap code */
+        /* Line number columns */
         .d2h-code-linenumber, .d2h-code-side-linenumber {
             min-width: 40px !important;
             padding: 0 8px !important;
             text-align: right !important;
         }
 
-        /* Table layout — nuke every possible line between rows */
+        /* Table layout */
         .d2h-diff-table {
             font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace !important;
             border-collapse: collapse !important;
             border-spacing: 0 !important;
-            background: #0d1117 !important;
+            background: var(--d2h-code-bg) !important;
         }
 
         .d2h-diff-table *,
@@ -249,7 +244,6 @@
             box-shadow: none !important;
         }
 
-        /* Only the line-number gutter gets a right border */
         .d2h-code-linenumber,
         .d2h-code-side-linenumber {
             border-right: 1px solid var(--border) !important;
@@ -259,7 +253,6 @@
             overflow-x: auto !important;
         }
 
-        /* Side-by-side specific */
         .d2h-file-side-diff {
             width: 50% !important;
         }
@@ -343,7 +336,7 @@
                 drawFileList: false,
                 matching: 'lines',
                 outputFormat: viewMode,
-                colorScheme: 'dark',
+                colorScheme: document.documentElement.getAttribute('data-theme') || 'dark',
             });
             container.innerHTML = html;
         }

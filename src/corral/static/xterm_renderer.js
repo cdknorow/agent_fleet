@@ -8,6 +8,65 @@ let fitAddon = null;
 let terminalWs = null;
 let _selectionDisposable = null;
 
+const XTERM_THEMES = {
+    dark: {
+        background: '#0d1117',
+        foreground: '#e6edf3',
+        cursor: '#e6edf3',
+        selectionBackground: '#264f78',
+        black: '#484f58',
+        red: '#f85149',
+        green: '#3fb950',
+        yellow: '#d29922',
+        blue: '#58a6ff',
+        magenta: '#bc8cff',
+        cyan: '#39d2c0',
+        white: '#e6edf3',
+        brightBlack: '#6e7681',
+        brightRed: '#ffa198',
+        brightGreen: '#56d364',
+        brightYellow: '#e3b341',
+        brightBlue: '#79c0ff',
+        brightMagenta: '#d2a8ff',
+        brightCyan: '#56d4dd',
+        brightWhite: '#f0f6fc',
+    },
+    light: {
+        background: '#c8ccd2',
+        foreground: '#1f2328',
+        cursor: '#1f2328',
+        selectionBackground: '#a8c8f0',
+        black: '#1f2328',
+        red: '#cf222e',
+        green: '#1a7f37',
+        yellow: '#9a6700',
+        blue: '#0969da',
+        magenta: '#8250df',
+        cyan: '#1b7c83',
+        white: '#59636e',
+        brightBlack: '#59636e',
+        brightRed: '#a40e26',
+        brightGreen: '#116329',
+        brightYellow: '#7c5600',
+        brightBlue: '#0550ae',
+        brightMagenta: '#6639ba',
+        brightCyan: '#1b7c83',
+        brightWhite: '#1f2328',
+    },
+};
+
+function _getXtermTheme() {
+    const t = (state.settings && state.settings.terminal_theme) || 'dark';
+    return XTERM_THEMES[t] || XTERM_THEMES.dark;
+}
+
+/** Update the live terminal theme (called when user switches theme). */
+export function updateTerminalTheme() {
+    if (terminal) {
+        terminal.options.theme = _getXtermTheme();
+    }
+}
+
 // Buffered content for when updates are paused due to text selection or scroll
 let _pendingContent = null;
 let _xtermSelecting = false;
@@ -62,28 +121,7 @@ export function createTerminal(containerEl) {
         scrollback: 1000,
         fontSize: 13,
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-        theme: {
-            background: '#0d1117',
-            foreground: '#e6edf3',
-            cursor: '#e6edf3',
-            selectionBackground: '#264f78',
-            black: '#484f58',
-            red: '#f85149',
-            green: '#3fb950',
-            yellow: '#d29922',
-            blue: '#58a6ff',
-            magenta: '#bc8cff',
-            cyan: '#39d2c0',
-            white: '#e6edf3',
-            brightBlack: '#6e7681',
-            brightRed: '#ffa198',
-            brightGreen: '#56d364',
-            brightYellow: '#e3b341',
-            brightBlue: '#79c0ff',
-            brightMagenta: '#d2a8ff',
-            brightCyan: '#56d4dd',
-            brightWhite: '#f0f6fc',
-        },
+        theme: _getXtermTheme(),
     });
 
     fitAddon = new FitAddon.FitAddon();

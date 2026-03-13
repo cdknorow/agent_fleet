@@ -6,6 +6,7 @@ import { loadLiveSessions } from './api.js';
 import { getEngineNames, getEngineName, setRendererOverride } from './renderers.js';
 import { renderCaptureText, syncPaneWidth } from './capture.js';
 import { hideRestartModal } from './controls.js';
+import { updateTerminalTheme } from './xterm_renderer.js';
 
 export function toggleFlag(inputId, flag) {
     const input = document.getElementById(inputId);
@@ -226,13 +227,52 @@ export async function loadSettings() {
             s.fit_pane_width = true;
         }
         state.settings = s;
+
+        // Apply theme from settings
+        applyTheme(s.theme || "dark");
     } catch (e) {
         console.error("Failed to load settings:", e);
     }
 }
 
+// ── Theme ────────────────────────────────────────────────────────────────
+
+/** Resolve "system" to the actual dark/light value */
+function resolveTheme(theme) {
+    if (theme === "system") {
+        return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    }
+    return theme;
+}
+
+/** Apply a theme to the document */
+export function applyTheme(theme) {
+    const resolved = resolveTheme(theme);
+    document.documentElement.setAttribute("data-theme", resolved);
+
+    // Store the *preference* (dark/light/system) so other pages can read it
+    try { localStorage.setItem("corral-theme", theme); } catch (_) {}
+
+    // Update xterm.js terminal colors to match
+    updateTerminalTheme();
+}
+
+// Listen for OS theme changes when in "system" mode
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+    const pref = (state.settings && state.settings.theme) || "dark";
+    if (pref === "system") applyTheme("system");
+});
+
 export function showSettingsModal() {
     const s = state.settings || {};
+
+    // Theme
+    const themeSelect = document.getElementById("settings-theme");
+    if (themeSelect) themeSelect.value = s.theme || "dark";
+
+    // Terminal Theme
+    const termThemeSelect = document.getElementById("settings-terminal-theme");
+    if (termThemeSelect) termThemeSelect.value = s.terminal_theme || "dark";
 
     // Default Render Engine
     const currentEngine = s.default_renderer || "block-group";
@@ -265,12 +305,16 @@ export function hideSettingsModal() {
 }
 
 export async function applySettings() {
+    const theme = document.getElementById("settings-theme")?.value || "dark";
+    const terminalTheme = document.getElementById("settings-terminal-theme")?.value || "dark";
     const engineName = document.getElementById("settings-renderer-select").value;
     const agentType = document.getElementById("settings-agent-type")?.value || "claude";
     const workingDir = document.getElementById("settings-working-dir")?.value.trim() || "";
     const fitPaneWidth = document.getElementById("settings-fit-pane-width")?.checked || false;
 
     const payload = {
+        theme: theme,
+        terminal_theme: terminalTheme,
         default_renderer: engineName,
         default_agent_type: agentType,
         default_working_dir: workingDir,
@@ -284,6 +328,9 @@ export async function applySettings() {
             body: JSON.stringify(payload),
         });
         state.settings = { ...state.settings, ...payload };
+
+        // Apply theme immediately
+        applyTheme(theme);
 
         // If a live session is selected, force re-render with new default
         if (state.currentSession?.session_id) {
