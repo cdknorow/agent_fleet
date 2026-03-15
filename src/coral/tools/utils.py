@@ -9,8 +9,16 @@ from pathlib import Path
 from typing import Tuple
 
 # Configuration Constants
-LOG_DIR = os.environ.get("TMPDIR", "/tmp").rstrip("/")
+import tempfile
+LOG_DIR = tempfile.gettempdir().rstrip("/")
 LOG_PATTERN = f"{LOG_DIR}/*_coral_*.log"
+
+# Ensure common macOS binary paths are in PATH so tmux can be found
+# when running inside a .app bundle (which has a restricted PATH).
+_EXTRA_PATHS = ["/opt/homebrew/bin", "/usr/local/bin"]
+for _p in _EXTRA_PATHS:
+    if _p not in os.environ.get("PATH", "") and os.path.isdir(_p):
+        os.environ["PATH"] = _p + ":" + os.environ.get("PATH", "")
 
 
 def get_package_dir() -> Path:
