@@ -841,6 +841,13 @@ async def ws_coral(websocket: WebSocket):
             ws_display_names = await store.get_display_names(ws_session_ids)
             ws_latest_events = await store.get_latest_event_types(ws_session_ids)
             ws_latest_goals = await store.get_latest_goals(ws_session_ids)
+
+            # Fetch board subscriptions for hover cards
+            try:
+                ws_board_subs = await board_store.get_all_subscriptions()
+            except Exception:
+                ws_board_subs = {}
+
             results = []
             for agent in agents:
                 log_info = get_log_status(agent["log_path"])
@@ -861,6 +868,17 @@ async def ws_coral(websocket: WebSocket):
                 ws_summary = log_info["summary"]
                 if not ws_summary and sid:
                     ws_summary = ws_latest_goals.get(sid)
+
+                # Board subscription lookup
+                ws_tmux_name = agent.get("tmux_session") or ""
+                ws_board_sub = ws_board_subs.get(ws_tmux_name)
+                ws_board_unread = 0
+                if ws_board_sub:
+                    try:
+                        ws_board_unread = await board_store.check_unread(ws_board_sub["project"], ws_tmux_name)
+                    except Exception:
+                        pass
+
                 results.append({
                     "name": name,
                     "agent_type": agent["agent_type"],
@@ -877,6 +895,9 @@ async def ws_coral(websocket: WebSocket):
                     "waiting_summary": ws_ev_summary if waiting else None,
                     "working": working,
                     "changed_file_count": ws_fc,
+                    "board_project": ws_board_sub["project"] if ws_board_sub else None,
+                    "board_job_title": ws_board_sub["job_title"] if ws_board_sub else None,
+                    "board_unread": ws_board_unread,
                 })
                 await _track_status_summary_events(name, log_info["status"], log_info["summary"], session_id=sid)
                 await scan_log_for_pulse_events(store, name, agent["log_path"], session_id=sid)
