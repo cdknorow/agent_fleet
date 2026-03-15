@@ -366,6 +366,40 @@ export async function showInfoModal() {
         const commitSubject = info.git_commit_subject || "";
         document.getElementById("info-git-commit").textContent = commitHash ? `${commitHash} ${commitSubject}` : "—";
 
+        // Prompt
+        const promptLabel = document.getElementById("info-prompt-label");
+        const promptVal = document.getElementById("info-prompt");
+        if (info.prompt) {
+            promptLabel.style.display = "";
+            promptVal.style.display = "";
+            promptVal.textContent = info.prompt;
+        } else {
+            promptLabel.style.display = "none";
+            promptVal.style.display = "none";
+        }
+
+        // Message Board (clickable link)
+        const boardLabel = document.getElementById("info-board-label");
+        const boardVal = document.getElementById("info-board");
+        if (info.board_name) {
+            boardLabel.style.display = "";
+            boardVal.style.display = "";
+            const boardLink = document.createElement("a");
+            boardLink.href = "#";
+            boardLink.textContent = info.board_name;
+            boardLink.style.cssText = "color:var(--accent);cursor:pointer;text-decoration:underline";
+            boardLink.onclick = (e) => {
+                e.preventDefault();
+                hideInfoModal();
+                if (window.selectBoardProject) window.selectBoardProject(info.board_name);
+            };
+            boardVal.innerHTML = "";
+            boardVal.appendChild(boardLink);
+        } else {
+            boardLabel.style.display = "none";
+            boardVal.style.display = "none";
+        }
+
         document.getElementById("info-modal").style.display = "flex";
     } catch (e) {
         showToast("Failed to load session info", true);
