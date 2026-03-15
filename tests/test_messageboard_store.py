@@ -263,3 +263,138 @@ async def test_delete_project(store):
     assert len(subs) == 0
     projects = await store.list_projects()
     assert len(projects) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_all_subscriptions(store):
+    """get_all_subscriptions returns a dict keyed by session_id."""
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+    await store.subscribe("proj2", "agent-3", "QA")
+
+    subs = await store.get_all_subscriptions()
+    assert len(subs) == 3
+    assert "agent-1" in subs
+    assert subs["agent-1"]["project"] == "proj1"
+    assert subs["agent-1"]["job_title"] == "Backend"
+    assert subs["agent-3"]["project"] == "proj2"
+
+
+@pytest.mark.asyncio
+async def test_get_all_subscriptions_empty(store):
+    """get_all_subscriptions returns empty dict when no subscribers."""
+    subs = await store.get_all_subscriptions()
+    assert subs == {}
+
+
+@pytest.mark.asyncio
+async def test_list_messages_returns_all_including_own(store):
+    """list_messages returns all messages (no cursor, includes sender's own)."""
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+
+    await store.post_message("proj1", "agent-1", "msg from 1")
+    await store.post_message("proj1", "agent-2", "msg from 2")
+    await store.post_message("proj1", "agent-1", "msg from 1 again")
+
+    msgs = await store.list_messages("proj1")
+    assert len(msgs) == 3
+    assert msgs[0]["content"] == "msg from 1"
+    assert msgs[1]["content"] == "msg from 2"
+    assert msgs[2]["content"] == "msg from 1 again"
+    # list_messages includes job_title via JOIN
+    assert msgs[0]["job_title"] == "Backend"
+    assert msgs[1]["job_title"] == "Frontend"
+
+
+@pytest.mark.asyncio
+async def test_list_messages_does_not_advance_cursor(store):
+    """list_messages should NOT advance the read cursor (side-effect-free)."""
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+
+    await store.post_message("proj1", "agent-2", "hello")
+
+    # Call list_messages (should not affect cursors)
+    msgs = await store.list_messages("proj1")
+    assert len(msgs) == 1
+
+    # read_messages should still see the message (cursor not advanced)
+    msgs = await store.read_messages("proj1", "agent-1")
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_list_messages_respects_limit(store):
+    """list_messages respects the limit parameter."""
+    await store.subscribe("proj1", "agent-1", "Dev")
+    for i in range(10):
+        await store.post_message("proj1", "agent-1", f"msg {i}")
+
+    msgs = await store.list_messages("proj1", limit=3)
+    assert len(msgs) == 3
+    assert msgs[0]["content"] == "msg 0"
+
+
+@pytest.mark.asyncio
+async def test_list_messages_empty_project(store):
+    """list_messages returns empty list for project with no messages."""
+    msgs = await store.list_messages("nonexistent")
+    assert msgs == []
+
+
+@pytest.mark.asyncio
+async def test_subscribe_upsert_does_not_reset_cursor(store):
+    """Re-subscribing with same session_id should NOT reset last_read_id."""
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+
+    # agent-2 posts, agent-1 reads (advancing cursor)
+    await store.post_message("proj1", "agent-2", "hello")
+    await store.read_messages("proj1", "agent-1")
+
+    # Re-subscribe agent-1 with different title
+    sub = await store.subscribe("proj1", "agent-1", "Senior Backend")
+    assert sub["job_title"] == "Senior Backend"
+    assert sub["last_read_id"] > 0
+
+    # agent-2 posts again
+    await store.post_message("proj1", "agent-2", "world")
+
+    # agent-1 should only see the new message, not "hello" again
+    msgs = await store.read_messages("proj1", "agent-1")
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "world"
+
+
+@pytest.mark.asyncio
+async def test_read_messages_multiple_agents_independent_cursors(store):
+    """Each agent has its own independent read cursor."""
+    await store.subscribe("proj1", "a1", "Dev1")
+    await store.subscribe("proj1", "a2", "Dev2")
+    await store.subscribe("proj1", "a3", "Dev3")
+
+    await store.post_message("proj1", "a1", "from a1")
+    await store.post_message("proj1", "a2", "from a2")
+
+    # a3 reads — sees messages from both a1 and a2
+    msgs = await store.read_messages("proj1", "a3")
+    assert len(msgs) == 2
+
+    # a3 reads again — empty (cursor advanced)
+    msgs = await store.read_messages("proj1", "a3")
+    assert len(msgs) == 0
+
+    # a1 reads — only sees a2's message (own excluded)
+    msgs = await store.read_messages("proj1", "a1")
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "from a2"
+
+    # New message from a3
+    await store.post_message("proj1", "a3", "from a3")
+
+    # a1 reads again — sees only a3's message (a2's already read)
+    msgs = await store.read_messages("proj1", "a1")
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "from a3"

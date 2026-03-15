@@ -10,12 +10,14 @@ import shutil
 
 from fastapi import APIRouter, UploadFile, File
 
+from coral.tools.utils import get_package_dir
+
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
 THEMES_DIR = Path.home() / ".coral" / "themes"
-BUNDLED_DIR = Path(__file__).resolve().parent.parent / "bundled_themes"
+BUNDLED_DIR = get_package_dir() / "bundled_themes"
 
 DEFAULT_THEME = "GhostV3"
 

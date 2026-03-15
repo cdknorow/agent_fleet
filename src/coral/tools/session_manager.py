@@ -11,7 +11,7 @@ import uuid as _uuid
 from pathlib import Path
 from typing import Any
 
-from coral.tools.utils import run_cmd, LOG_DIR, LOG_PATTERN
+from coral.tools.utils import run_cmd, LOG_DIR, LOG_PATTERN, get_package_dir
 
 ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -491,8 +491,7 @@ async def restart_session(
                 pass
 
         # 7. Re-launch the agent with the same system prompt
-        script_dir = Path(__file__).parent.parent
-        protocol_path = script_dir / "PROTOCOL.md"
+        protocol_path = get_package_dir() / "PROTOCOL.md"
 
         all_flags = list(stored_flags)
         if extra_flags:

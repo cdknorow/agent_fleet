@@ -17,7 +17,8 @@ def main():
             if child.is_dir():
                 install_hooks(child)
 
-    script = Path(__file__).parent / "launch_agents.sh"
+    from coral.tools.utils import get_package_dir
+    script = get_package_dir() / "launch_agents.sh"
     if not script.exists():
         print(f"Error: launch_agents.sh not found at {script}", file=sys.stderr)
         sys.exit(1)

@@ -237,13 +237,10 @@ async def get_live_session_info(name: str, agent_type: str | None = None, sessio
     # Include prompt and board_name from live session record
     if session_id:
         try:
-            conn = await store._get_conn()
-            row = await (await conn.execute(
-                "SELECT prompt, board_name FROM live_sessions WHERE session_id = ?", (session_id,)
-            )).fetchone()
-            if row:
-                info["prompt"] = row["prompt"]
-                info["board_name"] = row["board_name"]
+            prompt_info = await store.get_live_session_prompt_info(session_id)
+            if prompt_info:
+                info["prompt"] = prompt_info["prompt"]
+                info["board_name"] = prompt_info["board_name"]
         except Exception:
             pass
     return info
@@ -615,8 +612,6 @@ async def launch_session(body: dict):
 
     # Subscribe to message board if requested
     if board_name:
-        from coral.messageboard.store import MessageBoardStore
-        board_store = MessageBoardStore()
         job_title = display_name or agent_type
         await board_store.subscribe(board_name, session_id, job_title)
 

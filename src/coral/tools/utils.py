@@ -12,6 +12,18 @@ from typing import Tuple
 LOG_DIR = os.environ.get("TMPDIR", "/tmp").rstrip("/")
 LOG_PATTERN = f"{LOG_DIR}/*_coral_*.log"
 
+
+def get_package_dir() -> Path:
+    """Return the root coral package directory.
+
+    Inside a py2app .app bundle, resources are at $RESOURCEPATH/coral.
+    Otherwise, returns the ``src/coral`` directory relative to this file.
+    """
+    resource_path = os.environ.get("RESOURCEPATH")
+    if resource_path:
+        return Path(resource_path) / "coral"
+    return Path(__file__).resolve().parent.parent  # tools/ -> coral/
+
 HISTORY_PATH = Path(os.environ.get("CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects"))
 GEMINI_HISTORY_BASE = Path(os.environ.get("GEMINI_TMP_DIR", Path.home() / ".gemini" / "tmp"))
 

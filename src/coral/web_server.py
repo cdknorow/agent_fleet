@@ -33,8 +33,10 @@ from coral.api import tasks as tasks_api
 from coral.api import uploads as uploads_api
 from coral.api import themes as themes_api
 
+from coral.tools.utils import get_package_dir
+
 log = logging.getLogger(__name__)
-BASE_DIR = Path(__file__).parent
+BASE_DIR = get_package_dir()
 
 
 @asynccontextmanager

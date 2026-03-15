@@ -164,3 +164,53 @@ async def test_webhook_dispatch(client, tmp_path):
     )
     assert resp.status_code == 200
     assert resp.json()["content"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_list_all_messages(client):
+    """GET /{project}/messages/all returns all messages including sender's own."""
+    await client.post("/proj1/subscribe", json={"session_id": "a1", "job_title": "Backend"})
+    await client.post("/proj1/subscribe", json={"session_id": "a2", "job_title": "Frontend"})
+
+    await client.post("/proj1/messages", json={"session_id": "a1", "content": "msg 1"})
+    await client.post("/proj1/messages", json={"session_id": "a2", "content": "msg 2"})
+    await client.post("/proj1/messages", json={"session_id": "a1", "content": "msg 3"})
+
+    resp = await client.get("/proj1/messages/all")
+    assert resp.status_code == 200
+    msgs = resp.json()
+    assert len(msgs) == 3
+    assert msgs[0]["content"] == "msg 1"
+    assert msgs[0]["job_title"] == "Backend"
+    assert msgs[2]["content"] == "msg 3"
+
+
+@pytest.mark.asyncio
+async def test_list_all_messages_with_limit(client):
+    """GET /{project}/messages/all respects the limit param."""
+    await client.post("/proj1/subscribe", json={"session_id": "a1", "job_title": "Dev"})
+    for i in range(5):
+        await client.post("/proj1/messages", json={"session_id": "a1", "content": f"msg {i}"})
+
+    resp = await client.get("/proj1/messages/all", params={"limit": 2})
+    assert resp.status_code == 200
+    msgs = resp.json()
+    assert len(msgs) == 2
+
+
+@pytest.mark.asyncio
+async def test_list_all_messages_does_not_advance_cursor(client):
+    """Calling /messages/all should NOT advance read cursors."""
+    await client.post("/proj1/subscribe", json={"session_id": "a1", "job_title": "Backend"})
+    await client.post("/proj1/subscribe", json={"session_id": "a2", "job_title": "Frontend"})
+
+    await client.post("/proj1/messages", json={"session_id": "a2", "content": "hello"})
+
+    # Call /messages/all
+    resp = await client.get("/proj1/messages/all")
+    assert len(resp.json()) == 1
+
+    # a1 should still see the message via cursor-based read
+    resp = await client.get("/proj1/messages", params={"session_id": "a1"})
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["content"] == "hello"

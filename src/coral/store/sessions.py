@@ -596,6 +596,16 @@ class SessionStore(DatabaseManager):
         )
         await conn.commit()
 
+    async def get_live_session_prompt_info(self, session_id: str) -> dict[str, str | None] | None:
+        """Return prompt and board_name for a live session, or None if not found."""
+        conn = await self._get_conn()
+        row = await (await conn.execute(
+            "SELECT prompt, board_name FROM live_sessions WHERE session_id = ?", (session_id,)
+        )).fetchone()
+        if not row:
+            return None
+        return {"prompt": row["prompt"], "board_name": row["board_name"]}
+
     async def get_agent_type_for_session(self, session_id: str) -> str:
         """Look up the agent_type for a live session. Returns 'claude' as default."""
         conn = await self._get_conn()

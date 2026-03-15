@@ -44,6 +44,25 @@ Or install directly from GitHub:
 pip install git+https://github.com/cdknorow/coral.git
 ```
 
+### macOS Menu Bar App
+
+On macOS, you can run Coral as a menu bar app that stays out of your way:
+
+```bash
+# Install with tray support
+pip install agent-coral[tray]
+
+# Launch — starts in background, terminal is freed immediately
+coral-tray
+
+# Stop the tray app
+coral-tray --stop
+```
+
+A coral icon appears in your menu bar. Click it to open the dashboard in your browser or quit the server. No terminal window needed.
+
+Alternatively, download `Coral.dmg` from the [Releases](https://github.com/cdknorow/coral/releases) page, drag `Coral.app` to Applications, and double-click to launch.
+
 ## Launch agents and web dashboard
 
 You can launch the web server directly using `coral` or `coral-dashboard`:

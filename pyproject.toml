@@ -59,6 +59,9 @@ dev = [
     "build>=1.0.0",
     "twine>=5.0.0",
 ]
+tray = [
+    "rumps>=0.4.0",
+]
 
 [project.scripts]
 coral = "coral.web_server:main"
@@ -68,6 +71,7 @@ coral-hook-task-sync = "coral.hooks.task_state:main"
 coral-hook-agentic-state = "coral.hooks.agentic_state:main"
 coral-hook-message-check = "coral.hooks.message_check:main"
 coral-board = "coral.messageboard.cli:main"
+coral-tray = "coral.tray:main"
 
 
 [tool.setuptools.package-data]
