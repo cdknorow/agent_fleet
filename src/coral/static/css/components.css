@@ -425,21 +425,21 @@
 .macro-btn-wrap [data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
     bottom: 100%;
     margin-bottom: 6px;
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-light);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 8px 12px;
     font-size: 12px;
     line-height: 1.4;
-    white-space: pre-wrap;
-    max-width: 280px;
+    text-align: left;
+    white-space: normal;
+    width: 280px;
     word-break: break-word;
-    z-index: 200;
+    z-index: 9999;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     pointer-events: none;
 }

@@ -36,10 +36,12 @@ export async function sendCommand() {
     console.log("sendCommand: attachments =", pendingAttachments.length, "paths =", pendingAttachments.map(a => a.path), "command =", command);
     if (!command) return;
 
-    // Try WebSocket path first (sends text + Enter as terminal input)
+    // Try WebSocket path first (sends text, then Enter separately)
     if (pendingAttachments.length === 0) {
         const xterm = await _getXtermModule();
-        if (xterm.sendTerminalInputWs(command + "\r")) {
+        if (xterm.sendTerminalInputWs(command)) {
+            // Send Enter after delay so bracket paste + tmux processing completes
+            setTimeout(() => xterm.sendTerminalInputWs("\r"), 300);
             input.value = "";
             const key = sessionKey(state.currentSession);
             if (key) delete state.sessionInputText[key];

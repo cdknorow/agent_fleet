@@ -130,12 +130,35 @@ async def send_to_tmux(
         return f"Pane '{agent_name}' not found in any tmux session"
 
     try:
-        # Send the text content
-        rc, _, stderr = await run_cmd(
-            "tmux", "send-keys", "-t", target, "-l", command
-        )
-        if rc != 0:
-            return f"send-keys failed (rc={rc}): {stderr}"
+        # Multi-line: wrap in bracket paste sequences
+        if "\n" in command:
+            start_hex = ["-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "30", "-H", "7e"]
+            end_hex = ["-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "31", "-H", "7e"]
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, *start_hex,
+            )
+            if rc != 0:
+                return f"bracket paste start failed (rc={rc}): {stderr}"
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, "-l", command,
+            )
+            if rc != 0:
+                return f"send-keys failed (rc={rc}): {stderr}"
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, *end_hex,
+            )
+            if rc != 0:
+                return f"bracket paste end failed (rc={rc}): {stderr}"
+        else:
+            # Single-line: send as literal text
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, "-l", command,
+            )
+            if rc != 0:
+                return f"send-keys failed (rc={rc}): {stderr}"
 
         # Pause to let tmux deliver keystrokes to the pane
         await asyncio.sleep(0.3)
@@ -230,7 +253,35 @@ async def send_terminal_input_to_target(target: str, data: str) -> str | None:
                 return f"send-keys hex failed (rc={rc}): {stderr}"
             return None
 
-        # Literal text — use send-keys -l for safe literal sending
+        # Multi-line text: wrap in bracket paste sequences so the terminal
+        # treats it as pasted content rather than executing each newline.
+        if "\n" in data or "\r\n" in data:
+            # Bracket paste start
+            start_hex = ["-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "30", "-H", "7e"]
+            # Bracket paste end
+            end_hex = ["-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "31", "-H", "7e"]
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, *start_hex,
+            )
+            if rc != 0:
+                return f"bracket paste start failed (rc={rc}): {stderr}"
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, "-l", data,
+            )
+            if rc != 0:
+                return f"send-keys -l failed (rc={rc}): {stderr}"
+
+            rc, _, stderr = await run_cmd(
+                "tmux", "send-keys", "-t", target, *end_hex,
+            )
+            if rc != 0:
+                return f"bracket paste end failed (rc={rc}): {stderr}"
+
+            return None
+
+        # Single-line literal text
         rc, _, stderr = await run_cmd(
             "tmux", "send-keys", "-t", target, "-l", data,
         )
