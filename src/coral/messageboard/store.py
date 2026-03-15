@@ -187,6 +187,22 @@ class MessageBoardStore:
 
         return messages
 
+    async def list_messages(
+        self, project: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        """Return recent messages for a project (no cursor, no side effects)."""
+        conn = await self._get_conn()
+        rows = await conn.execute_fetchall(
+            """SELECT m.id, m.project, m.session_id, m.content, m.created_at,
+                      COALESCE(s.job_title, 'Unknown') as job_title
+               FROM board_messages m
+               LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
+               WHERE m.project = ?
+               ORDER BY m.id ASC LIMIT ?""",
+            (project, limit),
+        )
+        return [dict(r) for r in rows]
+
     # ── Webhooks ─────────────────────────────────────────────────────────
 
     async def get_webhook_targets(

@@ -13,7 +13,7 @@ async function fetchProjects() {
 }
 
 async function fetchMessages(project) {
-    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages?session_id=dashboard&limit=200`);
+    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages/all?limit=200`);
     return await resp.json();
 }
 
@@ -138,9 +138,7 @@ async function loadBoardProjectList() {
 
 async function loadBoardMessages(project) {
     try {
-        // Fetch all recent messages (not cursor-based for dashboard — use a direct query)
-        const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages?session_id=dashboard&limit=200`);
-        const messages = await resp.json();
+        const messages = await fetchMessages(project);
         renderMessages(messages);
     } catch (e) {
         console.error('Failed to load board messages:', e);

@@ -79,6 +79,11 @@ async def read_messages(project: str, session_id: str, limit: int = 50):
     return await store.read_messages(project, session_id, limit)
 
 
+@router.get("/{project}/messages/all")
+async def list_messages(project: str, limit: int = 200):
+    return await store.list_messages(project, limit)
+
+
 @router.delete("/{project}")
 async def delete_project(project: str):
     await store.delete_project(project)
