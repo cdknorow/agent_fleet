@@ -234,6 +234,18 @@ async def get_live_session_info(name: str, agent_type: str | None = None, sessio
         info["git_branch"] = git["branch"]
         info["git_commit_hash"] = git["commit_hash"]
         info["git_commit_subject"] = git["commit_subject"]
+    # Include prompt and board_name from live session record
+    if session_id:
+        try:
+            conn = await store._get_conn()
+            row = await (await conn.execute(
+                "SELECT prompt, board_name FROM live_sessions WHERE session_id = ?", (session_id,)
+            )).fetchone()
+            if row:
+                info["prompt"] = row["prompt"]
+                info["board_name"] = row["board_name"]
+        except Exception:
+            pass
     return info
 
 
