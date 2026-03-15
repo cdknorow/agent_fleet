@@ -53,8 +53,8 @@
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: visible;
+    flex-wrap: wrap;
     position: relative;
     z-index: 20;
 }
