@@ -15,7 +15,7 @@ LOG_PATTERN = f"{LOG_DIR}/*_coral_*.log"
 
 # Ensure common macOS binary paths are in PATH so tmux can be found
 # when running inside a .app bundle (which has a restricted PATH).
-_EXTRA_PATHS = ["/opt/homebrew/bin", "/usr/local/bin"]
+_EXTRA_PATHS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 for _p in _EXTRA_PATHS:
     if _p not in os.environ.get("PATH", "") and os.path.isdir(_p):
         os.environ["PATH"] = _p + ":" + os.environ.get("PATH", "")
