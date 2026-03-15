@@ -114,6 +114,36 @@ async def test_delete_project(client):
 
 
 @pytest.mark.asyncio
+async def test_check_unread(client):
+    # Subscribe two agents
+    await client.post("/proj1/subscribe", json={"session_id": "a1", "job_title": "Backend"})
+    await client.post("/proj1/subscribe", json={"session_id": "a2", "job_title": "Frontend"})
+
+    # No messages — unread is 0
+    resp = await client.get("/proj1/messages/check", params={"session_id": "a1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"unread": 0}
+
+    # a2 posts a message
+    await client.post("/proj1/messages", json={"session_id": "a2", "content": "hello"})
+
+    # a1 checks — 1 unread
+    resp = await client.get("/proj1/messages/check", params={"session_id": "a1"})
+    assert resp.json() == {"unread": 1}
+
+    # Check again — still 1 (cursor not advanced)
+    resp = await client.get("/proj1/messages/check", params={"session_id": "a1"})
+    assert resp.json() == {"unread": 1}
+
+    # a1 reads messages (advances cursor)
+    await client.get("/proj1/messages", params={"session_id": "a1"})
+
+    # Now check returns 0
+    resp = await client.get("/proj1/messages/check", params={"session_id": "a1"})
+    assert resp.json() == {"unread": 0}
+
+
+@pytest.mark.asyncio
 async def test_webhook_dispatch(client, tmp_path):
     """Test that webhook is dispatched on message post (best-effort)."""
     # We test by subscribing with a webhook URL that won't connect —

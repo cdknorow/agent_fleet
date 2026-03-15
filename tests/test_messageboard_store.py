@@ -151,6 +151,53 @@ async def test_get_webhook_targets(store):
 
 
 @pytest.mark.asyncio
+async def test_check_unread_returns_count(store):
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+
+    # No messages yet
+    count = await store.check_unread("proj1", "agent-1")
+    assert count == 0
+
+    # agent-2 posts two messages
+    await store.post_message("proj1", "agent-2", "msg 1")
+    await store.post_message("proj1", "agent-2", "msg 2")
+
+    # agent-1 should see 2 unread
+    count = await store.check_unread("proj1", "agent-1")
+    assert count == 2
+
+    # agent-2 should see 0 (own messages excluded)
+    count = await store.check_unread("proj1", "agent-2")
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_check_unread_does_not_advance_cursor(store):
+    await store.subscribe("proj1", "agent-1", "Backend")
+    await store.subscribe("proj1", "agent-2", "Frontend")
+
+    await store.post_message("proj1", "agent-2", "hello")
+
+    # Check twice — count should stay the same (cursor not advanced)
+    count1 = await store.check_unread("proj1", "agent-1")
+    count2 = await store.check_unread("proj1", "agent-1")
+    assert count1 == 1
+    assert count2 == 1
+
+    # After reading, check should return 0
+    await store.read_messages("proj1", "agent-1")
+    count3 = await store.check_unread("proj1", "agent-1")
+    assert count3 == 0
+
+
+@pytest.mark.asyncio
+async def test_check_unread_not_subscribed(store):
+    count = await store.check_unread("proj1", "nonexistent")
+    assert count == 0
+
+
+@pytest.mark.asyncio
 async def test_delete_project(store):
     await store.subscribe("proj1", "agent-1", "Dev")
     await store.post_message("proj1", "agent-1", "hello")

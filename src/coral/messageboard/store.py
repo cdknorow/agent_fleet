@@ -203,6 +203,22 @@ class MessageBoardStore:
         )
         return [dict(r) for r in rows]
 
+    async def check_unread(self, project: str, session_id: str) -> int:
+        """Return count of unread messages without advancing the cursor."""
+        conn = await self._get_conn()
+        sub_rows = await conn.execute_fetchall(
+            "SELECT last_read_id FROM board_subscribers WHERE project = ? AND session_id = ?",
+            (project, session_id),
+        )
+        if not sub_rows:
+            return 0
+        last_read_id = sub_rows[0]["last_read_id"]
+        count_rows = await conn.execute_fetchall(
+            "SELECT COUNT(*) as cnt FROM board_messages WHERE project = ? AND id > ? AND session_id != ?",
+            (project, last_read_id, session_id),
+        )
+        return count_rows[0]["cnt"]
+
     # ── Webhooks ─────────────────────────────────────────────────────────
 
     async def get_webhook_targets(

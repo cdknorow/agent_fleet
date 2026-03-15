@@ -3,6 +3,7 @@
 Usage:
     coral-board join <project> --as <job-title> [--webhook <url>]
     coral-board post <message>
+    coral-board check [--quiet]
     coral-board read [--limit N]
     coral-board leave
     coral-board projects
@@ -180,6 +181,21 @@ def cmd_read(args: argparse.Namespace) -> None:
         print(f"[{ts}] {title}: {msg['content']}")
 
 
+def cmd_check(args: argparse.Namespace) -> None:
+    """Check for unread messages without advancing the read cursor."""
+    project = _active_project()
+    sid = _session_id()
+    result = _api("GET", f"/{project}/messages/check?session_id={sid}")
+    count = result.get("unread", 0)
+    if getattr(args, "quiet", False):
+        print(count)
+    else:
+        if count == 0:
+            print("No unread messages.")
+        else:
+            print(f"{count} unread message{'s' if count != 1 else ''} in '{project}'")
+
+
 def cmd_projects(args: argparse.Namespace) -> None:
     """List all active projects."""
     projects = _api("GET", "/projects")
@@ -240,6 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_post = sub.add_parser("post", help="Post a message")
     p_post.add_argument("message", nargs="+", help="Message content")
     p_post.set_defaults(func=cmd_post)
+
+    # check
+    p_check = sub.add_parser("check", help="Check unread message count (does not advance cursor)")
+    p_check.add_argument("--quiet", "-q", action="store_true", help="Print only the count (for scripting)")
+    p_check.set_defaults(func=cmd_check)
 
     # read
     p_read = sub.add_parser("read", help="Read new messages")

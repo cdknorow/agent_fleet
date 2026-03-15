@@ -71,6 +71,9 @@ def install_hooks(target_dir: Path | str | None = None):
         ("PostToolUse", {
             "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
         }),
+        ("PostToolUse", {
+            "hooks": [{"type": "command", "command": "coral-hook-message-check"}],
+        }),
         ("Stop", {
             "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
         }),

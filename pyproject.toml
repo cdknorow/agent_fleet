@@ -66,6 +66,7 @@ coral-dashboard = "coral.web_server:main"
 launch-coral = "coral.launch:main"
 coral-hook-task-sync = "coral.hooks.task_state:main"
 coral-hook-agentic-state = "coral.hooks.agentic_state:main"
+coral-hook-message-check = "coral.hooks.message_check:main"
 coral-board = "coral.messageboard.cli:main"
 # Legacy aliases (migration from corral -> coral)
 corral = "coral.web_server:main"
