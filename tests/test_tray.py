@@ -55,24 +55,27 @@ class TestRunUvicorn:
     def test_sets_started_event(self):
         from coral.tray import _run_uvicorn
         started = threading.Event()
+        holder = {}
 
         with patch("uvicorn.Config") as mock_config, \
              patch("uvicorn.Server") as mock_server_cls:
             mock_server = MagicMock()
             mock_server_cls.return_value = mock_server
-            _run_uvicorn("0.0.0.0", 8420, started)
+            _run_uvicorn("0.0.0.0", 8420, started, holder)
 
         assert started.is_set()
         mock_server.run.assert_called_once()
+        assert holder["server"] is mock_server
 
     def test_passes_correct_config(self):
         from coral.tray import _run_uvicorn
         started = threading.Event()
+        holder = {}
 
         with patch("uvicorn.Config") as mock_config, \
              patch("uvicorn.Server") as mock_server_cls:
             mock_server_cls.return_value = MagicMock()
-            _run_uvicorn("127.0.0.1", 9999, started)
+            _run_uvicorn("127.0.0.1", 9999, started, holder)
 
         mock_config.assert_called_once_with(
             "coral.web_server:app",

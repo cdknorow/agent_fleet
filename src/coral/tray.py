@@ -59,12 +59,13 @@ def _is_running() -> int | None:
         return None
 
 
-def _run_uvicorn(host: str, port: int, started: threading.Event) -> None:
+def _run_uvicorn(host: str, port: int, started: threading.Event, server_holder: dict) -> None:
     """Run uvicorn in a background thread."""
     import uvicorn
 
     config = uvicorn.Config("coral.web_server:app", host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
+    server_holder["server"] = server
 
     # Signal that the server is starting
     started.set()
@@ -93,8 +94,9 @@ def _run_foreground(host: str, port: int) -> None:
 
     # Start uvicorn in a daemon thread
     started = threading.Event()
+    server_holder: dict = {}
     server_thread = threading.Thread(
-        target=_run_uvicorn, args=(host, port, started), daemon=True
+        target=_run_uvicorn, args=(host, port, started, server_holder), daemon=True
     )
     server_thread.start()
     started.wait(timeout=10)
@@ -108,16 +110,71 @@ def _run_foreground(host: str, port: int) -> None:
                 icon=icon_path,
                 quit_button=None,  # We provide our own quit
             )
+            self._server_running = True
             self.menu = [
                 rumps.MenuItem("Open Dashboard", callback=self.open_dashboard),
                 None,  # separator
+                rumps.MenuItem("Shutdown", callback=self.shutdown),
                 rumps.MenuItem("Quit", callback=self.quit_app),
             ]
 
         def open_dashboard(self, _sender: rumps.MenuItem) -> None:
             webbrowser.open(url)
 
+        def _kill_agents(self) -> int:
+            """Kill all running coral agent tmux sessions via the REST API."""
+            import json
+            import urllib.parse
+            import urllib.request
+
+            req = urllib.request.Request(f"{url}/api/sessions/live")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                sessions = json.loads(resp.read())
+
+            killed = 0
+            for session in sessions:
+                name = session.get("name")
+                if not name:
+                    continue
+                body = json.dumps({
+                    "session_id": session.get("session_id"),
+                    "agent_type": session.get("agent_type"),
+                }).encode()
+                kill_req = urllib.request.Request(
+                    f"{url}/api/sessions/live/{urllib.parse.quote(name, safe='')}/kill",
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(kill_req, timeout=5)
+                    killed += 1
+                except Exception:
+                    pass
+            return killed
+
+        def _stop_server(self) -> None:
+            """Signal uvicorn to shut down gracefully."""
+            server = server_holder.get("server")
+            if server:
+                server.should_exit = True
+            self._server_running = False
+
+        def shutdown(self, _sender: rumps.MenuItem) -> None:
+            """Shut down all agents and the dashboard server."""
+            try:
+                killed = self._kill_agents()
+                self._stop_server()
+                rumps.notification(
+                    "Coral", "", f"Shut down {killed} agent(s) and dashboard server."
+                )
+            except Exception as e:
+                # Server may already be down, just stop it
+                self._stop_server()
+                rumps.notification("Coral", "", f"Dashboard stopped. Agent shutdown error: {e}")
+
         def quit_app(self, _sender: rumps.MenuItem) -> None:
+            self._stop_server()
             _remove_pid()
             rumps.quit_application()
 
