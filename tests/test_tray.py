@@ -117,10 +117,11 @@ class TestRunForeground:
             with patch("builtins.__import__", side_effect=mock_import):
                 _run_foreground("0.0.0.0", 8420)
 
-            MockThread.assert_called_once()
-            _, kwargs = MockThread.call_args
-            assert kwargs.get("daemon") is True, "Server thread must be a daemon"
-            mock_thread_instance.start.assert_called_once()
+            # First Thread call should be the uvicorn server thread
+            assert MockThread.call_count >= 1, "At least one thread should be created"
+            first_call_kwargs = MockThread.call_args_list[0][1]
+            assert first_call_kwargs.get("daemon") is True, "Server thread must be a daemon"
+            assert "_run_uvicorn" in str(first_call_kwargs.get("target", ""))
 
     def test_opens_browser_on_startup(self):
         """The tray app should open the dashboard in the browser on startup."""

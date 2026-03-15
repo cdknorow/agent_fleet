@@ -19,6 +19,38 @@ import webbrowser
 from pathlib import Path
 
 PID_FILE = Path.home() / ".coral" / "tray.pid"
+PYPI_URL = "https://pypi.org/pypi/agent-coral/json"
+GITHUB_RELEASES = "https://github.com/cdknorow/coral/releases"
+
+
+def _check_for_update() -> tuple[str, str] | None:
+    """Check PyPI for a newer version. Returns (current, latest) or None."""
+    import json
+    import urllib.request
+    from importlib.metadata import version as installed_version
+
+    try:
+        current = installed_version("agent-coral")
+    except Exception:
+        return None
+
+    try:
+        req = urllib.request.Request(PYPI_URL)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        latest = data["info"]["version"]
+    except Exception:
+        return None
+
+    try:
+        current_parts = tuple(int(x) for x in current.split("."))
+        latest_parts = tuple(int(x) for x in latest.split("."))
+    except (ValueError, AttributeError):
+        return None
+
+    if latest_parts > current_parts:
+        return (current, latest)
+    return None
 
 
 def _find_icon() -> str | None:
@@ -119,6 +151,22 @@ def _run_foreground(host: str, port: int) -> None:
     # Open the dashboard in the browser on launch
     webbrowser.open(url)
 
+    # Check for updates in a background thread (non-blocking)
+    _update_info: dict = {}
+
+    def _bg_update_check():
+        result = _check_for_update()
+        if result:
+            _update_info["current"] = result[0]
+            _update_info["latest"] = result[1]
+            rumps.notification(
+                "Coral",
+                f"Update available: v{result[1]}",
+                f"You have v{result[0]}. Visit Releases to download, or run: pip install --upgrade agent-coral",
+            )
+
+    threading.Thread(target=_bg_update_check, daemon=True).start()
+
     icon_path = _find_icon()
 
     class CoralTray(rumps.App):
@@ -132,6 +180,7 @@ def _run_foreground(host: str, port: int) -> None:
             self._server_running = True
             menu_items = [
                 rumps.MenuItem("Open Dashboard", callback=self.open_dashboard),
+                rumps.MenuItem("Check for Updates", callback=self.check_updates),
                 None,  # separator
             ]
             if not _tmux_available:
@@ -146,6 +195,23 @@ def _run_foreground(host: str, port: int) -> None:
 
         def open_dashboard(self, _sender: rumps.MenuItem) -> None:
             webbrowser.open(url)
+
+        def check_updates(self, _sender: rumps.MenuItem) -> None:
+            """Check for updates and notify or open releases page."""
+            def _check():
+                result = _check_for_update()
+                if result:
+                    _update_info["current"] = result[0]
+                    _update_info["latest"] = result[1]
+                    rumps.notification(
+                        "Coral",
+                        f"Update available: v{result[1]}",
+                        "pip install --upgrade agent-coral  •  Or download from Releases",
+                    )
+                    webbrowser.open(GITHUB_RELEASES)
+                else:
+                    rumps.notification("Coral", "", "You're on the latest version.")
+            threading.Thread(target=_check, daemon=True).start()
 
         def install_tmux(self, _sender: rumps.MenuItem) -> None:
             """Open a terminal and run brew install tmux."""
