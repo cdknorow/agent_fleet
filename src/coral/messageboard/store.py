@@ -15,8 +15,11 @@ import aiosqlite
 DB_DIR = Path.home() / ".coral"
 DB_PATH = DB_DIR / "messageboard.db"
 
+<<<<<<< HEAD
 MAX_MESSAGES_PER_PROJECT = 500
 
+=======
+>>>>>>> features/message_board
 
 class MessageBoardStore:
     """Self-contained store for the message board feature."""
@@ -112,6 +115,24 @@ class MessageBoardStore:
         )
         return [dict(r) for r in rows]
 
+<<<<<<< HEAD
+=======
+    async def get_subscription(self, session_id: str) -> dict[str, Any] | None:
+        """Return the active subscription for a session, or None."""
+        conn = await self._get_conn()
+        rows = await conn.execute_fetchall(
+            "SELECT * FROM board_subscribers WHERE session_id = ? LIMIT 1",
+            (session_id,),
+        )
+        return dict(rows[0]) if rows else None
+
+    async def get_all_subscriptions(self) -> dict[str, dict[str, Any]]:
+        """Return all active subscriptions keyed by session_id."""
+        conn = await self._get_conn()
+        rows = await conn.execute_fetchall("SELECT * FROM board_subscribers")
+        return {row["session_id"]: dict(row) for row in rows}
+
+>>>>>>> features/message_board
     # ── Messages ─────────────────────────────────────────────────────────
 
     async def post_message(
@@ -126,6 +147,7 @@ class MessageBoardStore:
         msg_id = cursor.lastrowid
         await conn.commit()
 
+<<<<<<< HEAD
         # Auto-prune: keep only the latest MAX_MESSAGES_PER_PROJECT messages
         await self._prune_messages(conn, project)
 
@@ -146,6 +168,10 @@ class MessageBoardStore:
             )
             await conn.commit()
 
+=======
+        return {"id": msg_id, "project": project, "session_id": session_id, "content": content, "created_at": now}
+
+>>>>>>> features/message_board
     async def read_messages(
         self, project: str, session_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
@@ -187,6 +213,62 @@ class MessageBoardStore:
 
         return messages
 
+<<<<<<< HEAD
+=======
+    async def list_messages(
+        self, project: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        """Return recent messages for a project (no cursor, no side effects)."""
+        conn = await self._get_conn()
+        rows = await conn.execute_fetchall(
+            """SELECT m.id, m.project, m.session_id, m.content, m.created_at,
+                      COALESCE(s.job_title, 'Unknown') as job_title
+               FROM board_messages m
+               LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
+               WHERE m.project = ?
+               ORDER BY m.id ASC LIMIT ?""",
+            (project, limit),
+        )
+        return [dict(r) for r in rows]
+
+    async def check_unread(self, project: str, session_id: str) -> int:
+        """Return count of unread messages that mention this agent.
+
+        Only counts messages containing ``@notify-all``, ``@<session_id>``,
+        or ``@<job_title>`` (case-insensitive).  Messages without a relevant
+        mention are silently skipped so agents aren't spammed.
+        """
+        conn = await self._get_conn()
+        sub_rows = await conn.execute_fetchall(
+            "SELECT last_read_id, job_title FROM board_subscribers WHERE project = ? AND session_id = ?",
+            (project, session_id),
+        )
+        if not sub_rows:
+            return 0
+        last_read_id = sub_rows[0]["last_read_id"]
+        job_title = sub_rows[0]["job_title"]
+
+        # Build mention patterns: @notify-all (and variants), @<session_id>, @<job_title>
+        patterns = [
+            "%@notify-all%",
+            "%@notify_all%",
+            "%@notifyall%",
+            "%@all%",
+            f"%@{session_id}%",
+        ]
+        if job_title:
+            patterns.append(f"%@{job_title}%")
+
+        where_clauses = " OR ".join("content LIKE ? COLLATE NOCASE" for _ in patterns)
+        count_rows = await conn.execute_fetchall(
+            f"""SELECT COUNT(*) as cnt FROM board_messages
+                WHERE project = ? AND id > ? AND session_id != ?
+                AND ({where_clauses})""",
+            (project, last_read_id, session_id, *patterns),
+        )
+        return count_rows[0]["cnt"]
+
+>>>>>>> features/message_board
     # ── Webhooks ─────────────────────────────────────────────────────────
 
     async def get_webhook_targets(

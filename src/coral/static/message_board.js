@@ -13,7 +13,7 @@ async function fetchProjects() {
 }
 
 async function fetchMessages(project) {
-    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages?session_id=dashboard&limit=200`);
+    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages/all?limit=200`);
     return await resp.json();
 }
 
@@ -138,9 +138,13 @@ async function loadBoardProjectList() {
 
 async function loadBoardMessages(project) {
     try {
+<<<<<<< HEAD
         // Fetch all recent messages (not cursor-based for dashboard — use a direct query)
         const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages?session_id=dashboard&limit=200`);
         const messages = await resp.json();
+=======
+        const messages = await fetchMessages(project);
+>>>>>>> features/message_board
         renderMessages(messages);
     } catch (e) {
         console.error('Failed to load board messages:', e);
@@ -149,10 +153,21 @@ async function loadBoardMessages(project) {
 
 function renderMessages(messages) {
     const container = document.getElementById('mb-messages');
+<<<<<<< HEAD
     if (!messages.length) {
         container.innerHTML = '<div class="empty-state" id="mb-messages-empty">No messages yet</div>';
         return;
     }
+=======
+    const empty = document.getElementById('mb-messages-empty');
+    if (!messages.length) {
+        container.innerHTML = '';
+        container.appendChild(empty);
+        empty.style.display = '';
+        return;
+    }
+    empty.style.display = 'none';
+>>>>>>> features/message_board
     container.innerHTML = messages.map(m => `
         <div style="padding:8px 0;border-bottom:1px solid var(--border)">
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
@@ -226,7 +241,10 @@ export async function postBoardMessage() {
         });
         input.value = '';
         loadBoardMessages(currentProject);
+<<<<<<< HEAD
         loadBoardProjects();
+=======
+>>>>>>> features/message_board
     } catch (e) {
         console.error('Failed to post message:', e);
     }
@@ -254,7 +272,10 @@ function startBoardPoll() {
         if (currentProject) {
             loadBoardMessages(currentProject);
             loadBoardSubscribers(currentProject);
+<<<<<<< HEAD
             loadBoardProjects();
+=======
+>>>>>>> features/message_board
         }
     }, 5000);
 }
