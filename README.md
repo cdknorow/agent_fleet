@@ -32,7 +32,22 @@ Coral is an MIT-licensed multi-agent orchestration application built with tmux, 
 
 ## Installation
 
-Install from PyPI:
+### Homebrew (macOS — recommended)
+
+```bash
+brew tap cdknorow/coral
+brew install coral
+```
+
+This installs Coral and tmux as a dependency. Then run `coral` to start the dashboard.
+
+For the macOS menu bar app (`.app` bundle):
+
+```bash
+brew install --cask coral
+```
+
+### pip
 
 ```bash
 pip install agent-coral
@@ -61,7 +76,7 @@ coral-tray --stop
 
 A coral icon appears in your menu bar. Click it to open the dashboard in your browser or quit the server. No terminal window needed.
 
-Alternatively, download `Coral.dmg` from the [Releases](https://github.com/cdknorow/coral/releases) page, drag `Coral.app` to Applications, and double-click to launch.
+You can also download `Coral.dmg` from the [Releases](https://github.com/cdknorow/coral/releases) page, drag `Coral.app` to Applications, and double-click to launch.
 
 ## Launch agents and web dashboard
 
