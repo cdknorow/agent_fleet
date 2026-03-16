@@ -136,6 +136,22 @@
     z-index: 10;
 }
 
+.xterm-disconnected-badge {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    background: var(--danger, #f85149);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 10px;
+    pointer-events: none;
+    opacity: 0.9;
+    z-index: 10;
+    display: none;
+}
+
 /* ── Capture Blocks ────────────────────────────────────────── */
 
 .capture-block {

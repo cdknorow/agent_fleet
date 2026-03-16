@@ -374,6 +374,19 @@ async def resize_pane(
         return str(e)
 
 
+async def resize_pane_target(target: str, columns: int) -> str | None:
+    """Resize the tmux pane width by target address (skips pane lookup). Returns error string or None."""
+    try:
+        rc, _, stderr = await run_cmd(
+            "tmux", "resize-window", "-t", target, "-x", str(columns)
+        )
+        if rc != 0:
+            return f"resize-window failed (rc={rc}): {stderr}"
+        return None
+    except Exception as e:
+        return str(e)
+
+
 async def open_terminal_attached(
     agent_name: str, agent_type: str | None = None, session_id: str | None = None,
 ) -> str | None:

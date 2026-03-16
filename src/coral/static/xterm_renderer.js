@@ -8,7 +8,12 @@ let fitAddon = null;
 let terminalWs = null;
 let _selectionDisposable = null;
 let _onDataDisposable = null;
+let _onResizeDisposable = null;
 let _terminalFocused = false;
+
+// Input queue: buffers keystrokes while WebSocket is disconnected
+let _inputQueue = [];
+const MAX_INPUT_QUEUE = 256;
 
 function _getXtermTheme() {
     // Read xterm colors from CSS custom properties (set by theme configurator or variables.css)
@@ -54,6 +59,13 @@ let _userScrolledUp = false;
 // and a generation counter to suppress stale onclose reconnects.
 let _connectedSessionId = null;
 let _wsGeneration = 0;
+
+function _setDisconnectedBadge(visible) {
+    const badge = document.getElementById("xterm-disconnected-badge");
+    if (badge) {
+        badge.style.display = visible ? "" : "none";
+    }
+}
 
 function _setPauseBadge(visible) {
     const badge = document.getElementById("selection-pause-badge");
@@ -164,18 +176,9 @@ export function createTerminal(containerEl) {
                 data: batch,
             }));
         } else {
-            // Fallback: map common sequences to raw key names for POST
-            const _fallbackMap = {
-                "\r": ["Enter"],
-                "\x1b": ["Escape"],
-                "\x1b[A": ["Up"],
-                "\x1b[B": ["Down"],
-                "\x1b[C": ["Right"],
-                "\x1b[D": ["Left"],
-            };
-            const mapped = _fallbackMap[batch];
-            if (mapped) {
-                sendRawKeys(mapped);
+            // Queue input for delivery when WebSocket reconnects
+            if (_inputQueue.length < MAX_INPUT_QUEUE) {
+                _inputQueue.push(batch);
             }
         }
     }
@@ -239,6 +242,17 @@ export function createTerminal(containerEl) {
         });
     }
 
+    // Sync tmux pane dimensions when xterm resizes (e.g. after fitAddon.fit())
+    _onResizeDisposable = terminal.onResize(({ cols, rows }) => {
+        if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+            terminalWs.send(JSON.stringify({
+                type: "terminal_resize",
+                cols: cols,
+                rows: rows,
+            }));
+        }
+    });
+
     return terminal;
 }
 
@@ -268,6 +282,19 @@ export function connectTerminalWs(name, agentType, sessionId) {
         `${proto}//${location.host}/ws/terminal/${encodeURIComponent(name)}${qs}`
     );
 
+    terminalWs.onopen = () => {
+        _setDisconnectedBadge(false);
+        // Flush any input queued while disconnected
+        if (_inputQueue.length > 0) {
+            const queued = _inputQueue.join("");
+            _inputQueue = [];
+            terminalWs.send(JSON.stringify({
+                type: "terminal_input",
+                data: queued,
+            }));
+        }
+    };
+
     terminalWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "terminal_update" && terminal) {
@@ -294,6 +321,7 @@ export function connectTerminalWs(name, agentType, sessionId) {
 
         if (state.currentSession && state.currentSession.type === "live"
             && state.currentSession.session_id === sessionId) {
+            _setDisconnectedBadge(true);
             setTimeout(() => {
                 // Re-check: generation still current AND session still matches
                 if (myGeneration === _wsGeneration
@@ -314,6 +342,8 @@ export function disconnectTerminalWs() {
     // Bump generation BEFORE closing so the old onclose handler is suppressed
     _wsGeneration++;
     _connectedSessionId = null;
+    _inputQueue = [];
+    _setDisconnectedBadge(false);
     if (terminalWs) {
         terminalWs.close();
         terminalWs = null;
@@ -330,9 +360,14 @@ export function disposeTerminal() {
         _onDataDisposable.dispose();
         _onDataDisposable = null;
     }
+    if (_onResizeDisposable) {
+        _onResizeDisposable.dispose();
+        _onResizeDisposable = null;
+    }
     _xtermSelecting = false;
     _terminalFocused = false;
     _pendingContent = null;
+    _inputQueue = [];
     if (terminal) {
         terminal.dispose();
         terminal = null;
