@@ -228,20 +228,45 @@ export function createTerminal(containerEl) {
 
     // Make the native scrollbar clickable/draggable.
     // xterm.js places .xterm-screen (canvas) on top of .xterm-viewport (scrollbar),
-    // blocking pointer events on the scrollbar. Fix: set pointer-events:none on the
-    // screen layer and re-enable on the canvas elements inside it so terminal
-    // interaction still works, while the scrollbar on the viewport becomes accessible.
+    // blocking pointer events on the scrollbar. Fix: add a transparent strip on the
+    // right edge (over the scrollbar area) that sits above everything and forwards
+    // scroll events to the viewport, without touching the xterm-screen layer at all.
     const xtermViewport = containerEl.querySelector('.xterm-viewport');
-    const xtermScreen = containerEl.querySelector('.xterm-screen');
-    if (xtermViewport && xtermScreen) {
-        xtermViewport.style.zIndex = '1';
-        xtermScreen.style.zIndex = '0';
-        xtermScreen.style.pointerEvents = 'none';
-        // Re-enable pointer events on the actual canvas elements inside screen
-        xtermScreen.querySelectorAll('canvas').forEach(c => { c.style.pointerEvents = 'auto'; });
-        // Also ensure the textarea (for keyboard input) keeps pointer events
-        const helperTextarea = containerEl.querySelector('.xterm-helper-textarea');
-        if (helperTextarea) helperTextarea.style.pointerEvents = 'auto';
+    if (xtermViewport) {
+        const scrollOverlay = document.createElement('div');
+        scrollOverlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 14px;
+            height: 100%;
+            z-index: 10;
+            cursor: default;
+        `;
+        // Forward wheel events to the viewport so scrolling still works on the strip
+        scrollOverlay.addEventListener('wheel', (e) => {
+            xtermViewport.scrollTop += e.deltaY;
+            e.preventDefault();
+        }, { passive: false });
+
+        // Forward mousedown for scrollbar drag — hide overlay during drag so
+        // native scrollbar thumb interaction works on the viewport underneath
+        scrollOverlay.addEventListener('mousedown', (e) => {
+            scrollOverlay.style.display = 'none';
+            // Re-show after mouse is released
+            const restore = () => {
+                scrollOverlay.style.display = '';
+                document.removeEventListener('mouseup', restore);
+            };
+            document.addEventListener('mouseup', restore);
+        });
+
+        // The xterm wrapper needs position:relative for the absolute overlay
+        const xtermWrapper = containerEl.querySelector('.xterm');
+        if (xtermWrapper) {
+            xtermWrapper.style.position = 'relative';
+            xtermWrapper.appendChild(scrollOverlay);
+        }
     }
 
     // Focus management: track terminal focus state
