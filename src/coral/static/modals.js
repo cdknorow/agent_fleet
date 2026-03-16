@@ -6,7 +6,7 @@ import { loadLiveSessions } from './api.js';
 import { getEngineNames, getEngineName, setRendererOverride } from './renderers.js';
 import { renderCaptureText, syncPaneWidth } from './capture.js';
 import { hideRestartModal } from './controls.js';
-import { updateTerminalTheme } from './xterm_renderer.js';
+import { updateTerminalTheme, getTerminal } from './xterm_renderer.js';
 
 export function toggleFlag(inputId, flag) {
     const input = document.getElementById(inputId);
@@ -199,6 +199,45 @@ window._onAgentBoardChange = _onAgentBoardChange;
 
 let _teamAgentCounter = 0;
 
+// Predefined agent presets
+const AGENT_PRESETS = [
+    {
+        name: "Lead Developer",
+        prompt: "You are the lead developer. Implement features, write code, and coordinate with the team via the message board.",
+    },
+    {
+        name: "QA Engineer",
+        prompt: "You are an expert QA engineer. Review the work of other agents, create test plans, write tests, and ask probing questions about complex areas.",
+    },
+    {
+        name: "Orchestrator",
+        prompt: "You are the orchestrator. Coordinate the team, break down tasks, assign work via the message board, and track progress. Do not write code yourself — delegate to the other agents.",
+    },
+    {
+        name: "Frontend Dev",
+        prompt: "You are a frontend developer. Build UI components, style pages, and ensure a great user experience. Coordinate with the team via the message board.",
+    },
+    {
+        name: "Backend Dev",
+        prompt: "You are a backend developer. Build APIs, services, and data models. Coordinate with the team via the message board.",
+    },
+    {
+        name: "DevOps Engineer",
+        prompt: "You are a DevOps engineer. Handle CI/CD, infrastructure, deployment, and monitoring. Coordinate with the team via the message board.",
+    },
+    {
+        name: "Security Reviewer",
+        prompt: "You are a security reviewer. Audit code for vulnerabilities, review auth flows, and ensure OWASP best practices. Report findings via the message board.",
+    },
+    {
+        name: "Technical Writer",
+        prompt: "You are a technical writer. Write documentation, API guides, and READMEs. Coordinate with the team via the message board.",
+    },
+];
+
+// Default team: first 3 presets
+const DEFAULT_TEAM_PRESETS = AGENT_PRESETS.slice(0, 3);
+
 async function _initTeamForm() {
     // Reset form
     document.getElementById("team-board-name").value = "";
@@ -233,11 +272,17 @@ async function _initTeamForm() {
     // Show new board name input
     document.getElementById("team-new-board-row").style.display = "";
 
-    // Add two default agents
-    _addTeamAgent("Lead Developer", "You are the lead developer. Implement features, write code, and coordinate with the team via the message board.");
-    _addTeamAgent("QA Engineer", "You are an expert QA engineer. Review the work of other agents, create test plans, write tests, and ask probing questions about complex areas.");
+    // Add three default agents
+    for (const preset of DEFAULT_TEAM_PRESETS) {
+        _addTeamAgent(preset.name, preset.prompt);
+    }
 
     document.getElementById("team-board-name").focus();
+}
+
+function _truncatePrompt(text, maxLen) {
+    if (!text || text.length <= maxLen) return text || "";
+    return text.substring(0, maxLen) + "\u2026";
 }
 
 function _addTeamAgent(defaultName, defaultPrompt) {
@@ -247,21 +292,97 @@ function _addTeamAgent(defaultName, defaultPrompt) {
     const row = document.createElement("div");
     row.className = "team-agent-row";
     row.dataset.idx = idx;
+
+    const hasContent = !!(defaultName || defaultPrompt);
+    const collapsed = hasContent;
+
     row.innerHTML = `
-        <div class="team-agent-header">
-            <strong>Agent #${idx}</strong>
-            <button class="team-agent-remove" onclick="this.closest('.team-agent-row').remove()" title="Remove">&times;</button>
+        <div class="team-agent-card ${collapsed ? '' : 'editing'}">
+            <div class="team-agent-summary" onclick="this.closest('.team-agent-card').classList.toggle('editing')">
+                <div class="team-agent-summary-left">
+                    <span class="team-agent-role-name">${escapeHtml(defaultName || 'New Agent')}</span>
+                    <span class="team-agent-prompt-preview">${escapeHtml(_truncatePrompt(defaultPrompt, 200))}</span>
+                </div>
+                <div class="team-agent-summary-actions">
+                    <button class="team-agent-edit-btn" title="Edit" onclick="event.stopPropagation(); this.closest('.team-agent-card').classList.add('editing')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button class="team-agent-remove" onclick="event.stopPropagation(); this.closest('.team-agent-row').remove()" title="Remove">&times;</button>
+                </div>
+            </div>
+            <div class="team-agent-form">
+                <label>Name / Role:
+                    <input type="text" class="team-agent-name" placeholder="e.g. QA Engineer, Frontend Dev" value="${escapeAttr(defaultName || '')}"
+                        oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-role-name').textContent=this.value||'New Agent'">
+                </label>
+                <label>Behavior Prompt:
+                    <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior..."
+                        oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-prompt-preview').textContent=this.value.substring(0,200)+(this.value.length>200?'\u2026':'')">${escapeHtml(defaultPrompt || '')}</textarea>
+                </label>
+                <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
+            </div>
         </div>
-        <label>Name / Role:
-            <input type="text" class="team-agent-name" placeholder="e.g. QA Engineer, Frontend Dev" value="${escapeAttr(defaultName || '')}">
-        </label>
-        <label>Behavior Prompt:
-            <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior...">${escapeHtml(defaultPrompt || '')}</textarea>
-        </label>
     `;
     list.appendChild(row);
+
+    // Focus the name input if it's a new empty agent
+    if (!hasContent) {
+        const nameInput = row.querySelector('.team-agent-name');
+        if (nameInput) setTimeout(() => nameInput.focus(), 50);
+    }
 }
-window._addTeamAgent = () => _addTeamAgent("", "");
+
+function _showAddAgentPicker() {
+    const picker = document.getElementById("team-agent-picker");
+    if (!picker) return;
+
+    // Get names of agents already added
+    const existingNames = new Set();
+    document.querySelectorAll("#team-agents-list .team-agent-name").forEach(input => {
+        const n = input.value.trim().toLowerCase();
+        if (n) existingNames.add(n);
+    });
+
+    // Build picker items: presets not already in the list
+    const available = AGENT_PRESETS.filter(p => !existingNames.has(p.name.toLowerCase()));
+
+    let html = '';
+    for (const preset of available) {
+        html += `<button class="agent-picker-item" onclick="window._addPresetAgent('${escapeAttr(preset.name)}')">${escapeHtml(preset.name)}</button>`;
+    }
+    if (available.length > 0) {
+        html += '<div class="agent-picker-divider"></div>';
+    }
+    html += `<button class="agent-picker-item agent-picker-custom" onclick="window._addTeamAgent()">+ Create Custom</button>`;
+
+    picker.innerHTML = html;
+    picker.style.display = "";
+
+    // Close picker on outside click
+    const closeHandler = (e) => {
+        if (!picker.contains(e.target) && !e.target.closest('.team-add-agent-btn')) {
+            picker.style.display = "none";
+            document.removeEventListener("click", closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener("click", closeHandler), 0);
+}
+window._showAddAgentPicker = _showAddAgentPicker;
+
+function _addPresetAgent(name) {
+    const preset = AGENT_PRESETS.find(p => p.name === name);
+    if (preset) {
+        _addTeamAgent(preset.name, preset.prompt);
+    }
+    const picker = document.getElementById("team-agent-picker");
+    if (picker) picker.style.display = "none";
+}
+window._addPresetAgent = _addPresetAgent;
+window._addTeamAgent = () => {
+    _addTeamAgent("", "");
+    const picker = document.getElementById("team-agent-picker");
+    if (picker) picker.style.display = "none";
+};
 
 function _onTeamBoardChange() {
     const select = document.getElementById("team-board-select");
@@ -652,6 +773,10 @@ export async function showSettingsModal() {
         dirInput.placeholder = dirInput.dataset.coralRoot || "/path/to/project";
     }
 
+    // Terminal Scrollback
+    const scrollbackSelect = document.getElementById("settings-terminal-scrollback");
+    if (scrollbackSelect) scrollbackSelect.value = s.terminal_scrollback || "1000";
+
     // Fit Pane Width
     const fitPaneCheck = document.getElementById("settings-fit-pane-width");
     if (fitPaneCheck) fitPaneCheck.checked = !!s.fit_pane_width;
@@ -678,6 +803,7 @@ export async function applySettings() {
     const workingDir = document.getElementById("settings-working-dir")?.value.trim() || "";
     const fitPaneWidth = document.getElementById("settings-fit-pane-width")?.checked || false;
     const notifyNeedsInput = document.getElementById("settings-notify-needs-input")?.checked || false;
+    const terminalScrollback = document.getElementById("settings-terminal-scrollback")?.value || "1000";
     const checkUpdates = document.getElementById("settings-check-updates")?.checked ?? true;
     localStorage.setItem("coral-update-check-enabled", checkUpdates ? "true" : "false");
 
@@ -699,6 +825,7 @@ export async function applySettings() {
         default_working_dir: workingDir,
         fit_pane_width: fitPaneWidth,
         notify_needs_input: notifyNeedsInput,
+        terminal_scrollback: terminalScrollback,
     };
 
     try {
@@ -731,6 +858,12 @@ export async function applySettings() {
         // Trigger pane width sync if the setting was just enabled
         if (fitPaneWidth) {
             syncPaneWidth();
+        }
+
+        // Apply scrollback to existing terminal
+        const term = getTerminal();
+        if (term) {
+            term.options.scrollback = parseInt(terminalScrollback, 10) || 1000;
         }
 
         showToast("Settings saved");

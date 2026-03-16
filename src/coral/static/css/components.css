@@ -1031,6 +1031,30 @@
     min-width: 0;
 }
 
+.team-agents-container {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--bg-secondary);
+}
+
+.team-agents-header {
+    margin-bottom: 10px;
+}
+
+.team-agents-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+    line-height: 1.4;
+}
+
+.team-agents-footer {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+}
+
 .team-agents-scroll {
     max-height: 360px;
     overflow-y: auto;
@@ -1041,9 +1065,108 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 12px;
     margin-bottom: 8px;
     position: relative;
+    overflow: hidden;
+    transition: border-color 0.15s;
+}
+
+.team-agent-row:hover {
+    border-color: var(--border-light);
+}
+
+/* Collapsed card summary */
+.team-agent-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+    gap: 8px;
+}
+
+.team-agent-summary-left {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.team-agent-role-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.team-agent-prompt-preview {
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+}
+
+.team-agent-summary-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.team-agent-edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: color 0.15s;
+}
+
+.team-agent-edit-btn:hover {
+    color: var(--accent-primary, #58a6ff);
+}
+
+.team-agent-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.team-agent-remove:hover {
+    color: var(--danger);
+}
+
+/* Expandable edit form */
+.team-agent-form {
+    display: none;
+    padding: 0 12px 12px;
+}
+
+.team-agent-card.editing .team-agent-form {
+    display: block;
+}
+
+.team-agent-card.editing .team-agent-summary {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+}
+
+.team-agent-card.editing {
+    border-color: var(--accent-primary, #58a6ff);
 }
 
 .team-agent-row label {
@@ -1063,30 +1186,54 @@
     min-height: 48px;
 }
 
-.team-agent-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+.team-agent-done-btn {
+    margin-top: 6px;
+    float: right;
 }
 
-.team-agent-header strong {
-    font-size: 13px;
-    color: var(--text-secondary);
+/* Preset picker dropdown */
+.agent-picker-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 100;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    padding: 4px;
+    min-width: 200px;
+    max-height: 320px;
+    overflow-y: auto;
 }
 
-.team-agent-remove {
+.agent-picker-item {
+    display: block;
+    width: 100%;
+    text-align: left;
     background: none;
     border: none;
-    color: var(--text-muted);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-size: 13px;
     cursor: pointer;
-    font-size: 16px;
-    padding: 0 4px;
-    line-height: 1;
+    border-radius: 6px;
+    transition: background 0.1s;
 }
 
-.team-agent-remove:hover {
-    color: var(--danger);
+.agent-picker-item:hover {
+    background: var(--bg-hover);
+}
+
+.agent-picker-custom {
+    color: var(--accent-primary, #58a6ff);
+    font-weight: 500;
+}
+
+.agent-picker-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 8px;
 }
 
 .launch-back-btn {

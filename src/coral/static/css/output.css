@@ -65,12 +65,36 @@
 }
 
 .xterm-container .xterm-viewport::-webkit-scrollbar {
-    width: 6px;
+    width: 12px;
+}
+
+.xterm-container .xterm-viewport::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
     background: var(--border-light);
-    border-radius: 3px;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.xterm-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+/* Ensure the xterm-viewport scrollbar is clickable by keeping it above the screen layer */
+.xterm-container .xterm-viewport {
+    z-index: 1;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-light) transparent;
+}
+
+/* Inset the screen canvas so it doesn't cover the scrollbar track */
+.xterm-container .xterm-screen {
+    margin-right: 12px;
 }
 
 .xterm-container.xterm-focused {
