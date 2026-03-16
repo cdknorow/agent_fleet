@@ -227,45 +227,23 @@ export function createTerminal(containerEl) {
     fitAddon.fit();
 
     // Make the native scrollbar clickable/draggable.
-    // xterm.js places .xterm-screen (canvas) on top of .xterm-viewport (scrollbar),
-    // blocking pointer events on the scrollbar. Fix: add a transparent strip on the
-    // right edge (over the scrollbar area) that sits above everything and forwards
-    // scroll events to the viewport, without touching the xterm-screen layer at all.
-    const xtermViewport = containerEl.querySelector('.xterm-viewport');
-    if (xtermViewport) {
-        const scrollOverlay = document.createElement('div');
-        scrollOverlay.style.cssText = `
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 14px;
-            height: 100%;
-            z-index: 10;
-            cursor: default;
-        `;
-        // Forward wheel events to the viewport so scrolling still works on the strip
-        scrollOverlay.addEventListener('wheel', (e) => {
-            xtermViewport.scrollTop += e.deltaY;
-            e.preventDefault();
-        }, { passive: false });
-
-        // Forward mousedown for scrollbar drag — hide overlay during drag so
-        // native scrollbar thumb interaction works on the viewport underneath
-        scrollOverlay.addEventListener('mousedown', (e) => {
-            scrollOverlay.style.display = 'none';
-            // Re-show after mouse is released
-            const restore = () => {
-                scrollOverlay.style.display = '';
-                document.removeEventListener('mouseup', restore);
-            };
-            document.addEventListener('mouseup', restore);
-        });
-
-        // The xterm wrapper needs position:relative for the absolute overlay
-        const xtermWrapper = containerEl.querySelector('.xterm');
-        if (xtermWrapper) {
-            xtermWrapper.style.position = 'relative';
-            xtermWrapper.appendChild(scrollOverlay);
+    // xterm.js layers .xterm-screen on top of .xterm-viewport, blocking the
+    // native scrollbar. Fix: after each fit(), nudge the screen element so it
+    // doesn't cover the scrollbar. We monkey-patch fitAddon.fit() to apply
+    // this after every resize.
+    const _origFit = fitAddon.fit.bind(fitAddon);
+    fitAddon.fit = () => {
+        _origFit();
+        const screen = containerEl.querySelector('.xterm-screen');
+        if (screen) {
+            screen.style.width = 'calc(100% - 14px)';
+        }
+    };
+    // Apply once now
+    {
+        const screen = containerEl.querySelector('.xterm-screen');
+        if (screen) {
+            screen.style.width = 'calc(100% - 14px)';
         }
     }
 
