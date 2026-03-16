@@ -72,6 +72,42 @@ function getDotClass(staleness, waitingForInput, working, waitingReason) {
     return "stale";
 }
 
+// ── Session ordering ──────────────────────────────────────────────────
+
+function _getSessionOrder() {
+    try {
+        return JSON.parse(state.settings.session_order || "[]");
+    } catch { return []; }
+}
+
+function _sortByOrder(sessions) {
+    const order = _getSessionOrder();
+    if (!order.length) return sessions;
+    const posMap = {};
+    order.forEach((sid, i) => { posMap[sid] = i; });
+    return [...sessions].sort((a, b) => {
+        const pa = posMap[a.session_id] ?? 9999;
+        const pb = posMap[b.session_id] ?? 9999;
+        return pa - pb;
+    });
+}
+
+async function _saveSessionOrder(orderedIds) {
+    state.settings.session_order = JSON.stringify(orderedIds);
+    try {
+        await fetch("/api/settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_order: state.settings.session_order }),
+        });
+    } catch (e) {
+        console.error("Failed to save session order:", e);
+    }
+}
+
+// Drag-and-drop state
+let _draggedSid = null;
+
 export function renderLiveSessions(sessions) {
     const list = document.getElementById("live-sessions-list");
 
@@ -92,11 +128,12 @@ export function renderLiveSessions(sessions) {
 
     let html = "";
     for (const [groupName, groupSessions] of Object.entries(groups)) {
-        const isMulti = groupSessions.length > 1;
-        const countBadge = isMulti ? ` <span class="session-group-count">${groupSessions.length}</span>` : "";
+        const sorted = _sortByOrder(groupSessions);
+        const isMulti = sorted.length > 1;
+        const countBadge = isMulti ? ` <span class="session-group-count">${sorted.length}</span>` : "";
         html += `<li class="session-group-header">${escapeHtml(groupName)}${countBadge}</li>`;
 
-        for (const s of groupSessions) {
+        for (const s of sorted) {
             const dotClass = getDotClass(s.staleness_seconds, s.waiting_for_input, s.working, s.waiting_reason);
             const isActive = state.currentSession && state.currentSession.type === "live" && state.currentSession.session_id === s.session_id;
             const typeTag = s.agent_type && s.agent_type !== "claude" ? ` <span class="badge ${escapeHtml(s.agent_type)}">${escapeHtml(s.agent_type)}</span>` : "";
@@ -111,7 +148,11 @@ export function renderLiveSessions(sessions) {
             const sid = s.session_id ? escapeHtml(s.session_id) : "";
             const editBtn = `<button class="sidebar-edit-btn" onclick="event.stopPropagation(); renameAgent('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')" title="Rename agent">&#x270E;</button>`;
             const tooltip = buildSessionTooltip(s);
-            html += `<li class="session-group-item${isActive ? ' active' : ''}" onclick="selectLiveSession('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')">
+            html += `<li class="session-group-item${isActive ? ' active' : ''}"
+                draggable="true"
+                data-session-id="${sid}"
+                data-group="${escapeHtml(groupName)}"
+                onclick="selectLiveSession('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')">
                 <span class="session-dot ${dotClass}"></span>
                 <div class="session-info">
                     <div class="session-name-row">
@@ -142,6 +183,72 @@ export function renderLiveSessions(sessions) {
         });
         item.addEventListener("mouseleave", () => {
             tip.style.display = "none";
+        });
+    }
+
+    // Attach drag-and-drop listeners for reordering
+    _attachDragListeners(list);
+}
+
+function _attachDragListeners(list) {
+    const items = list.querySelectorAll(".session-group-item[draggable]");
+
+    for (const item of items) {
+        item.addEventListener("dragstart", (e) => {
+            _draggedSid = item.dataset.sessionId;
+            item.classList.add("dragging");
+            e.dataTransfer.effectAllowed = "move";
+            // Use a minimal drag image to avoid tooltip flash
+            e.dataTransfer.setData("text/plain", _draggedSid);
+        });
+
+        item.addEventListener("dragend", () => {
+            item.classList.remove("dragging");
+            _draggedSid = null;
+            // Clear all drop indicators
+            for (const el of list.querySelectorAll(".drag-over")) {
+                el.classList.remove("drag-over");
+            }
+        });
+
+        item.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            if (!_draggedSid || _draggedSid === item.dataset.sessionId) return;
+            // Only allow reorder within the same group
+            const draggedEl = list.querySelector(`[data-session-id="${_draggedSid}"]`);
+            if (!draggedEl || draggedEl.dataset.group !== item.dataset.group) return;
+            e.dataTransfer.dropEffect = "move";
+            item.classList.add("drag-over");
+        });
+
+        item.addEventListener("dragleave", () => {
+            item.classList.remove("drag-over");
+        });
+
+        item.addEventListener("drop", (e) => {
+            e.preventDefault();
+            item.classList.remove("drag-over");
+            if (!_draggedSid || _draggedSid === item.dataset.sessionId) return;
+
+            const group = item.dataset.group;
+            const draggedEl = list.querySelector(`[data-session-id="${_draggedSid}"]`);
+            if (!draggedEl || draggedEl.dataset.group !== group) return;
+
+            // Gather current order of session_ids in this group
+            const groupItems = [...list.querySelectorAll(".session-group-item")].filter(el => el.dataset.group === group);
+            const ids = groupItems.map(el => el.dataset.sessionId);
+
+            // Remove dragged from its position and insert before drop target
+            const fromIdx = ids.indexOf(_draggedSid);
+            const toIdx = ids.indexOf(item.dataset.sessionId);
+            if (fromIdx === -1 || toIdx === -1) return;
+
+            ids.splice(fromIdx, 1);
+            ids.splice(toIdx, 0, _draggedSid);
+
+            // Save and re-render
+            _saveSessionOrder(ids);
+            renderLiveSessions(state.liveSessions);
         });
     }
 }

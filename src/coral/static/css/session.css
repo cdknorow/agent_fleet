@@ -237,6 +237,17 @@
 
 .session-group-item {
     padding-left: 22px !important;
+    cursor: grab;
+}
+
+.session-group-item.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+.session-group-item.drag-over {
+    border-top: 2px solid var(--accent-primary, #58a6ff);
+    margin-top: -2px;
 }
 
 /* ── Session View ──────────────────────────────────────────── */
