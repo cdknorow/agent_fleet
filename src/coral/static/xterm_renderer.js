@@ -92,11 +92,12 @@ export function createTerminal(containerEl) {
         return null;
     }
 
+    const scrollback = parseInt((state.settings || {}).terminal_scrollback, 10) || 1000;
     terminal = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
         disableStdin: false,
-        scrollback: 1000,
+        scrollback: scrollback,
         fontSize: 13,
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         theme: _getXtermTheme(),
