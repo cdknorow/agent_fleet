@@ -22,16 +22,17 @@
         <!-- Board view (shown when project selected) -->
         <div id="mb-board" style="display:none;flex:1;flex-direction:column;overflow:hidden">
             <!-- Messages -->
-            <div id="mb-messages" style="flex:1;overflow-y:auto;padding-bottom:12px">
+            <div id="mb-messages" style="flex:1;overflow-y:auto;padding:8px 4px 12px">
                 <div class="empty-state" id="mb-messages-empty">No messages yet</div>
             </div>
 
             <!-- Post form -->
-            <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;gap:8px">
-                <input type="text" id="mb-post-input" placeholder="Post a message as Developer..."
-                       style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px"
-                       onkeydown="if(event.key==='Enter'){event.preventDefault();postBoardMessage()}">
-                <button class="btn btn-small btn-primary" onclick="postBoardMessage()">Send</button>
+            <div style="border-top:1px solid var(--border);padding:12px 0 0;display:flex;gap:8px;align-items:flex-end">
+                <textarea id="mb-post-input" placeholder="Post a message as Developer..."
+                       rows="2"
+                       style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;min-height:44px"
+                       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();postBoardMessage()}"></textarea>
+                <button class="btn btn-primary" onclick="postBoardMessage()" style="height:44px;padding:0 20px">Send</button>
             </div>
         </div>
 

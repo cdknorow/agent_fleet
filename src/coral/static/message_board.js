@@ -152,6 +152,27 @@ async function loadBoardMessages(project) {
     }
 }
 
+// Agent color palette for bubble accents
+const _agentColors = [
+    { bg: 'rgba(88, 166, 255, 0.08)', border: 'rgba(88, 166, 255, 0.25)', name: '#58a6ff' },   // blue
+    { bg: 'rgba(126, 231, 135, 0.08)', border: 'rgba(126, 231, 135, 0.25)', name: '#7ee787' },  // green
+    { bg: 'rgba(210, 153, 237, 0.08)', border: 'rgba(210, 153, 237, 0.25)', name: '#d299ed' },  // purple
+    { bg: 'rgba(255, 166, 87, 0.08)', border: 'rgba(255, 166, 87, 0.25)', name: '#ffa657' },    // orange
+    { bg: 'rgba(255, 123, 114, 0.08)', border: 'rgba(255, 123, 114, 0.25)', name: '#ff7b72' },  // red
+    { bg: 'rgba(121, 192, 255, 0.08)', border: 'rgba(121, 192, 255, 0.25)', name: '#79c0ff' },  // sky
+    { bg: 'rgba(238, 190, 95, 0.08)', border: 'rgba(238, 190, 95, 0.25)', name: '#eebe5f' },    // gold
+    { bg: 'rgba(150, 210, 200, 0.08)', border: 'rgba(150, 210, 200, 0.25)', name: '#96d2c8' },  // teal
+];
+const _agentColorMap = {};
+
+function _getAgentColor(name) {
+    if (!name) return _agentColors[0];
+    if (_agentColorMap[name]) return _agentColorMap[name];
+    const idx = Object.keys(_agentColorMap).length % _agentColors.length;
+    _agentColorMap[name] = _agentColors[idx];
+    return _agentColorMap[name];
+}
+
 function renderMessages(messages) {
     const container = document.getElementById('mb-messages');
     if (!messages.length) {
@@ -162,19 +183,20 @@ function renderMessages(messages) {
     const prevScrollTop = container.scrollTop;
     const wasAtBottom = (container.scrollHeight - prevScrollTop - container.clientHeight) < 50;
 
-    container.innerHTML = messages.map(m => `
-        <div class="mb-message" style="padding:8px 0;border-bottom:1px solid var(--border);position:relative">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(m.job_title || 'Unknown')}</span>
+    container.innerHTML = messages.map(m => {
+        const color = _getAgentColor(m.job_title || 'Unknown');
+        return `
+        <div class="mb-message" style="background:${color.bg};border:1px solid ${color.border};border-radius:10px;padding:10px 14px;margin-bottom:10px;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                <span class="mb-agent-name" style="font-weight:600;font-size:13px;color:${color.name}">${escapeHtml(m.job_title || 'Unknown')}</span>
                 <div style="display:flex;align-items:center;gap:8px">
-                    <span style="font-size:10px;color:var(--text-muted)">${escapeHtml(m.session_id)}</span>
+                    <span style="font-size:10px;color:var(--text-muted)">${formatTime(m.created_at)}</span>
                     <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
                 </div>
             </div>
-            <div style="font-size:13px;color:var(--text-primary);white-space:pre-wrap">${escapeHtml(m.content)}</div>
-            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">${formatTime(m.created_at)}</div>
-        </div>
-    `).join('');
+            <div style="font-size:13px;color:var(--text-primary);white-space:pre-wrap;line-height:1.5">${escapeHtml(m.content)}</div>
+        </div>`;
+    }).join('');
     if (wasAtBottom) {
         container.scrollTop = container.scrollHeight;
     } else {
