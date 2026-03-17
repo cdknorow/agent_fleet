@@ -214,7 +214,7 @@
 
 .sidebar-kebab-menu {
     position: fixed;
-    z-index: 1000;
+    z-index: 1100;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-light);
     border-radius: 8px;

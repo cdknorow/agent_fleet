@@ -150,6 +150,8 @@ function toggleSidebarKebab(btn) {
         const rect = btn.getBoundingClientRect();
         menu.style.top = rect.bottom + 2 + 'px';
         menu.style.left = rect.left + 'px';
+        // Hide any visible tooltips so they don't cover the menu
+        document.querySelectorAll('.session-tooltip').forEach(t => t.style.display = 'none');
     }
 }
 
