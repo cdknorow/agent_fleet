@@ -72,6 +72,7 @@ class GeminiAgent(BaseAgent):
         protocol_path: Path | None,
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
+        working_dir: str | None = None,
     ) -> str:
         if protocol_path and protocol_path.exists():
             cmd = f'GEMINI_SYSTEM_MD="{protocol_path}" gemini'

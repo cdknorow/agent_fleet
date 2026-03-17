@@ -8,6 +8,7 @@ import { filterState, deserializeFromUrl, serializeToUrl,
 import { connectCoralWs } from './websocket.js';
 import { sendCommand, sendRawKeys, sendModeToggle, sendQuickCommand, executeMacro, addMacro, deleteMacro, showMacroModal, hideMacroModal, attachTerminal, killSession, restartSession, hideRestartModal, confirmRestart, initImageDrop, removeAttachment, editGoal, refreshGoal } from './controls.js';
 import { selectLiveSession, selectHistorySession, editAndResubmit, renameAgent } from './sessions.js';
+import { toggleGroupCollapse, killGroup, killSessionDirect, showInfoDirect } from './render.js';
 import { syncPaneWidth } from './capture.js';
 import { showLaunchModal, hideLaunchModal, launchSession, showInfoModal, hideInfoModal, copyInfoCommand, showResumeModal, hideResumeModal, resumeIntoSession, showSettingsModal, hideSettingsModal, applySettings, loadSettings, toggleFlag } from './modals.js';
 import { toggleBrowser, browserNavigateTo, browserNavigateUp } from './browser.js';
@@ -133,6 +134,38 @@ window.postBoardMessage = postBoardMessage;
 window.deleteMessageBoardProject = deleteMessageBoardProject;
 window.toggleBoardPause = toggleBoardPause;
 window.deleteBoardMessage = deleteBoardMessage;
+
+// ── Sidebar kebab menu helpers ───────────────────────────────────────────
+function closeSidebarKebabs() {
+    document.querySelectorAll('.sidebar-kebab-menu').forEach(m => m.style.display = 'none');
+}
+
+function toggleSidebarKebab(btn) {
+    const menu = btn.nextElementSibling;
+    const wasOpen = menu.style.display !== 'none';
+    closeSidebarKebabs();
+    if (!wasOpen) {
+        menu.style.display = 'block';
+        // Position the menu to avoid overflow
+        const rect = btn.getBoundingClientRect();
+        menu.style.top = rect.bottom + 2 + 'px';
+        menu.style.left = rect.left + 'px';
+    }
+}
+
+window.toggleSidebarKebab = toggleSidebarKebab;
+window.closeSidebarKebabs = closeSidebarKebabs;
+window.toggleGroupCollapse = toggleGroupCollapse;
+window.killGroup = killGroup;
+window.killSessionDirect = killSessionDirect;
+window.showInfoDirect = showInfoDirect;
+
+// Close kebab menus when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.sidebar-kebab-wrapper')) {
+        closeSidebarKebabs();
+    }
+});
 
 // ── History search/filter/pagination state ───────────────────────────────
 let historyPage = 1;  // page number only; all other filter state lives in filterState

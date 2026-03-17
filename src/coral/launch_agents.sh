@@ -135,11 +135,24 @@ if [ "$LAUNCH_AGENTS" = "agents" ]; then
                 tmux send-keys -t "${session_name}.0" "gemini" Enter
             fi
         else
-            if [ -f "$PROTOCOL_PATH" ]; then
-                tmux send-keys -t "${session_name}.0" "claude --session-id ${session_id} --append-system-prompt \"\$(cat '${PROTOCOL_PATH}')\"" Enter
-            else
-                tmux send-keys -t "${session_name}.0" "claude --session-id ${session_id}" Enter
-            fi
+            # Build merged settings file (hooks + system prompt) via Python helper
+            settings_file="/tmp/coral_settings_${session_id}.json"
+            python3 -c "
+import json, sys
+sys.path.insert(0, '${SCRIPT_DIR}/..')
+from coral.agents.claude import _build_merged_settings
+merged = _build_merged_settings('${dir}')
+protocol = '${PROTOCOL_PATH}'
+try:
+    with open(protocol) as f:
+        merged['systemPrompt'] = f.read()
+except FileNotFoundError:
+    pass
+with open('${settings_file}', 'w') as f:
+    json.dump(merged, f, indent=2)
+    f.write('\n')
+"
+            tmux send-keys -t "${session_name}.0" "claude --session-id ${session_id} --settings ${settings_file}" Enter
         fi
 
 

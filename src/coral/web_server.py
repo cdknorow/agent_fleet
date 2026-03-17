@@ -48,7 +48,6 @@ async def lifespan(app: FastAPI):
     from coral.background_tasks import SessionIndexer, BatchSummarizer, GitPoller, WebhookDispatcher, IdleDetector, MessageBoardNotifier
     from coral.background_tasks.remote_board_poller import RemoteBoardPoller
     from coral.store.remote_boards import RemoteBoardStore
-    from coral.agents import get_agent
     from coral.tools.session_manager import discover_coral_agents, resume_persistent_sessions
     from coral.api.themes import seed_bundled_themes
 
@@ -59,15 +58,11 @@ async def lifespan(app: FastAPI):
     # (excludes sessions owned by scheduled/oneshot job runs)
     await resume_persistent_sessions(store, schedule_store)
 
-    # Install hooks into each live agent's worktree, and register any
-    # tmux sessions not yet tracked in the live_sessions table.
+    # Register any tmux sessions not yet tracked in the live_sessions table.
     live_agents = await discover_coral_agents()
     tracked = {r["session_id"] for r in await store.get_all_live_sessions()}
     for agent in live_agents:
         wd = agent.get("working_directory") or ""
-        if wd:
-            agent_impl = get_agent(agent["agent_type"])
-            agent_impl.install_hooks(wd)
         sid = agent.get("session_id")
         if sid and sid not in tracked:
             await store.register_live_session(

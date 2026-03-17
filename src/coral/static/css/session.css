@@ -182,28 +182,45 @@
     margin-top: 2px;
 }
 
-/* ── Sidebar Edit / Rename ─────────────────────────────────── */
+/* ── Sidebar Kebab Menu ───────────────────────────────────── */
 
-.sidebar-edit-btn {
+.sidebar-kebab-wrapper {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.sidebar-kebab-btn {
     display: none;
     background: none;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 16px;
     padding: 2px 4px;
-    flex-shrink: 0;
     border-radius: 3px;
     line-height: 1;
+    font-weight: bold;
+    letter-spacing: 1px;
 }
 
-.sidebar-edit-btn:hover {
+.sidebar-kebab-btn:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
 }
 
-.session-list li:hover .sidebar-edit-btn {
+.session-list li:hover .sidebar-kebab-btn {
     display: inline-block;
+}
+
+.sidebar-kebab-menu {
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 4px 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 160px;
 }
 
 /* ── Grouped Sessions ──────────────────────────────────────── */
@@ -215,14 +232,44 @@
     padding: 6px 12px 2px !important;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    cursor: default;
+    cursor: pointer;
     display: flex;
     align-items: center;
     gap: 6px;
+    user-select: none;
 }
 
 .session-group-header:hover {
-    background: transparent !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.group-chevron {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    width: 10px;
+}
+
+.group-kebab .sidebar-kebab-btn {
+    display: none;
+    font-size: 13px;
+    padding: 1px 3px;
+}
+
+.session-group-header:hover .group-kebab .sidebar-kebab-btn {
+    display: inline-block;
+}
+
+.session-group-item.group-collapsed {
+    display: none !important;
+}
+
+/* ── Terminal icon in sidebar ─────────────────────────────── */
+
+.terminal-icon {
+    vertical-align: -1px;
+    opacity: 0.7;
+    flex-shrink: 0;
 }
 
 .session-group-count {
