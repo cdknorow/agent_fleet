@@ -69,6 +69,7 @@ class BaseAgent(ABC):
         protocol_path: Path | None,
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
+        working_dir: str | None = None,
     ) -> str:
         """Build the shell command string to launch this agent."""
 
@@ -88,9 +89,6 @@ class BaseAgent(ABC):
         in the file. The caller (``SessionIndexer``) is responsible for
         inserting them into the store.
         """
-
-    def install_hooks(self, working_dir: str) -> None:
-        """Install agent-specific hooks into a working directory. Default: no-op."""
 
     def prepare_resume(self, session_id: str, working_dir: str) -> None:
         """Prepare for resuming a session (e.g. copy files). Default: no-op."""

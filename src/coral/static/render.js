@@ -1,7 +1,7 @@
 /* Rendering functions for session lists, chat history, and status updates */
 
 import { state } from './state.js';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, showToast } from './utils.js';
 import { renderSidebarTagDots } from './tags.js';
 import { updateSectionVisibility } from './sidebar.js';
 
@@ -105,6 +105,78 @@ async function _saveSessionOrder(orderedIds) {
     }
 }
 
+// ── Group collapse state ─────────────────────────────────────────────
+function _getCollapsedGroups() {
+    try { return JSON.parse(localStorage.getItem('coral_collapsed_groups') || '[]'); }
+    catch { return []; }
+}
+
+function _isGroupCollapsed(groupName) {
+    return _getCollapsedGroups().includes(groupName);
+}
+
+export function toggleGroupCollapse(groupName) {
+    const groups = _getCollapsedGroups();
+    const idx = groups.indexOf(groupName);
+    if (idx >= 0) groups.splice(idx, 1);
+    else groups.push(groupName);
+    localStorage.setItem('coral_collapsed_groups', JSON.stringify(groups));
+    renderLiveSessions(state.liveSessions);
+}
+
+export async function killSessionDirect(name, agentType, sessionId) {
+    if (!confirm(`Kill session "${name}"? This will terminate the agent.`)) return;
+    try {
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(name)}/kill`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agent_type: agentType, session_id: sessionId }),
+        });
+        const result = await resp.json();
+        if (result.error) { showToast(result.error, true); return; }
+        showToast(`Killed: ${name}`);
+        state.liveSessions = state.liveSessions.filter(s => s.session_id !== sessionId);
+        if (state.currentSession && state.currentSession.session_id === sessionId) {
+            state.currentSession = null;
+            document.getElementById("live-session-view").style.display = "none";
+            document.getElementById("welcome-screen").style.display = "flex";
+        }
+        renderLiveSessions(state.liveSessions);
+    } catch (e) {
+        showToast("Failed to kill session", true);
+    }
+}
+
+export async function showInfoDirect(name, agentType, sessionId) {
+    // Select the session (needed for info modal data) then show info
+    const { selectLiveSession } = await import('./sessions.js');
+    await selectLiveSession(name, agentType, sessionId);
+    const { showInfoModal } = await import('./modals.js');
+    showInfoModal();
+}
+
+export async function killGroup(groupName) {
+    const groupSessions = state.liveSessions.filter(s => (s.name || 'unknown') === groupName);
+    if (!groupSessions.length) return;
+    if (!confirm(`Kill all ${groupSessions.length} agent(s) in "${groupName}"? This will terminate them.`)) return;
+
+    for (const s of groupSessions) {
+        try {
+            await fetch(`/api/sessions/live/${encodeURIComponent(s.name)}/kill`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ agent_type: s.agent_type, session_id: s.session_id }),
+            });
+        } catch (e) {
+            console.error(`Failed to kill ${s.name}:`, e);
+        }
+    }
+    // Remove from cached list and re-render
+    const killedIds = new Set(groupSessions.map(s => s.session_id));
+    state.liveSessions = state.liveSessions.filter(s => !killedIds.has(s.session_id));
+    renderLiveSessions(state.liveSessions);
+}
+
 // Drag-and-drop state
 let _draggedSid = null;
 
@@ -131,7 +203,19 @@ export function renderLiveSessions(sessions) {
         const sorted = _sortByOrder(groupSessions);
         const isMulti = sorted.length > 1;
         const countBadge = isMulti ? ` <span class="session-group-count">${sorted.length}</span>` : "";
-        html += `<li class="session-group-header">${escapeHtml(groupName)}${countBadge}</li>`;
+        const collapsed = _isGroupCollapsed(groupName);
+        const chevron = collapsed ? '&#x25B8;' : '&#x25BE;';
+        const groupKebab = `<div class="sidebar-kebab-wrapper group-kebab">
+            <button class="sidebar-kebab-btn group-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="Group actions">&#x22EE;</button>
+            <div class="sidebar-kebab-menu" style="display:none">
+                <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killGroup('${escapeHtml(groupName)}')">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                    Kill All
+                </button>
+            </div>
+        </div>`;
+        html += `<li class="session-group-header" data-group-name="${escapeHtml(groupName)}" onclick="toggleGroupCollapse('${escapeHtml(groupName)}')">
+            <span class="group-chevron">${chevron}</span>${escapeHtml(groupName)}${countBadge}<span class="session-name-spacer"></span>${groupKebab}</li>`;
 
         for (const s of sorted) {
             const dotClass = getDotClass(s.staleness_seconds, s.waiting_for_input, s.working, s.waiting_reason);
@@ -144,11 +228,29 @@ export function renderLiveSessions(sessions) {
                     : ' <span class="badge waiting-badge">Needs input</span>')
                 : '';
             const goal = s.summary ? escapeHtml(s.summary) : "No goal set";
-            const displayLabel = s.display_name || "Agent";
+            const isTerminal = s.agent_type === "terminal";
+            const displayLabel = s.display_name || (isTerminal ? "Terminal" : "Agent");
             const sid = s.session_id ? escapeHtml(s.session_id) : "";
-            const editBtn = `<button class="sidebar-edit-btn" onclick="event.stopPropagation(); renameAgent('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')" title="Rename agent">&#x270E;</button>`;
+            const kebabMenu = `<div class="sidebar-kebab-wrapper">
+                        <button class="sidebar-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="More actions">&#x22EE;</button>
+                        <div class="sidebar-kebab-menu" style="display:none">
+                            <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); renameAgent('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11.5 1.5l3 3L5 14H2v-3z"/></svg>
+                                Rename
+                            </button>
+                            <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); showInfoDirect('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7" x2="8" y2="11"/><circle cx="8" cy="5" r="0.5" fill="currentColor" stroke="none"/></svg>
+                                Session Info
+                            </button>
+                            <hr class="overflow-menu-divider">
+                            <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killSessionDirect('${escapeHtml(s.name)}', '${escapeHtml(s.agent_type)}', '${sid}')">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                                Kill Session
+                            </button>
+                        </div>
+                    </div>`;
             const tooltip = buildSessionTooltip(s);
-            html += `<li class="session-group-item${isActive ? ' active' : ''}"
+            html += `<li class="session-group-item${isActive ? ' active' : ''}${collapsed ? ' group-collapsed' : ''}"
                 draggable="true"
                 data-session-id="${sid}"
                 data-group="${escapeHtml(groupName)}"
@@ -156,9 +258,9 @@ export function renderLiveSessions(sessions) {
                 <span class="session-dot ${dotClass}"></span>
                 <div class="session-info">
                     <div class="session-name-row">
-                        <span class="session-label">${escapeHtml(displayLabel)}${typeTag}</span>
+                        <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${escapeHtml(displayLabel)}${typeTag}</span>
                         <span class="session-name-spacer"></span>
-                        ${editBtn}
+                        ${kebabMenu}
                         ${waitingBadge}
                     </div>
                     <span class="session-goal">${goal}</span>

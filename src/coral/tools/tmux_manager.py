@@ -341,6 +341,15 @@ async def kill_session(
             except OSError:
                 pass
 
+        # Clean up settings temp file written by build_launch_command
+        if session_id:
+            from pathlib import Path
+            settings_file = Path(f"/tmp/coral_settings_{session_id}.json")
+            try:
+                settings_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
         # Unregister from persistent live sessions
         if session_id:
             try:

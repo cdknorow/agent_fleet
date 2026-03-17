@@ -521,10 +521,6 @@ async def restart_session(
         agent_impl.prepare_resume(resume_session_id, working_dir)
 
     try:
-        # Install agent-specific hooks before launching
-        if working_dir:
-            agent_impl.install_hooks(working_dir)
-
         # 0. Generate a new UUID for the restarted session.  This UUID is
         #    used for *both* the tmux session name and the Claude --session-id
         #    so that discover_coral_agents, the log file, and Claude all
@@ -625,6 +621,7 @@ async def restart_session(
             new_session_id, protocol_path,
             resume_session_id=resume_session_id,
             flags=all_flags or None,
+            working_dir=working_dir,
         )
 
         rc, _, stderr = await run_cmd(
@@ -711,10 +708,6 @@ async def launch_claude_session(working_dir: str, agent_type: str = "claude", di
             agent_impl.prepare_resume(resume_session_id, working_dir)
 
     try:
-        # Install agent-specific hooks before launching
-        if not is_terminal:
-            agent_impl.install_hooks(working_dir)
-
         # Clear old log
         Path(log_file).write_text("")
 
@@ -747,6 +740,7 @@ async def launch_claude_session(working_dir: str, agent_type: str = "claude", di
                 session_id, protocol_path,
                 resume_session_id=resume_session_id,
                 flags=flags,
+                working_dir=working_dir,
             )
 
             await asyncio.create_subprocess_exec(

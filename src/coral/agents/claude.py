@@ -31,67 +31,74 @@ def _hook_entry_exists(matcher_groups: list, command: str) -> bool:
     return False
 
 
-def install_hooks(target_dir: Path | str | None = None):
-    """Ensure Claude hooks for Coral are installed in settings.local.json.
+# Hooks Coral needs to inject into every Claude session.
+_CORAL_HOOKS = [
+    ("PostToolUse", {
+        "matcher": "TaskCreate|TaskUpdate",
+        "hooks": [{"type": "command", "command": "coral-hook-task-sync"}],
+    }),
+    ("PostToolUse", {
+        "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
+    }),
+    ("PostToolUse", {
+        "hooks": [{"type": "command", "command": "coral-hook-message-check"}],
+    }),
+    ("Stop", {
+        "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
+    }),
+    ("Notification", {
+        "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
+    }),
+]
 
-    When *target_dir* is provided, hooks are written to
-    ``<target_dir>/.claude/settings.local.json`` (per-worktree).
-    When omitted, falls back to ``~/.claude/settings.local.json`` (global).
 
-    Merges coral hooks into existing user hooks without overriding them.
-    Skips any hook that is already present (matched by command name).
+def _read_settings_file(path: Path) -> dict:
+    """Read a JSON settings file, returning {} if missing or invalid."""
+    try:
+        if path.exists():
+            return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _build_merged_settings(working_dir: str | None = None) -> dict:
+    """Read the Claude settings hierarchy, merge in Coral hooks, return the result.
+
+    Settings priority: local > project > global.
+    --settings is a full override, so we must preserve all user settings.
     """
-    if target_dir is not None:
-        target = Path(target_dir)
-        # Only install into git worktree roots (.git file or directory)
-        if not (target / ".git").exists():
-            return
-        settings_path = target / ".claude" / "settings.local.json"
-    else:
-        settings_path = Path.home() / ".claude" / "settings.local.json"
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    home_claude = Path.home() / ".claude"
 
-    if settings_path.exists():
-        settings = json.loads(settings_path.read_text())
-    else:
-        settings = {}
+    # Read the three layers of settings
+    global_settings = _read_settings_file(home_claude / "settings.json")
+    project_settings: dict = {}
+    local_settings: dict = {}
 
-    # Clean up any old-format keys from previous versions
-    for old_key in ("agenticStateHook", "taskStateHook"):
-        settings.pop(old_key, None)
+    if working_dir:
+        wd = Path(working_dir)
+        project_settings = _read_settings_file(wd / ".claude" / "settings.json")
+        local_settings = _read_settings_file(wd / ".claude" / "settings.local.json")
 
-    hooks = settings.setdefault("hooks", {})
+    # Shallow merge: local > project > global (higher priority wins for top-level keys)
+    merged = {**global_settings, **project_settings, **local_settings}
 
-    # Hooks we want to ensure exist: (event, matcher_group_to_add)
-    desired = [
-        ("PostToolUse", {
-            "matcher": "TaskCreate|TaskUpdate",
-            "hooks": [{"type": "command", "command": "coral-hook-task-sync"}],
-        }),
-        ("PostToolUse", {
-            "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
-        }),
-        ("PostToolUse", {
-            "hooks": [{"type": "command", "command": "coral-hook-message-check"}],
-        }),
-        ("Stop", {
-            "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
-        }),
-        ("Notification", {
-            "hooks": [{"type": "command", "command": "coral-hook-agentic-state"}],
-        }),
-    ]
+    # Deep-merge hooks: combine arrays per event key rather than replacing
+    merged_hooks: dict[str, list] = {}
+    for source in (global_settings, project_settings, local_settings):
+        for event, groups in source.get("hooks", {}).items():
+            if isinstance(groups, list):
+                merged_hooks.setdefault(event, []).extend(groups)
 
-    modified = False
-    for event, group in desired:
-        event_list = hooks.setdefault(event, [])
+    # Append Coral hooks, skipping any that already exist
+    for event, group in _CORAL_HOOKS:
+        event_list = merged_hooks.setdefault(event, [])
         command = group["hooks"][0]["command"]
         if not _hook_entry_exists(event_list, command):
             event_list.append(group)
-            modified = True
 
-    if modified:
-        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    merged["hooks"] = merged_hooks
+    return merged
 
 
 def _extract_text_from_entry(entry: dict) -> str:
@@ -134,20 +141,26 @@ class ClaudeAgent(BaseAgent):
         protocol_path: Path | None,
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
+        working_dir: str | None = None,
     ) -> str:
         parts = ["claude"]
+        effective_id = resume_session_id or session_id
         if resume_session_id:
             parts.append(f"--resume {resume_session_id}")
         else:
             parts.append(f"--session-id {session_id}")
+        # Build merged settings with hooks and system prompt
+        merged = _build_merged_settings(working_dir)
         if protocol_path and protocol_path.exists():
-            parts.append(f"--append-system-prompt \"$(cat '{protocol_path}')\"")
+            protocol_content = protocol_path.read_text()
+            merged["systemPrompt"] = protocol_content
+        # Write to temp file to avoid shell escaping issues
+        settings_file = Path(f"/tmp/coral_settings_{effective_id}.json")
+        settings_file.write_text(json.dumps(merged, indent=2) + "\n")
+        parts.append(f"--settings {settings_file}")
         if flags:
             parts.extend(flags)
         return " ".join(parts)
-
-    def install_hooks(self, working_dir: str) -> None:
-        install_hooks(working_dir)  # module-level function defined above
 
     # ── Hook Processing (Claude-specific) ─────────────────────────────────
 
