@@ -109,26 +109,26 @@ class TestRunForeground:
             return real_import(name, *args, **kwargs)
         return mock_import
 
-    def test_server_thread_is_daemon(self):
-        """Uvicorn must run in a daemon thread."""
+    def test_server_thread_is_not_daemon(self):
+        """Uvicorn thread must NOT be a daemon so we can join it on shutdown."""
         from coral.tray import _run_foreground
 
         mock_rumps = self._make_rumps_mock()
 
         with patch("threading.Thread") as MockThread, \
              patch("threading.Event.wait", return_value=None), \
+             patch("webbrowser.open"), \
              patch("coral.tray._write_pid"), \
-             patch("coral.tray._remove_pid"):
+             patch("coral.tray._remove_pid"), \
+             patch("builtins.__import__", side_effect=self._make_rumps_import(mock_rumps)):
             mock_thread_instance = MagicMock()
             MockThread.return_value = mock_thread_instance
-
-            with patch("builtins.__import__", side_effect=self._make_rumps_import(mock_rumps)):
-                _run_foreground("0.0.0.0", 8420)
+            _run_foreground("0.0.0.0", 8420)
 
             # First Thread call should be the uvicorn server thread
             assert MockThread.call_count >= 1, "At least one thread should be created"
             first_call_kwargs = MockThread.call_args_list[0][1]
-            assert first_call_kwargs.get("daemon") is True, "Server thread must be a daemon"
+            assert first_call_kwargs.get("daemon") is not True, "Server thread must not be a daemon (joined on shutdown)"
             assert "_run_uvicorn" in str(first_call_kwargs.get("target", ""))
 
     def test_opens_browser_on_startup(self):
@@ -197,6 +197,7 @@ class TestRunForeground:
 
         with patch("threading.Thread") as MockThread, \
              patch("threading.Event.wait", return_value=None), \
+             patch("webbrowser.open"), \
              patch("coral.tray._write_pid"), \
              patch("coral.tray._remove_pid"), \
              patch("builtins.__import__", side_effect=self._make_rumps_import(mock_rumps)):
@@ -217,6 +218,7 @@ class TestRunForeground:
 
         with patch("threading.Thread") as MockThread, \
              patch("threading.Event.wait", return_value=None), \
+             patch("webbrowser.open"), \
              patch("coral.tray._write_pid") as mock_write_pid, \
              patch("builtins.__import__", side_effect=self._make_rumps_import(mock_rumps)):
             MockThread.return_value = MagicMock()

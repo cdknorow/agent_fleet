@@ -144,11 +144,12 @@ def _run_foreground(host: str, port: int, home_dir: str | None = None) -> None:
             "Agent management requires tmux. Install with: brew install tmux",
         )
 
-    # Start uvicorn in a daemon thread
+    # Start uvicorn in a background thread (not daemon — we join it on quit
+    # so aiosqlite can finish its cleanup before the event loop closes)
     started = threading.Event()
     server_holder: dict = {}
     server_thread = threading.Thread(
-        target=_run_uvicorn, args=(host, port, started, server_holder), daemon=True
+        target=_run_uvicorn, args=(host, port, started, server_holder),
     )
     server_thread.start()
     started.wait(timeout=10)
@@ -261,10 +262,14 @@ def _run_foreground(host: str, port: int, home_dir: str | None = None) -> None:
             return killed
 
         def _stop_server(self) -> None:
-            """Signal uvicorn to shut down gracefully."""
+            """Signal uvicorn to shut down gracefully and wait for cleanup."""
             server = server_holder.get("server")
             if server:
                 server.should_exit = True
+            # Wait for the server thread to finish so aiosqlite background
+            # threads can close their connections before the loop is gone.
+            if server_thread.is_alive():
+                server_thread.join(timeout=5)
             self._server_running = False
 
         def shutdown(self, _sender: rumps.MenuItem) -> None:
