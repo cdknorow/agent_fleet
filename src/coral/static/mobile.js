@@ -10,6 +10,18 @@ function isMobile() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
 }
 
+// ── Tablet Sidebar Toggle ─────────────────────────────────────────────────
+
+function toggleTabletSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const backdrop = document.querySelector('.tablet-sidebar-backdrop');
+    if (!sidebar) return;
+
+    const isOpen = sidebar.classList.toggle('tablet-open');
+    if (backdrop) backdrop.classList.toggle('active', isOpen);
+}
+window.toggleTabletSidebar = toggleTabletSidebar;
+
 // ── Bottom Tab Bar Navigation ─────────────────────────────────────────────
 
 function switchMobileTab(tab) {
@@ -206,6 +218,12 @@ export function wrapSelectLiveSession() {
             const agentList = document.getElementById('mobile-agent-list');
             if (agentList) agentList.style.display = 'none';
         }
+
+        // On tablet, close the sidebar overlay
+        const sidebar = document.querySelector('.sidebar');
+        const backdrop = document.querySelector('.tablet-sidebar-backdrop');
+        if (sidebar) sidebar.classList.remove('tablet-open');
+        if (backdrop) backdrop.classList.remove('active');
     };
 }
 

@@ -2,6 +2,26 @@
    Mobile — Responsive styles for tablet and mobile viewports
    ============================================================ */
 
+/* ── Tablet Sidebar Toggle ────────────────────────────────── */
+
+.tablet-sidebar-toggle {
+    display: none !important;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 4px;
+    align-items: center;
+    margin-right: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.tablet-sidebar-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
 /* ── Mobile Bottom Tab Bar ────────────────────────────────── */
 
 .mobile-tab-bar {
@@ -105,10 +125,54 @@
         display: none !important;
     }
 
-    /* Sidebar narrower */
+    /* Sidebar collapsible overlay on tablet */
     .sidebar {
-        width: 220px;
-        min-width: 120px;
+        width: 280px;
+        min-width: 280px;
+        position: fixed;
+        top: 49px;
+        left: 0;
+        bottom: 0;
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: none;
+    }
+
+    .sidebar.tablet-open {
+        transform: translateX(0);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Hide resize handle on tablet */
+    .sidebar-resize-handle {
+        display: none !important;
+    }
+
+    /* Show hamburger toggle on tablet */
+    .tablet-sidebar-toggle {
+        display: flex !important;
+    }
+
+    /* Overlay backdrop when sidebar is open */
+    .tablet-sidebar-backdrop {
+        display: none;
+        position: fixed;
+        top: 49px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 49;
+    }
+
+    .tablet-sidebar-backdrop.active {
+        display: block;
+    }
+
+    /* Command pane more compact */
+    .command-pane {
+        height: 200px !important;
     }
 }
 
