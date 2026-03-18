@@ -14,7 +14,7 @@ async function fetchProjects() {
 }
 
 async function fetchMessages(project) {
-    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages/all?limit=200`);
+    const resp = await fetch(`/api/board/${encodeURIComponent(project)}/messages/all?limit=500`);
     const data = await resp.json();
     return Array.isArray(data) ? data : [];
 }
@@ -173,6 +173,18 @@ function _getAgentColor(name) {
     return _agentColorMap[name];
 }
 
+function _renderMarkdown(content) {
+    if (!content) return '';
+    if (typeof marked !== 'undefined') {
+        try {
+            return marked.parse(content);
+        } catch (e) {
+            console.warn('marked.parse() failed, falling back to escapeHtml:', e);
+        }
+    }
+    return escapeHtml(content);
+}
+
 function renderMessages(messages) {
     const container = document.getElementById('mb-messages');
     if (!messages.length) {
@@ -194,7 +206,7 @@ function renderMessages(messages) {
                     <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
                 </div>
             </div>
-            <div class="mb-message-body" style="font-size:13px;color:var(--text-primary);line-height:1.5">${typeof marked !== 'undefined' ? marked.parse(m.content || '') : escapeHtml(m.content)}</div>
+            <div class="mb-message-body" style="font-size:13px;color:var(--text-primary);line-height:1.5">${_renderMarkdown(m.content)}</div>
         </div>`;
     }).join('');
     if (wasAtBottom) {
