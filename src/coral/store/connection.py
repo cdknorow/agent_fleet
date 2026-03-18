@@ -5,6 +5,8 @@ from __future__ import annotations
 import aiosqlite
 from pathlib import Path
 
+from coral.config import DB_BUSY_TIMEOUT_MS
+
 DB_DIR = Path.home() / ".coral"
 DB_PATH = DB_DIR / "sessions.db"
 
@@ -25,6 +27,7 @@ class DatabaseManager:
         conn = await aiosqlite.connect(str(self._db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
         await conn.execute("PRAGMA foreign_keys=ON")
         if not self._schema_ensured:
             self._schema_ensured = True

@@ -83,33 +83,39 @@ async def lifespan(app: FastAPI):
     # Seed bundled themes (e.g. GhostV3) into ~/.coral/themes/ on first run
     seed_bundled_themes()
 
-    # Compact databases on startup if WAL files are too large
-    await _compact_databases()
+    # Defer heavy startup work so the server accepts requests immediately
+    app.state.startup_complete = False
 
-    # Resume any persistent live sessions that are no longer running in tmux
-    # (excludes sessions owned by scheduled/oneshot job runs).
-    # Timeout prevents blocking server startup if tmux operations hang.
-    try:
-        await asyncio.wait_for(
-            resume_persistent_sessions(store, schedule_store),
-            timeout=30,
-        )
-    except asyncio.TimeoutError:
-        log.warning("resume_persistent_sessions timed out after 30s — skipping remaining sessions")
+    async def _deferred_startup():
+        import time as _time
+        from coral.config import DEFERRED_STARTUP_DELAY_S
+        await asyncio.sleep(DEFERRED_STARTUP_DELAY_S)
 
-    # Register any tmux sessions not yet tracked in the live_sessions table.
-    live_agents = await discover_coral_agents()
-    tracked = {r["session_id"] for r in await store.get_all_live_sessions()}
-    for agent in live_agents:
-        wd = agent.get("working_directory") or ""
-        sid = agent.get("session_id")
-        if sid and sid not in tracked:
-            await store.register_live_session(
-                sid, agent["agent_type"], agent["agent_name"], wd,
-            )
+        log.info("Deferred startup: resuming persistent sessions...")
+        _t0 = _time.monotonic()
+        await resume_persistent_sessions(store, schedule_store)
+        log.info("Deferred startup: resume_persistent_sessions took %.2fs", _time.monotonic() - _t0)
 
-    # Seed _last_known from DB so we don't re-insert events already stored.
-    live_sessions_api._last_known.update(await store.get_last_known_status_summary())
+        # Register any tmux sessions not yet tracked in the live_sessions table.
+        log.info("Deferred startup: discovering agents...")
+        _t1 = _time.monotonic()
+        live_agents = await discover_coral_agents()
+        tracked = {r["session_id"] for r in await store.get_all_live_sessions()}
+        for agent in live_agents:
+            wd = agent.get("working_directory") or ""
+            sid = agent.get("session_id")
+            if sid and sid not in tracked:
+                await store.register_live_session(
+                    sid, agent["agent_type"], agent["agent_name"], wd,
+                )
+        log.info("Deferred startup: agent discovery took %.2fs (%d agents)", _time.monotonic() - _t1, len(live_agents))
+
+        # Seed _last_known from DB so we don't re-insert events already stored.
+        live_sessions_api._last_known.update(await store.get_last_known_status_summary())
+        app.state.startup_complete = True
+        log.info("Deferred startup complete (total %.2fs)", _time.monotonic() - _t0)
+
+    startup_task = asyncio.create_task(_deferred_startup())
 
     indexer = SessionIndexer(store)
     summarizer = BatchSummarizer(store)
@@ -121,17 +127,24 @@ async def lifespan(app: FastAPI):
     board_store = MessageBoardStore()
     board_notifier = MessageBoardNotifier(board_store)
 
-    indexer_task = asyncio.create_task(indexer.run_forever(interval=120))
+    from coral.config import (
+        INDEXER_INTERVAL_S, INDEXER_STARTUP_DELAY_S,
+        GIT_POLLER_INTERVAL_S, WEBHOOK_DISPATCHER_INTERVAL_S,
+        IDLE_DETECTOR_INTERVAL_S, BOARD_NOTIFIER_INTERVAL_S,
+        REMOTE_POLLER_INTERVAL_S,
+    )
+
+    indexer_task = asyncio.create_task(indexer.run_forever(interval=INDEXER_INTERVAL_S, startup_delay=INDEXER_STARTUP_DELAY_S))
     summarizer_task = asyncio.create_task(summarizer.run_forever())
-    git_task = asyncio.create_task(git_poller.run_forever(interval=120))
-    webhook_task = asyncio.create_task(dispatcher.run_forever(interval=15))
-    idle_task = asyncio.create_task(idle_detector.run_forever(interval=60))
-    board_notifier_task = asyncio.create_task(board_notifier.run_forever(interval=30))
+    git_task = asyncio.create_task(git_poller.run_forever(interval=GIT_POLLER_INTERVAL_S))
+    webhook_task = asyncio.create_task(dispatcher.run_forever(interval=WEBHOOK_DISPATCHER_INTERVAL_S))
+    idle_task = asyncio.create_task(idle_detector.run_forever(interval=IDLE_DETECTOR_INTERVAL_S))
+    board_notifier_task = asyncio.create_task(board_notifier.run_forever(interval=BOARD_NOTIFIER_INTERVAL_S))
 
     remote_board_store = RemoteBoardStore()
     board_remotes_api.store = remote_board_store
     remote_poller = RemoteBoardPoller(remote_board_store)
-    remote_poller_task = asyncio.create_task(remote_poller.run_forever(interval=30))
+    remote_poller_task = asyncio.create_task(remote_poller.run_forever(interval=REMOTE_POLLER_INTERVAL_S))
 
     # Start job scheduler
     from coral.background_tasks.scheduler import JobScheduler
@@ -159,6 +172,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    startup_task.cancel()
     update_task.cancel()
     indexer_task.cancel()
     summarizer_task.cancel()

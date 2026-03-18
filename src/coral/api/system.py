@@ -19,6 +19,13 @@ router = APIRouter()
 store: CoralStore = None  # type: ignore[assignment]
 
 
+@router.get("/api/system/status")
+async def system_status():
+    """Return system startup status."""
+    from coral.web_server import app
+    return {"startup_complete": getattr(app.state, "startup_complete", False)}
+
+
 @router.get("/api/system/update-check")
 async def update_check():
     """Return update availability info from cached check."""

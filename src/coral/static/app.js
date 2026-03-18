@@ -295,6 +295,24 @@ function syncFilterDomToState() {
     updateFilterBadge();
 }
 
+function pollStartupStatus() {
+    const el = document.getElementById('startup-loading');
+    if (!el) return;
+    const check = async () => {
+        try {
+            const resp = await fetch('/api/system/status');
+            const data = await resp.json();
+            if (data.startup_complete) {
+                el.classList.add('hidden');
+                loadLiveSessions();
+                return;
+            }
+        } catch {}
+        setTimeout(check, 2000);
+    };
+    check();
+}
+
 // ── Initialization ────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
     loadSettings();
@@ -307,6 +325,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadAllFolderTags();
     connectCoralWs();
     checkForUpdates();
+    pollStartupStatus();
     populateHfTagSelect().then(() => {
         syncFilterDomToState();
         loadHistoryFiltered();

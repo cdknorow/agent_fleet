@@ -31,6 +31,8 @@ class MessageBoardStore:
         conn = await aiosqlite.connect(str(self._db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
+        from coral.config import DB_BUSY_TIMEOUT_MS
+        await conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
         if not self._schema_ensured:
             self._schema_ensured = True
             await self._ensure_schema(conn)

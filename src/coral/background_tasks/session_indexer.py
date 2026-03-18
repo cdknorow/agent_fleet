@@ -56,12 +56,13 @@ class SessionIndexer:
                         await self._store.upsert_fts(s.session_id, s.fts_body)
                     await self._store.enqueue_for_summarization(s.session_id)
                 indexed += len(sessions)
-                await asyncio.sleep(0)  # yield to event loop between files
+                await asyncio.sleep(0.1)  # yield to event loop between files
 
         return {"indexed": indexed, "skipped": skipped}
 
-    async def run_forever(self, interval: float = 120) -> None:
+    async def run_forever(self, interval: float = 120, startup_delay: float = 30) -> None:
         """Re-index in a loop. Runs until cancelled."""
+        await asyncio.sleep(startup_delay)
         while True:
             try:
                 result = await self.run_once()

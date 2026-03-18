@@ -99,6 +99,8 @@ async def check_unread(project: str, session_id: str):
 
 @router.get("/{project}/messages/all")
 async def list_messages(project: str, limit: int = 200, offset: int = 0):
+    from coral.config import BOARD_MAX_LIMIT
+    limit = min(limit, BOARD_MAX_LIMIT)
     messages = await store.list_messages(project, limit, offset)
     total = await store.count_messages(project)
     return {"messages": messages, "total": total, "limit": limit, "offset": offset}

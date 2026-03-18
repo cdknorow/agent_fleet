@@ -41,6 +41,38 @@
     padding: 5px 14px;
 }
 
+.startup-loading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 4px 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    animation: startup-fade 1.5s ease-in-out infinite alternate;
+}
+
+.startup-loading.hidden { display: none; }
+
+.startup-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: startup-spin 0.8s linear infinite;
+}
+
+@keyframes startup-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes startup-fade {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+}
+
 .top-bar-actions {
     display: flex;
     align-items: center;

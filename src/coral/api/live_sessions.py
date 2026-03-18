@@ -76,6 +76,8 @@ async def _resolve_workdir(name: str, agent_type: str | None, session_id: str | 
 
 async def _build_session_list(include_commands: bool = False) -> list[dict]:
     """Build the enriched session list used by both REST and WebSocket endpoints."""
+    import time as _time
+    _t0 = _time.monotonic()
     agents = await discover_coral_agents()
     git_state = await store.get_all_latest_git_state()
     file_counts = await store.get_all_changed_file_counts()
@@ -168,8 +170,15 @@ async def _build_session_list(include_commands: bool = False) -> list[dict]:
         entry["log_path"] = agent["log_path"]
 
         results.append(entry)
-        await _track_status_summary_events(name, log_info["status"], log_info["summary"], session_id=sid)
-        await scan_log_for_pulse_events(store, name, agent["log_path"], session_id=sid)
+
+        # Only write events when status/summary actually changed (dedup is inside but still costs a DB read)
+        if log_info["status"] or log_info["summary"]:
+            await _track_status_summary_events(name, log_info["status"], log_info["summary"], session_id=sid)
+            await scan_log_for_pulse_events(store, name, agent["log_path"], session_id=sid)
+
+    _elapsed = _time.monotonic() - _t0
+    if _elapsed > 1.0:
+        log.warning("_build_session_list took %.2fs for %d agents", _elapsed, len(agents))
 
     return results
 
@@ -256,13 +265,33 @@ async def get_pane_capture(name: str, agent_type: str | None = None, session_id:
 
 
 @router.get("/api/sessions/live/{name}/poll")
-async def poll_session(name: str, agent_type: str | None = None, session_id: str | None = None):
-    """Batch endpoint returning capture, tasks, and events in one call."""
-    text = await capture_pane(name, agent_type=agent_type, session_id=session_id)
-    capture = {"name": name, "capture": text} if text else {"error": f"Could not capture pane for '{name}'"}
-    tasks = await store.list_agent_tasks(name, session_id=session_id) if session_id else []
-    events = await store.list_agent_events(name, 50, session_id=session_id)
-    return {"capture": capture, "tasks": tasks, "events": events}
+async def poll_session(
+    name: str,
+    session_id: str | None = None,
+    agent_type: str | None = None,
+    events_limit: int = Query(50, ge=1, le=200),
+):
+    """Batch poll endpoint — returns capture, tasks, and events in one response.
+
+    Combines the data from /capture, /tasks, and /events into a single call
+    to reduce the number of polling requests per session.
+    """
+    async def _empty_list():
+        return []
+
+    capture_coro = capture_pane(name, agent_type=agent_type, session_id=session_id)
+    tasks_coro = store.list_agent_tasks(name, session_id=session_id) if session_id else _empty_list()
+    events_coro = store.list_agent_events(name, events_limit, session_id=session_id)
+
+    capture_text, tasks, events = await asyncio.gather(
+        capture_coro, tasks_coro, events_coro
+    )
+
+    return {
+        "capture": {"name": name, "capture": capture_text} if capture_text is not None else {"error": f"Could not capture pane for '{name}'"},
+        "tasks": tasks,
+        "events": events,
+    }
 
 
 @router.get("/api/sessions/live/{name}/chat")
@@ -999,7 +1028,8 @@ async def ws_coral(websocket: WebSocket):
                     prev_sessions = curr_sessions
                     prev_runs_json = curr_runs_json
 
-            await asyncio.sleep(3)
+            from coral.config import WS_POLL_INTERVAL_S
+            await asyncio.sleep(WS_POLL_INTERVAL_S)
     except WebSocketDisconnect:
         pass
     except Exception:
