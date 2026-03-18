@@ -49,12 +49,8 @@ function switchMobileTab(tab) {
             }
             break;
         case 'history':
-            // Show the history section from sidebar as a full-screen list
-            if (agentList) {
-                agentList.style.display = 'flex';
-                agentList.dataset.mode = 'history';
-            }
-            _showMobileHistory();
+            // Show the sidebar history section as a full-screen view
+            _showMobileHistory(agentList);
             break;
         case 'jobs':
             if (schedulerView) {
@@ -72,34 +68,50 @@ function switchMobileTab(tab) {
 }
 window.switchMobileTab = switchMobileTab;
 
-function _showMobileHistory() {
-    const agentList = document.getElementById('mobile-agent-list');
+function _showMobileHistory(agentList) {
     if (!agentList) return;
+    agentList.style.display = 'flex';
+    agentList.dataset.mode = 'history';
+    agentList.innerHTML = '';
 
-    // Copy the history sidebar content into mobile view
-    const historyBody = document.querySelector('#sidebar-history .sidebar-section-body');
-    if (historyBody) {
-        agentList.innerHTML = '';
-        // Clone history search/filters
-        const filters = document.querySelector('.history-filters');
-        if (filters) agentList.appendChild(filters.cloneNode(true));
-        // Clone history session list
-        const histList = document.getElementById('history-list');
-        if (histList) {
-            const clone = histList.cloneNode(true);
-            clone.id = 'mobile-history-list';
-            agentList.appendChild(clone);
-            // Wire up click handlers on cloned items
-            clone.querySelectorAll('li').forEach(li => {
-                const sessionId = li.dataset.sessionId;
-                if (sessionId) {
-                    li.addEventListener('click', () => {
-                        if (window.selectHistorySession) {
-                            window.selectHistorySession(sessionId);
-                        }
-                    });
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:12px 16px;';
+    header.innerHTML = '<h2 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0">Session History</h2>';
+    agentList.appendChild(header);
+
+    // Move the sidebar's history section body content into mobile view
+    // We reference the actual sidebar elements so search/filters work
+    const historySection = document.getElementById('sidebar-history');
+    if (historySection) {
+        const body = historySection.querySelector('.sidebar-section-body');
+        if (body) {
+            // Clone to avoid removing from sidebar
+            const clone = body.cloneNode(true);
+            clone.style.cssText = 'padding:0 12px;overflow-y:auto;flex:1;';
+
+            // Re-wire history item clicks
+            clone.querySelectorAll('.session-list li').forEach(li => {
+                const onclick = li.getAttribute('onclick');
+                if (onclick) {
+                    li.removeAttribute('onclick');
+                    li.addEventListener('click', () => { eval(onclick); });
                 }
             });
+
+            // Re-wire search input
+            const searchInput = clone.querySelector('input[type="search"]');
+            if (searchInput) {
+                const origInput = document.getElementById('history-search');
+                if (origInput) {
+                    searchInput.addEventListener('input', () => {
+                        origInput.value = searchInput.value;
+                        origInput.dispatchEvent(new Event('input'));
+                    });
+                }
+            }
+
+            agentList.appendChild(clone);
         }
     }
 }
