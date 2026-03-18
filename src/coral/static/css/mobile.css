@@ -194,6 +194,56 @@
         padding-bottom: 0 !important;
     }
 
+    /* Message board full-screen on mobile */
+    #messageboard-view {
+        flex-direction: column;
+    }
+
+    #messageboard-view .session-header {
+        flex-wrap: wrap;
+    }
+
+    #messageboard-view .view-body {
+        flex: 1;
+        min-height: 0;
+    }
+
+    /* Board message bubbles: compact on mobile */
+    .mb-message {
+        margin-bottom: 8px !important;
+        padding: 8px 10px !important;
+    }
+
+    /* Board input area */
+    #mb-post-input {
+        font-size: 16px !important; /* prevent iOS zoom on focus */
+    }
+
+    /* Scheduler view mobile */
+    .scheduler-view {
+        padding: 12px !important;
+    }
+
+    .sched-header h2 {
+        font-size: 15px !important;
+    }
+
+    /* Job cards stack full width */
+    .sched-card {
+        padding: 10px !important;
+    }
+
+    /* History session view mobile */
+    #history-session-view .session-header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    /* Hide session ID on mobile (too long) */
+    .session-header .session-id {
+        display: none;
+    }
+
     /* Hide resize handles */
     .sidebar-resize-handle,
     .command-pane-resize-handle,
