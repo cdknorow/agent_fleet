@@ -152,11 +152,37 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           echo "Submitting for notarization..."
-          xcrun notarytool submit "dist/Coral.dmg" \
+          # Submit and capture the submission ID
+          SUBMIT_OUT=$(xcrun notarytool submit "dist/Coral.dmg" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" \
-            --wait --timeout 30m
+            --output-format json)
+          echo "$SUBMIT_OUT"
+          SUBMISSION_ID=$(echo "$SUBMIT_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Submission ID: $SUBMISSION_ID"
+
+          # Wait for notarization to complete
+          echo "Waiting for notarization..."
+          if ! xcrun notarytool wait "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --timeout 30m; then
+            echo "::error::Notarization timed out or failed. Fetching log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" || true
+            exit 1
+          fi
+
+          # Fetch the log regardless to check for warnings
+          echo "Fetching notarization log..."
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" || true
 
           echo "Stapling notarization ticket..."
           xcrun stapler staple "dist/Coral.dmg"
