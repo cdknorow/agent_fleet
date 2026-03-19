@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 3.1.3 — 2026-03-19
+
+### Added
+- **Agent launch modal improvements** — Preset role selector, Add Agent to Board from sidebar kebab menu, saved personas and team templates with JSON export/import
+- **Share/Save Agent Team** — Export running teams as JSON or save as reusable templates from sidebar
+
+### Fixed
+- **Board names with spaces** — URL-encode board names in CLI API calls and harden JS escaping in onclick handlers to support spaces and special characters
+
 ## 3.1.2 — 2026-03-18
 
 ### Fixed
