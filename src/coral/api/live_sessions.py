@@ -993,7 +993,8 @@ async def ws_terminal(websocket: WebSocket, name: str):
                 try:
                     content = await capture_pane_raw_target(target)
                     # Get cursor position so the frontend can restore it
-                    rc, pos_out, _ = await run_cmd(
+                    from coral.tools.utils import run_cmd as _run_cmd
+                    rc, pos_out, _ = await _run_cmd(
                         "tmux", "display-message", "-t", target,
                         "-p", "#{cursor_x},#{cursor_y}",
                     )
