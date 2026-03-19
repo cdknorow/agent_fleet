@@ -551,7 +551,7 @@ async function _initTeamForm() {
     // Reset form
     document.getElementById("team-board-name").value = "";
     document.getElementById("team-board-server").value = "";
-    document.getElementById("team-flags").value = "";
+    document.getElementById("team-flags").value = "--dangerously-skip-permissions";
     _syncFlagButtons("team-flags");
     _teamAgentCounter = 0;
     const list = document.getElementById("team-agents-list");
