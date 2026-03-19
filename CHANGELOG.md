@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 3.1.4 — 2026-03-19
+
+### Fixed
+- **Sidebar rendering broken** — Fixed stray backtick that broke sidebar session list rendering
+- **Mobile scrollbar** — Reduced scrollbar width from 8px to 3px on mobile viewports
+- **Notarization log fetching** — Fixed notarization log retrieval in build workflow
+
 ## 3.1.3 — 2026-03-19
 
 ### Added
