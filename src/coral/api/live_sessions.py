@@ -943,15 +943,21 @@ async def ws_terminal(websocket: WebSocket, name: str):
     async def _writer():
         """Poll tmux pane and push content to the client.
 
-        Uses adaptive polling: 50ms after recent input, 300ms when idle.
+        Adaptive polling with three speed tiers:
+        - Burst:  15ms when content is actively changing (TUI updates, output scrolling)
+        - Active: 20ms after user input (fast echo for keystrokes, Ctrl+R, tab completion)
+        - Idle:   300ms when nothing is happening
+
         When the pane disappears (agent killed/done), sends a terminal_closed
         message and keeps the connection open to avoid triggering reconnect.
         """
         nonlocal last_content, closed, target
         idle_interval = 0.30
-        active_interval = 0.05
+        active_interval = 0.020    # 20ms after input — fast enough for Ctrl+R echo
+        burst_interval = 0.015     # 15ms during rapid output changes
         interval = idle_interval
         pane_gone_notified = False
+        consecutive_changes = 0    # Track how many consecutive polls had new content
         try:
             while not closed:
                 # Re-resolve target if it was initially unavailable
@@ -976,23 +982,30 @@ async def ws_terminal(websocket: WebSocket, name: str):
                             "content": content,
                         })
                         last_content = content
+                        consecutive_changes += 1
+                        # Burst mode: content is changing rapidly (agent output, TUI redraw)
+                        if consecutive_changes >= 3:
+                            interval = burst_interval
+                    else:
+                        consecutive_changes = 0
                 elif not pane_gone_notified:
                     # Pane is gone — notify client once, then idle
                     await websocket.send_json({"type": "terminal_closed"})
                     pane_gone_notified = True
-                    # Slow down polling since pane is gone
                     interval = 3.0
 
                 # Wait for either the interval or an input event
                 input_event.clear()
                 try:
                     await asyncio.wait_for(input_event.wait(), timeout=interval)
-                    # Input happened — use fast poll for the next few cycles
+                    # Input happened — use fast poll for immediate echo
                     interval = active_interval
+                    consecutive_changes = 0
                 except asyncio.TimeoutError:
                     if not pane_gone_notified:
-                        # No input — drift back toward idle rate
-                        interval = min(interval + 0.05, idle_interval)
+                        # Drift back toward idle rate (slower than before)
+                        if consecutive_changes == 0:
+                            interval = min(interval + 0.03, idle_interval)
         except WebSocketDisconnect:
             closed = True
         except Exception:
