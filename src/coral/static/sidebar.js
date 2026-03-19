@@ -324,7 +324,10 @@ export function toggleAgenticPanel() {
     const isCollapsed = panel.classList.toggle('collapsed');
     localStorage.setItem('coral-agentic-collapsed', isCollapsed);
     _syncPanelToggleBtn(!isCollapsed);
+    // Fit terminal immediately and again after CSS transition completes
     fitTerminal();
+    setTimeout(() => fitTerminal(), 50);
+    setTimeout(() => fitTerminal(), 300);
 }
 
 function _syncPanelToggleBtn(isOpen) {
