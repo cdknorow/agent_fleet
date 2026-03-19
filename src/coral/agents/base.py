@@ -62,6 +62,25 @@ class BaseAgent(ABC):
         """Map of command names to slash-commands the agent supports."""
         return {"compress": "/compact", "clear": "/clear"}
 
+    @staticmethod
+    def _build_board_system_prompt(board_name: str | None, role: str | None, prompt: str | None) -> str:
+        """Build the board + behavior portion of the system prompt."""
+        parts = []
+        if prompt:
+            parts.append(prompt)
+        if board_name:
+            parts.append(
+                f"You are subscribed to message board \"{board_name}\"."
+                + (f" Your role is: {role}." if role else "")
+                + " Use the coral-board CLI to communicate with your teammates:\n"
+                "  coral-board read          — read new messages from teammates\n"
+                "  coral-board post \"msg\"    — post a message to the board\n"
+                "  coral-board read --last 5 — see the 5 most recent messages\n"
+                "  coral-board subscribers   — see who is on the board\n"
+                "Check the board periodically for updates from your teammates."
+            )
+        return "\n\n".join(parts)
+
     @abstractmethod
     def build_launch_command(
         self,
@@ -70,6 +89,9 @@ class BaseAgent(ABC):
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
         working_dir: str | None = None,
+        board_name: str | None = None,
+        role: str | None = None,
+        prompt: str | None = None,
     ) -> str:
         """Build the shell command string to launch this agent."""
 
