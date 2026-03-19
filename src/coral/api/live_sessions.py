@@ -993,7 +993,7 @@ async def ws_terminal(websocket: WebSocket, name: str):
             cursor_x = cursor_y = None
             if target:
                 try:
-                    content = await capture_pane_raw_target(target)
+                    content = await capture_pane_raw_target(target, visible_only=True)
                     # Get cursor position so the frontend can restore it
                     from coral.tools.utils import run_cmd as _run_cmd
                     rc, pos_out, _ = await _run_cmd(
