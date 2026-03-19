@@ -101,18 +101,8 @@ async def setup_board_and_prompt(
         except Exception:
             log.warning("Failed to write board state for session %s", session_id[:8])
 
-    # Send prompt after agent initializes
-    if prompt:
-        await asyncio.sleep(3)
-        full = _build_board_prompt(prompt, board_name, role)
-        try:
-            from coral.tools.tmux_manager import send_to_tmux
-            err = await send_to_tmux(agent_type, full, session_id=session_id)
-            if err:
-                await run_cmd("tmux", "send-keys", "-t", session_name, "-l", full)
-            await run_cmd("tmux", "send-keys", "-t", session_name, "Enter")
-        except Exception:
-            log.warning("Failed to send prompt to session %s", session_id[:8])
+    # Behavior prompt + board instructions are now injected via systemPrompt
+    # in the agent's settings file (build_launch_command), so no tmux send needed.
 
 
 def strip_ansi(text: str) -> str:
@@ -612,11 +602,21 @@ async def restart_session(
         if extra_flags:
             all_flags.append(extra_flags)
 
+        old_display_name_for_cmd = None
+        if session_id:
+            try:
+                old_display_name_for_cmd = await _store.get_display_name(session_id)
+            except Exception:
+                pass
+
         cmd = agent_impl.build_launch_command(
             new_session_id, protocol_path,
             resume_session_id=resume_session_id,
             flags=all_flags or None,
             working_dir=working_dir,
+            board_name=stored_board,
+            role=old_display_name_for_cmd or effective_type,
+            prompt=stored_prompt,
         )
 
         rc, _, stderr = await run_cmd(
@@ -736,6 +736,9 @@ async def launch_claude_session(working_dir: str, agent_type: str = "claude", di
                 resume_session_id=resume_session_id,
                 flags=flags,
                 working_dir=working_dir,
+                board_name=board_name,
+                role=display_name or agent_type,
+                prompt=prompt,
             )
 
             await asyncio.create_subprocess_exec(

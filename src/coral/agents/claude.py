@@ -149,6 +149,9 @@ class ClaudeAgent(BaseAgent):
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
         working_dir: str | None = None,
+        board_name: str | None = None,
+        role: str | None = None,
+        prompt: str | None = None,
     ) -> str:
         parts = ["claude"]
         effective_id = resume_session_id or session_id
@@ -158,9 +161,15 @@ class ClaudeAgent(BaseAgent):
             parts.append(f"--session-id {session_id}")
         # Build merged settings with hooks and system prompt
         merged = _build_merged_settings(working_dir)
+        # Combine protocol + behavior prompt + board instructions into systemPrompt
+        sys_parts = []
         if protocol_path and protocol_path.exists():
-            protocol_content = protocol_path.read_text()
-            merged["systemPrompt"] = protocol_content
+            sys_parts.append(protocol_path.read_text())
+        board_prompt = self._build_board_system_prompt(board_name, role, prompt)
+        if board_prompt:
+            sys_parts.append(board_prompt)
+        if sys_parts:
+            merged["systemPrompt"] = "\n\n".join(sys_parts)
         # Write to temp file to avoid shell escaping issues
         settings_file = Path(f"/tmp/coral_settings_{effective_id}.json")
         settings_file.write_text(json.dumps(merged, indent=2) + "\n")

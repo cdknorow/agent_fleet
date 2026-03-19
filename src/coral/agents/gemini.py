@@ -73,9 +73,27 @@ class GeminiAgent(BaseAgent):
         resume_session_id: str | None = None,
         flags: list[str] | None = None,
         working_dir: str | None = None,
+        board_name: str | None = None,
+        role: str | None = None,
+        prompt: str | None = None,
     ) -> str:
+        # Gemini uses GEMINI_SYSTEM_MD env var for system prompt.
+        # If we have board/prompt instructions, write a combined file.
+        board_prompt = self._build_board_system_prompt(board_name, role, prompt)
         if protocol_path and protocol_path.exists():
-            cmd = f'GEMINI_SYSTEM_MD="{protocol_path}" gemini'
+            if board_prompt:
+                import tempfile
+                combined = protocol_path.read_text() + "\n\n" + board_prompt
+                tmp = Path(tempfile.gettempdir()) / f"coral_gemini_system_{session_id}.md"
+                tmp.write_text(combined)
+                cmd = f'GEMINI_SYSTEM_MD="{tmp}" gemini'
+            else:
+                cmd = f'GEMINI_SYSTEM_MD="{protocol_path}" gemini'
+        elif board_prompt:
+            import tempfile
+            tmp = Path(tempfile.gettempdir()) / f"coral_gemini_system_{session_id}.md"
+            tmp.write_text(board_prompt)
+            cmd = f'GEMINI_SYSTEM_MD="{tmp}" gemini'
         else:
             cmd = "gemini"
         if flags:
