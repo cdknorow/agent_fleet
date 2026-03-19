@@ -151,9 +151,11 @@ async def _build_session_list(include_commands: bool = False) -> list[dict]:
         needs_input = latest_ev == "notification"
         done = latest_ev == "stop"
         working = latest_ev in ("tool_use", "prompt_submit")
-        stuck = working and (log_info["staleness_seconds"] or 999) > 420
-        if stuck:
+        # If the last event was a tool_use but it was a long time ago,
+        # the agent is idle, not "working" or "stuck".
+        if working and (log_info["staleness_seconds"] or 999) > 420:
             working = False
+        stuck = False
 
         summary = log_info["summary"]
         if not summary and sid:
