@@ -104,16 +104,37 @@ async def setup_board_and_prompt(
     # Behavior prompt + board instructions are injected via systemPrompt in the
     # settings file. But Claude needs an initial user message to start working.
     if prompt:
-        await asyncio.sleep(3)
-        try:
-            from coral.tools.tmux_manager import send_to_tmux
-            # Send a short kick message — the full prompt is already in systemPrompt
-            err = await send_to_tmux(agent_type, prompt, session_id=session_id)
-            if err:
-                await run_cmd("tmux", "send-keys", "-t", session_name, "-l", prompt)
-            await run_cmd("tmux", "send-keys", "-t", session_name, "Enter")
-        except Exception:
-            log.warning("Failed to send initial prompt to session %s", session_id[:8])
+        from coral.tools.tmux_manager import send_to_tmux, capture_pane
+
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            await asyncio.sleep(3)
+            try:
+                err = await send_to_tmux(agent_type, prompt, session_id=session_id)
+                if err:
+                    await run_cmd("tmux", "send-keys", "-t", session_name, "-l", prompt)
+                await run_cmd("tmux", "send-keys", "-t", session_name, "Enter")
+            except Exception:
+                log.warning("Failed to send prompt to session %s (attempt %d/%d)",
+                            session_id[:8], attempt + 1, max_attempts)
+                continue
+
+            # Verify the prompt was received by checking tmux pane content
+            await asyncio.sleep(2)
+            try:
+                pane_text = await capture_pane(agent_type, session_id=session_id)
+                if pane_text and prompt[:40] in pane_text:
+                    log.info("Prompt verified in session %s (attempt %d)", session_id[:8], attempt + 1)
+                    break
+                else:
+                    log.warning("Prompt not found in pane for session %s (attempt %d/%d)",
+                                session_id[:8], attempt + 1, max_attempts)
+            except Exception:
+                log.warning("Could not verify prompt for session %s (attempt %d/%d)",
+                            session_id[:8], attempt + 1, max_attempts)
+        else:
+            log.error("Failed to deliver prompt to session %s after %d attempts",
+                      session_id[:8], max_attempts)
 
 
 def strip_ansi(text: str) -> str:
