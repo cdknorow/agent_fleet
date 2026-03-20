@@ -84,7 +84,7 @@ window.openTeamIconPicker = function(btn) {
 window.browseAgentTemplatesNew = function() {
     showTemplateBrowser('agents', (template) => {
         const name = (template.name || '').replace(/-/g, ' ');
-        const prompt = (template.body || '') + '\n\nWork with your team.';
+        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
         if (window._addTeamAgent) {
             window._addTeamAgent(name, prompt);
         }
@@ -96,7 +96,7 @@ window.browseAgentTemplates = function(btn) {
         if (!row) return;
         const promptEl = row.querySelector('.team-agent-prompt');
         if (promptEl) {
-            promptEl.value = (template.body || '') + '\n\nWork with your team.';
+            promptEl.value = (template.body || '') + '\n\nCoordinate with the team via the message board.';
             promptEl.dispatchEvent(new Event('input'));
         }
         const nameEl = row.querySelector('.team-agent-name');
