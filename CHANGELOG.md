@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 4.0.3 — 2026-03-20
+
+### Fixed
+- **Tooltip positioning** — Restored proper width and right-alignment for Send, Enter, and +Team tooltips
+- **Tooltip hover delay** — Tooltips appear after 1 second hover instead of immediately
+
 ## 4.0.2 — 2026-03-20
 
 ### Fixed
