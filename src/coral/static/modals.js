@@ -729,7 +729,7 @@ function _addTeamAgent(defaultName, defaultPrompt) {
                         oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-prompt-preview').textContent=this.value.substring(0,200)+(this.value.length>200?'\u2026':'')">${escapeHtml(defaultPrompt || '')}</textarea>
                 </label>
                 <div style="display:flex;gap:6px">
-                    <button class="btn btn-small" onclick="browseAgentTemplates(this)">Browse Templates</button>
+                    <button class="btn btn-small" onclick="browseAgentTemplates(this)" title="Browse community agent templates from aitmpl.com">Browse Templates</button>
                     <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
                 </div>
             </div>
