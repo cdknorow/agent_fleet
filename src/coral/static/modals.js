@@ -114,6 +114,49 @@ export function hideLaunchModal() {
     document.getElementById("launch-modal").style.display = "none";
 }
 
+/**
+ * Check if --dangerously-skip-permissions is in flags.
+ * If not, show a confirmation dialog. Returns a promise resolving to:
+ *   'enable' — user wants to add the flag
+ *   'skip' — user wants to launch without it
+ *   null — user cancelled
+ */
+function _checkPermissionFlag(flagsStr) {
+    return new Promise((resolve) => {
+        if (flagsStr && flagsStr.includes('--dangerously-skip-permissions')) {
+            resolve('skip');
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+            <div class="modal-content" style="width:460px">
+                <h3>Permission Prompt Warning</h3>
+                <p style="color:var(--text-secondary);font-size:13px;line-height:1.5;margin:8px 0 16px">
+                    Agents may get stuck on permission prompts without <code>--dangerously-skip-permissions</code>. Would you like to enable it?
+                </p>
+                <div class="modal-actions" style="gap:8px">
+                    <button class="btn" data-action="cancel">Cancel</button>
+                    <button class="btn" data-action="skip">Launch Without</button>
+                    <button class="btn btn-primary" data-action="enable">Enable &amp; Launch</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+            const action = e.target.dataset?.action;
+            if (action) {
+                modal.remove();
+                resolve(action === 'cancel' ? null : action);
+            } else if (e.target === modal) {
+                modal.remove();
+                resolve(null);
+            }
+        });
+    });
+}
+
 export async function launchSession() {
     let dir, type, agentName, flagsStr;
 
@@ -132,6 +175,17 @@ export async function launchSession() {
     if (!dir) {
         showToast("Working directory is required", true);
         return;
+    }
+
+    // Permission flag check (skip for terminals)
+    if (_launchMode !== "terminal") {
+        const permResult = await _checkPermissionFlag(flagsStr);
+        if (permResult === null) return;
+        if (permResult === 'enable') {
+            flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+            const flagsInput = document.getElementById("launch-flags");
+            if (flagsInput) flagsInput.value = flagsStr;
+        }
     }
 
     const payload = { working_dir: dir, agent_type: type };
@@ -470,11 +524,20 @@ export async function launchAgentToBoard() {
     const workDir = document.getElementById("add-agent-board-workdir").value;
     const agentName = document.getElementById("add-agent-board-agent-name").value.trim();
     const prompt = document.getElementById("add-agent-board-prompt").value.trim();
-    const flagsStr = document.getElementById("add-agent-board-flags").value.trim();
+    let flagsStr = document.getElementById("add-agent-board-flags").value.trim();
 
     if (!agentName) {
         showToast("Agent name is required", "error");
         return;
+    }
+
+    // Permission flag check
+    const permResult = await _checkPermissionFlag(flagsStr);
+    if (permResult === null) return;
+    if (permResult === 'enable') {
+        flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+        const flagsInput = document.getElementById("add-agent-board-flags");
+        if (flagsInput) flagsInput.value = flagsStr;
     }
 
     const flags = flagsStr ? flagsStr.split(/\s+/) : [];
@@ -832,7 +895,17 @@ async function launchTeam() {
     }
 
     const agentType = document.getElementById("team-agent-type").value;
-    const flagsStr = document.getElementById("team-flags").value.trim();
+    let flagsStr = document.getElementById("team-flags").value.trim();
+
+    // Permission flag check
+    const permResult = await _checkPermissionFlag(flagsStr);
+    if (permResult === null) return;
+    if (permResult === 'enable') {
+        flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+        const flagsInput = document.getElementById("team-flags");
+        if (flagsInput) flagsInput.value = flagsStr;
+    }
+
     const flags = flagsStr ? flagsStr.split(/\s+/) : [];
 
     // Collect agent definitions
