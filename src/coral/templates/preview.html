@@ -75,7 +75,7 @@
     function renderMarkdown(md) {
         let html = md
             .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-                `<pre><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`)
+                `<pre><code>${code.replace(/\x3c/g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`)
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
