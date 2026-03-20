@@ -1,7 +1,7 @@
 /* Session selection and management */
 
 import { state, sessionKey } from './state.js';
-import { showToast } from './utils.js';
+import { showToast, escapeHtml, escapeAttr } from './utils.js';
 import { loadLiveSessionDetail, loadHistoryMessages } from './api.js';
 import { stopCaptureRefresh, startCaptureRefresh } from './capture.js';
 import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, renderHistoryChat } from './render.js';
