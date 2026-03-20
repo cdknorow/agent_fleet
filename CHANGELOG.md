@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 4.0.0 — 2026-03-20
+
+### Added
+- **Editable default prompts** — Customize orchestrator and worker board instructions in Settings panel with Reset to Default support
+- **Configurable receive modes** — Board subscribers can set notification mode: `mentions` (default), `all`, `none`, or group-based filtering via new `board_groups` table
+- **+Team send button** — Appends role-aware team collaboration reminder (orchestrator vs worker) when sending messages; configurable in Settings
+- **Configurable data directory** — `--data-dir` CLI flag and `CORAL_DATA_DIR` env var to customize where Coral stores databases, uploads, themes, and state files
+- **Reorderable session groups** — Move Up/Move Down in sidebar kebab menu to control folder group order; persisted in settings
+- **Unified Chat History** — Message boards merged into Chat History as "Group Chats" alongside "Agent Chats" with type filtering (All/Agent/Group) and full-text search across board messages
+- **Agent emoji icons** — Set emoji icons per agent via kebab menu emoji picker (Slack-style grid with search); icons display in sidebar, board messages, and subscriber list
+- **`coral-agent-icon` CLI** — Agents can set their own emoji icon (`coral-agent-icon set 🦊` / `coral-agent-icon clear`)
+- **Icon macro button** — Default macro prompts agents to pick an emoji for themselves
+- **Scrollbar toggle** — Show/hide scrollbars globally via Settings
+- **Cross-links in Chat History** — Board subscribers link to agent's Chat History; agent history links back to Group Chat
+- **Orchestrator crown** — Orchestrator sorted to top of team with gold crown icon for visual distinction
+- **Sleep polling detection** — Agents in sleep loops (e.g. `sleep 120 && coral-board read`) show as idle instead of working
+
+### Fixed
+- **Safe `{board_name}` substitution** — Uses `.replace()` instead of `.format()` to avoid crashes with literal curly braces in custom prompts
+- **Tooltip overflow** — +Team tooltip uses `position:fixed` to escape `overflow:hidden` containers
+- **Board card header size** — Reduced from 14px to 11px for compact sidebar
+- **Python 3.8 compatibility** — License field in pyproject.toml uses table form for older setuptools
+
 ## 3.2.1 — 2026-03-19
 
 ### Fixed
