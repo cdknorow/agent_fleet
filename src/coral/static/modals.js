@@ -797,8 +797,8 @@ function _addPresetAgent(name) {
     if (picker) picker.style.display = "none";
 }
 window._addPresetAgent = _addPresetAgent;
-window._addTeamAgent = () => {
-    _addTeamAgent("", "");
+window._addTeamAgent = (name, prompt) => {
+    _addTeamAgent(name || "", prompt || "");
     const picker = document.getElementById("team-agent-picker");
     if (picker) picker.style.display = "none";
 };

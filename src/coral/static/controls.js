@@ -214,8 +214,7 @@ export function renderQuickActions() {
         <span class="toolbar-divider"></span>
         <div class="toolbar-group toolbar-group-macros">
             ${macroButtons}
-            <button class="btn-nav btn-add-macro" onclick="showMacroModal()" title="Add macro" aria-label="Add macro">+</button>
-            <button class="btn-nav btn-add-macro" onclick="browseCommandTemplates()" title="Browse command templates" aria-label="Browse templates" style="font-size:11px">lib</button>
+            <button class="btn-nav btn-add-macro" onclick="showMacroAddMenu(this)" title="Add macro" aria-label="Add macro">+</button>
         </div>
         <span class="toolbar-spacer"></span>
         <div class="toolbar-group toolbar-group-nav">
