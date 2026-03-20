@@ -321,8 +321,8 @@
     font-weight: 500;
     color: var(--text-muted);
     padding: 4px 16px !important;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
+    letter-spacing: 0.02em;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -347,7 +347,7 @@
 }
 
 .group-branch-line {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 400;
     color: var(--text-muted);
     text-transform: none;
