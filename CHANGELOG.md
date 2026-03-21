@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 4.1.0 — 2026-03-20
+
+### Added
+- **Agent template library** — Browse and import agent templates from aitmpl.com directly in the dashboard
+- **Browse Templates button** — Top-level template browser accessible from agent picker dropdown
+- **Markdown file preview** — Preview, edit, and save markdown files from the dashboard
+- **Permissions warning** — Warn when launching agents without `--dangerously-skip-permissions`
+- **Team coordination prompts** — Imported agent templates automatically include board coordination instructions
+
+### Changed
+- **Board polling performance** — Reduced board polling intervals to 5 seconds
+
+### Fixed
+- **Session resume reliability** — Parallelize session resume with per-session timeouts; prevent raw prompt text from being sent to bare shell when Claude CLI fails to start
+- **Preview window** — Use server-rendered preview page instead of document.write popup; fix popup blocker and auto-close issues
+- **Macro modal** — Restore + button to open macro modal; use fixed positioning for dropdown menu to avoid clipping
+- **Template browser** — Extract arrays from API response objects; add attribution and tooltips
+
 ## 4.0.3 — 2026-03-20
 
 ### Fixed
