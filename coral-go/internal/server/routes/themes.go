@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,6 +33,108 @@ var safeNameRE = regexp.MustCompile(`[^a-zA-Z0-9\-_ ]`)
 
 func (h *ThemesHandler) ensureDir() {
 	os.MkdirAll(h.themesDir, 0755)
+}
+
+// bundledThemes maps theme name → JSON content for themes shipped with Coral.
+var bundledThemes = map[string]string{
+	"GhostV3": `{
+  "description": "Dark indigo theme with soft pastels and cool blue accents",
+  "base": "dark",
+  "variables": {
+    "--bg-primary": "#0a0e27",
+    "--bg-secondary": "#1a1f3a",
+    "--bg-tertiary": "#2a2f4a",
+    "--bg-hover": "#35394f",
+    "--bg-elevated": "#3a3f5a",
+    "--topbar-bg": "#1a1f3a",
+    "--topbar-border": "#4a4f6a",
+    "--border": "#4a4f6a",
+    "--border-light": "#5a5f7a",
+    "--text-primary": "#d0d4e8",
+    "--text-secondary": "#8a8fa0",
+    "--text-muted": "#5a5f75",
+    "--accent": "#7dd3fc",
+    "--accent-dim": "#38bdf8",
+    "--success": "#86efac",
+    "--warning": "#fbbf24",
+    "--error": "#f87171",
+    "--badge-claude": "#a78bfa",
+    "--badge-gemini": "#f472b6",
+    "--sh-keyword": "#a78bfa",
+    "--sh-string": "#86efac",
+    "--sh-comment": "#6b7280",
+    "--sh-number": "#fbbf24",
+    "--sh-builtin": "#7dd3fc",
+    "--sh-decorator": "#f472b6",
+    "--diff-add-bg": "#1d3a1a",
+    "--diff-add-color": "#86efac",
+    "--diff-del-bg": "#3a1d1d",
+    "--diff-del-color": "#f87171",
+    "--color-tool-read": "#60a5fa",
+    "--color-tool-write": "#34d399",
+    "--color-tool-edit": "#fbbf24",
+    "--color-tool-bash": "#f87171",
+    "--color-tool-grep": "#a78bfa",
+    "--color-tool-web": "#7dd3fc",
+    "--color-tool-status": "#60a5fa",
+    "--color-tool-goal": "#a78bfa",
+    "--color-tool-stop": "#f87171",
+    "--chat-human-bg": "#1a1f3a",
+    "--chat-human-color": "#d0d4e8",
+    "--xterm-background": "#0a0e27",
+    "--xterm-foreground": "#d0d4e8",
+    "--xterm-cursor": "#7dd3fc",
+    "--xterm-selection-background": "#35394f",
+    "--xterm-black": "#1a1f3a",
+    "--xterm-red": "#f87171",
+    "--xterm-green": "#86efac",
+    "--xterm-yellow": "#fbbf24",
+    "--xterm-blue": "#60a5fa",
+    "--xterm-magenta": "#a78bfa",
+    "--xterm-cyan": "#7dd3fc",
+    "--xterm-white": "#d0d4e8",
+    "--xterm-bright-black": "#4a4f6a",
+    "--xterm-bright-red": "#fb7185",
+    "--xterm-bright-green": "#6ee7b7",
+    "--xterm-bright-yellow": "#fcd34d",
+    "--xterm-bright-blue": "#93c5fd",
+    "--xterm-bright-magenta": "#d8b4fe",
+    "--xterm-bright-cyan": "#a5f3fc",
+    "--xterm-bright-white": "#f1f5f9",
+    "--d2h-code-bg": "#0a0e27",
+    "--d2h-gutter-bg": "#1a1f3a",
+    "--d2h-ins-bg": "#1d3a1a",
+    "--d2h-ins-gutter-bg": "#2a4a25",
+    "--d2h-ins-highlight": "#3a6a35",
+    "--d2h-del-bg": "#3a1d1d",
+    "--d2h-del-gutter-bg": "#4a2a2a",
+    "--d2h-del-highlight": "#6a3a3a",
+    "--d2h-empty-bg": "#2a2f4a",
+    "--d2h-hunk-bg": "#35394f",
+    "--mb-bg": "#1a1f3a",
+    "--mb-text": "#e0e0e0",
+    "--mb-text-bright": "#f0f0f0",
+    "--mb-heading": "#88c0d0",
+    "--mb-code-bg": "#0a0e27"
+  }
+}`,
+}
+
+// SeedBundledThemes copies bundled themes to the user themes directory if they
+// don't already exist. Matches Python's seed_bundled_themes().
+func (h *ThemesHandler) SeedBundledThemes() {
+	h.ensureDir()
+	for name, content := range bundledThemes {
+		dest := filepath.Join(h.themesDir, name+".json")
+		if _, err := os.Stat(dest); err == nil {
+			continue // already exists
+		}
+		if err := os.WriteFile(dest, []byte(content), 0644); err != nil {
+			log.Printf("Warning: failed to seed bundled theme %s: %v", name, err)
+			continue
+		}
+		log.Printf("Seeded bundled theme: %s", name)
+	}
 }
 
 func (h *ThemesHandler) safePath(name string) string {
@@ -206,9 +309,50 @@ var themeVariableGroups = map[string]map[string]string{
 		"--bg-elevated": "Elevated surface", "--topbar-bg": "Top bar background",
 		"--topbar-border": "Top bar border",
 	},
-	"Borders":          {"--border": "Border", "--border-light": "Light border"},
-	"Text":             {"--text-primary": "Primary text", "--text-secondary": "Secondary text", "--text-muted": "Muted text"},
-	"Accent / Brand":   {"--accent": "Accent", "--accent-dim": "Accent dim"},
-	"Semantic Status":  {"--success": "Success", "--warning": "Warning", "--error": "Error"},
-	"Agent Badges":     {"--badge-claude": "Claude badge", "--badge-gemini": "Gemini badge"},
+	"Borders":         {"--border": "Border", "--border-light": "Light border"},
+	"Text":            {"--text-primary": "Primary text", "--text-secondary": "Secondary text", "--text-muted": "Muted text"},
+	"Accent / Brand":  {"--accent": "Accent", "--accent-dim": "Accent dim"},
+	"Semantic Status": {"--success": "Success", "--warning": "Warning", "--error": "Error"},
+	"Agent Badges":    {"--badge-claude": "Claude badge", "--badge-gemini": "Gemini badge"},
+	"Syntax Highlighting": {
+		"--sh-keyword": "Keyword", "--sh-string": "String", "--sh-comment": "Comment",
+		"--sh-number": "Number", "--sh-builtin": "Builtin", "--sh-decorator": "Decorator",
+	},
+	"Diff": {
+		"--diff-add-bg": "Addition background", "--diff-add-color": "Addition text",
+		"--diff-del-bg": "Deletion background", "--diff-del-color": "Deletion text",
+	},
+	"Tool / Event Colors": {
+		"--color-tool-read": "Read tool", "--color-tool-write": "Write tool",
+		"--color-tool-edit": "Edit tool", "--color-tool-bash": "Bash tool",
+		"--color-tool-grep": "Grep tool", "--color-tool-web": "Web tool",
+		"--color-tool-status": "Status event", "--color-tool-goal": "Goal event",
+		"--color-tool-stop": "Stop event",
+	},
+	"Chat": {
+		"--chat-human-bg": "Human message background", "--chat-human-color": "Human message text",
+	},
+	"Terminal (xterm)": {
+		"--xterm-background": "Background", "--xterm-foreground": "Foreground",
+		"--xterm-cursor": "Cursor", "--xterm-selection-background": "Selection background",
+		"--xterm-black": "Black", "--xterm-red": "Red", "--xterm-green": "Green",
+		"--xterm-yellow": "Yellow", "--xterm-blue": "Blue", "--xterm-magenta": "Magenta",
+		"--xterm-cyan": "Cyan", "--xterm-white": "White",
+		"--xterm-bright-black": "Bright black", "--xterm-bright-red": "Bright red",
+		"--xterm-bright-green": "Bright green", "--xterm-bright-yellow": "Bright yellow",
+		"--xterm-bright-blue": "Bright blue", "--xterm-bright-magenta": "Bright magenta",
+		"--xterm-bright-cyan": "Bright cyan", "--xterm-bright-white": "Bright white",
+	},
+	"Message Board": {
+		"--mb-bg": "Message background", "--mb-text": "Body text",
+		"--mb-text-bright": "Bold/emphasis text", "--mb-heading": "Heading color",
+		"--mb-code-bg": "Code block background",
+	},
+	"Diff Viewer (diff2html)": {
+		"--d2h-code-bg": "Code background", "--d2h-gutter-bg": "Gutter background",
+		"--d2h-ins-bg": "Insertion background", "--d2h-ins-gutter-bg": "Insertion gutter",
+		"--d2h-ins-highlight": "Insertion highlight", "--d2h-del-bg": "Deletion background",
+		"--d2h-del-gutter-bg": "Deletion gutter", "--d2h-del-highlight": "Deletion highlight",
+		"--d2h-empty-bg": "Empty placeholder", "--d2h-hunk-bg": "Hunk header",
+	},
 }

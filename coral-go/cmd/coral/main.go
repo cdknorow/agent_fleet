@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -29,7 +31,8 @@ func main() {
 	host := flag.String("host", cfg.Host, "Host to bind to")
 	port := flag.Int("port", cfg.Port, "Port to bind to")
 	noBrowser := flag.Bool("no-browser", false, "Don't open the browser on startup")
-	backendFlag := flag.String("backend", "tmux", "Terminal backend: pty or tmux")
+	defaultBackend := "pty"
+	backendFlag := flag.String("backend", defaultBackend, "Terminal backend: pty or tmux")
 	flag.Parse()
 
 	cfg.Host = *host
@@ -53,6 +56,7 @@ func main() {
 
 	// Build and start the HTTP server
 	srv := server.New(cfg, db, backend)
+	srv.RestoreSleepingBoards()
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	httpServer := &http.Server{
@@ -83,7 +87,14 @@ func main() {
 	)
 	go indexer.Run(ctx)
 
+	// Shared agent discovery function for background services
+	discoverFn := func(ctx context.Context) ([]background.AgentInfo, error) {
+		return background.DiscoverAgentsFromTmux(ctx, tmuxClient)
+	}
+
 	idleDetector := background.NewIdleDetector(taskStore, webhookStore, time.Duration(cfg.IdleDetectorIntervalS)*time.Second)
+	idleDetector.SetSessionStore(store.NewSessionStore(db))
+	idleDetector.SetDiscoverFn(discoverFn)
 	go idleDetector.Run(ctx)
 
 	webhookDispatcher := background.NewWebhookDispatcher(webhookStore, time.Duration(cfg.WebhookDispatcherIntervalS)*time.Second)
@@ -104,7 +115,26 @@ func main() {
 	// Wire scheduler into the tasks API for launching/killing
 	srv.SetScheduler(scheduler)
 
-	log.Printf("Started 5 background services (git poller, indexer, idle detector, webhook dispatcher, scheduler)")
+	// Board notifier — nudges agents about unread board messages
+	boardNotifier := background.NewBoardNotifier(srv.BoardStore(), tmuxClient, time.Duration(cfg.BoardNotifierIntervalS)*time.Second)
+	boardNotifier.SetDiscoverFn(discoverFn)
+	if bh := srv.BoardHandler(); bh != nil {
+		boardNotifier.SetIsPausedFn(bh.IsPaused)
+	}
+	go boardNotifier.Run(ctx)
+
+	// Remote board poller — polls remote Coral servers for unread messages
+	rbStore := store.NewRemoteBoardStore(db)
+	remotePoller := background.NewRemoteBoardPoller(rbStore, tmuxClient, 30*time.Second)
+	remotePoller.SetDiscoverFn(discoverFn)
+	go remotePoller.Run(ctx)
+
+	// Batch summarizer — auto-summarizes sessions using Claude CLI
+	summarizeFn := background.BuildSummarizeFn(sessStore)
+	batchSummarizer := background.NewBatchSummarizer(sessStore, summarizeFn)
+	go batchSummarizer.Run(ctx)
+
+	log.Printf("Started 8 background services (git poller, indexer, idle detector, webhook dispatcher, scheduler, board notifier, remote board poller, batch summarizer)")
 
 	// ── Start HTTP server ───────────────────────────────────────
 	go func() {
@@ -161,14 +191,15 @@ func nextFireTime(cronExpr, tz string, after time.Time) (time.Time, error) {
 }
 
 func openBrowser(url string) {
-	// macOS
-	cmd := "open"
-	args := []string{url}
-
-	// Best-effort; ignore errors
-	proc := &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}}
-	p, err := os.StartProcess("/usr/bin/"+cmd, append([]string{cmd}, args...), proc)
-	if err == nil {
-		p.Release()
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", url)
+	default: // linux, freebsd, etc.
+		cmd = exec.Command("xdg-open", url)
 	}
+	// Best-effort; ignore errors
+	cmd.Start()
 }

@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -35,16 +36,17 @@ var templateFS embed.FS
 
 // Server holds dependencies and exposes the HTTP router.
 type Server struct {
-	cfg          *config.Config
-	db           *store.DB
-	boardStore   *board.Store
-	backend      ptymanager.TerminalBackend
-	licenseMgr   *license.Manager
-	router       chi.Router
-	indexTmpl    *template.Template
-	diffTmpl     *template.Template
-	previewTmpl  *template.Template
-	tasksHandler *routes.TasksHandler
+	cfg           *config.Config
+	db            *store.DB
+	boardStore    *board.Store
+	backend       ptymanager.TerminalBackend
+	licenseMgr    *license.Manager
+	router        chi.Router
+	indexTmpl     *template.Template
+	diffTmpl      *template.Template
+	previewTmpl   *template.Template
+	tasksHandler  *routes.TasksHandler
+	boardHandler  *routes.BoardHandler
 }
 
 // templateData is passed to Go templates during rendering.
@@ -103,6 +105,11 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend) *
 	s.previewTmpl = previewTmpl
 
 	s.router = s.buildRouter()
+
+	// Seed bundled themes on startup (matches Python's seed_bundled_themes())
+	themeHandler := routes.NewThemesHandler(cfg)
+	themeHandler.SeedBundledThemes()
+
 	return s
 }
 
@@ -116,6 +123,32 @@ func (s *Server) SetScheduler(sched *background.JobScheduler) {
 	if s.tasksHandler != nil {
 		s.tasksHandler.SetScheduler(sched)
 	}
+}
+
+// BoardHandler returns the board handler (used by notifier and sleep/wake).
+func (s *Server) BoardHandler() *routes.BoardHandler {
+	return s.boardHandler
+}
+
+// BoardStore returns the board store (used by board notifier background service).
+func (s *Server) BoardStore() *board.Store {
+	return s.boardStore
+}
+
+// RestoreSleepingBoards restores board pause state for sleeping teams on startup.
+func (s *Server) RestoreSleepingBoards() {
+	if s.boardHandler == nil {
+		return
+	}
+	ss := store.NewSessionStore(s.db)
+	boards, err := ss.GetSleepingBoardNames(context.Background())
+	if err != nil || len(boards) == 0 {
+		return
+	}
+	for _, b := range boards {
+		s.boardHandler.SetPaused(b, true)
+	}
+	log.Printf("Restored pause state for %d sleeping board(s)", len(boards))
 }
 
 func (s *Server) buildRouter() chi.Router {
@@ -134,8 +167,9 @@ func (s *Server) buildRouter() chi.Router {
 		AllowCredentials: true,
 	}))
 
-	// License gate — disabled for now
-	// r.Use(license.Middleware(s.licenseMgr))
+	// License gate — gates all API access behind a valid license key.
+	// Activation and static asset paths are always accessible.
+	r.Use(license.Middleware(s.licenseMgr))
 
 	// License endpoints (ungated — must be accessible to activate)
 	licRoutes := license.NewRoutes(s.licenseMgr)
@@ -175,6 +209,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Put("/api/sessions/live/{name}/icon", sessHandler.SetIcon)
 	r.Post("/api/sessions/launch", sessHandler.Launch)
 	r.Post("/api/sessions/launch-team", sessHandler.LaunchTeam)
+
+	// Team sleep/wake
+	r.Get("/api/sessions/live/team/{boardName}/sleep-status", sessHandler.SleepStatus)
+	r.Post("/api/sessions/live/team/{boardName}/sleep", sessHandler.Sleep)
+	r.Post("/api/sessions/live/team/{boardName}/wake", sessHandler.Wake)
 
 	// Agent tasks
 	r.Get("/api/sessions/live/{name}/tasks", sessHandler.ListTasks)
@@ -285,6 +324,8 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Message board
 	boardHandler := routes.NewBoardHandler(s.boardStore)
+	s.boardHandler = boardHandler
+	sessHandler.SetBoardHandler(boardHandler)
 	r.Get("/api/board/projects", boardHandler.ListProjects)
 	r.Post("/api/board/{project}/subscribe", boardHandler.Subscribe)
 	r.Delete("/api/board/{project}/subscribe", boardHandler.Unsubscribe)
@@ -330,11 +371,11 @@ func (s *Server) buildRouter() chi.Router {
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// License gate disabled for now
-	// if !s.licenseMgr.IsValid() {
-	// 	s.serveActivation(w, r)
-	// 	return
-	// }
+	// Show activation page if no valid license
+	if !s.licenseMgr.IsValid() {
+		s.serveActivation(w, r)
+		return
+	}
 
 	if s.indexTmpl == nil {
 		w.Write([]byte(`<!DOCTYPE html><html><body>Template not loaded</body></html>`))

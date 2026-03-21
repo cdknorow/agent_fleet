@@ -64,6 +64,142 @@
     margin: 8px 20px;
 }
 
+/* Message board — sleep banner */
+.mb-sleep-banner {
+    text-align: center;
+    padding: 12px 16px;
+    background: rgba(210, 153, 34, 0.1);
+    border: 1px solid rgba(210, 153, 34, 0.25);
+    border-radius: 8px;
+    color: var(--warning, #d29922);
+    font-size: 13px;
+    margin: 8px 16px 12px;
+}
+
+/* Sleeping session overlay */
+.session-sleeping-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 10;
+    border-radius: 6px;
+}
+
+.session-sleeping-content {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 16px;
+}
+
+.session-sleeping-content p {
+    margin: 12px 0 0;
+}
+
+/* Session ended overlay */
+.session-ended-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    border-radius: 6px;
+}
+
+.session-ended-content {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.session-ended-content p {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: var(--text-secondary);
+}
+
+.restart-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: restart-spin 0.8s linear infinite;
+    margin-bottom: 12px;
+}
+
+@keyframes restart-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Message board — worker message indent */
+.mb-message-worker {
+    margin-left: 40px;
+}
+
+/* Sleeping agent in sidebar */
+.session-group-item.sleeping {
+    opacity: 0.5;
+}
+
+/* Message board — container spacing and max-width */
+#mb-messages {
+    padding-left: 20px !important;
+    max-width: 840px;
+    margin: 0 auto;
+}
+
+/* Message board — Slack-style thread layout */
+.mb-message {
+    padding: 12px 16px;
+    position: relative;
+    background: var(--mb-bg);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mb-message-first {
+    margin-top: 16px;
+}
+
+.mb-message-grouped {
+    margin-top: 2px;
+}
+
+.mb-message-first:first-of-type {
+    margin-top: 0;
+}
+
+.mb-message-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 2px;
+    flex-wrap: wrap;
+}
+
+.mb-agent-name {
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.mb-message-time {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.mb-message-body {
+    font-size: 13px;
+    color: var(--mb-text);
+    line-height: 1.6;
+}
+
 /* Message board delete button */
 .mb-delete-msg-btn {
     background: none;
@@ -75,6 +211,7 @@
     padding: 0 4px;
     opacity: 0;
     transition: opacity 0.15s, color 0.15s;
+    margin-left: auto;
 }
 
 .mb-message:hover .mb-delete-msg-btn {
@@ -102,7 +239,7 @@
 }
 
 .mb-message-body h2 { font-size: 14px; }
-.mb-message-body h3 { font-size: 13px; }
+.mb-message-body h3 { font-size: 13px; color: var(--mb-heading); }
 
 .mb-message-body ul, .mb-message-body ol {
     margin: 4px 0;
@@ -114,7 +251,7 @@
 }
 
 .mb-message-body code {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--mb-code-bg);
     padding: 1px 5px;
     border-radius: 4px;
     font-size: 12px;
@@ -122,7 +259,7 @@
 }
 
 .mb-message-body pre {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--mb-code-bg);
     padding: 8px 10px;
     border-radius: 6px;
     overflow-x: auto;
@@ -137,6 +274,7 @@
 
 .mb-message-body strong {
     font-weight: 700;
+    color: var(--mb-text-bright);
 }
 
 .mb-message-body blockquote {
@@ -1677,4 +1815,158 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* ── Template Browser ─────────────────────────────────────── */
+
+.template-browser {
+    width: 800px !important;
+    max-width: 95vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.template-browser-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.template-browser-header h3 {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.template-browser-search {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+}
+
+.template-browser-search:focus {
+    border-color: var(--accent);
+}
+
+.template-browser-close {
+    font-size: 18px;
+    padding: 2px 8px !important;
+    min-width: 0;
+}
+
+.template-browser-body {
+    display: flex;
+    gap: 1px;
+    flex: 1;
+    min-height: 0;
+    margin-top: 12px;
+    background: var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.template-browser-categories,
+.template-browser-list {
+    width: 180px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.template-browser-list {
+    width: 200px;
+}
+
+.template-browser-preview {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    padding: 16px;
+}
+
+.template-cat-btn,
+.template-item-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-transform: capitalize;
+}
+
+.template-cat-btn:hover,
+.template-item-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.template-cat-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.template-browser-empty,
+.template-browser-loading {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.template-preview-name {
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: capitalize;
+    margin-bottom: 6px;
+}
+
+.template-preview-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.template-preview-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.template-preview-body {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.template-preview-body pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.template-use-btn {
+    width: 100%;
 }

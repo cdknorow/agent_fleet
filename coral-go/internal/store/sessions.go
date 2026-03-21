@@ -58,6 +58,7 @@ type LiveSession struct {
 	BoardServer  *string `db:"board_server" json:"board_server,omitempty"`
 	Backend      *string `db:"backend" json:"backend,omitempty"`
 	Icon         *string `db:"icon" json:"icon,omitempty"`
+	IsSleeping   int     `db:"is_sleeping" json:"is_sleeping"`
 	CreatedAt    string  `db:"created_at" json:"created_at"`
 }
 
@@ -75,6 +76,11 @@ type SessionStore struct {
 // NewSessionStore creates a new SessionStore.
 func NewSessionStore(db *DB) *SessionStore {
 	return &SessionStore{db: db}
+}
+
+// DB returns the underlying database connection.
+func (s *SessionStore) DB() *DB {
+	return s.db
 }
 
 // ── User Settings ──────────────────────────────────────────────────────
@@ -714,11 +720,11 @@ func (s *SessionStore) RegisterLiveSession(ctx context.Context, ls *LiveSession)
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO live_sessions
-		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ls.SessionID, ls.AgentType, ls.AgentName, ls.WorkingDir,
 		ls.DisplayName, ls.ResumeFromID, ls.Flags, ls.IsJob,
-		ls.Prompt, ls.BoardName, ls.BoardServer, ls.Backend, ls.Icon, ls.CreatedAt)
+		ls.Prompt, ls.BoardName, ls.BoardServer, ls.Backend, ls.Icon, ls.IsSleeping, ls.CreatedAt)
 	return err
 }
 
@@ -734,7 +740,7 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, created_at
 		 FROM live_sessions ORDER BY created_at`)
 	return sessions, err
 }
@@ -744,6 +750,19 @@ func (s *SessionStore) GetLiveSessionPromptInfo(ctx context.Context, sessionID s
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		"SELECT prompt, board_name, board_server FROM live_sessions WHERE session_id = ?", sessionID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &ls, err
+}
+
+// GetLiveSession returns a full live session record by session_id.
+func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*LiveSession, error) {
+	var ls LiveSession
+	err := s.db.GetContext(ctx, &ls,
+		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, created_at
+		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -772,7 +791,7 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 	// Carry forward flags, prompt, board from old session if not set
 	var old LiveSession
 	err = tx.GetContext(ctx, &old,
-		"SELECT flags, prompt, board_name, board_server, icon FROM live_sessions WHERE session_id = ?",
+		"SELECT flags, prompt, board_name, board_server, icon, is_sleeping FROM live_sessions WHERE session_id = ?",
 		oldSessionID)
 	if err == nil {
 		if newSession.Flags == nil {
@@ -790,6 +809,7 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 		if newSession.Icon == nil {
 			newSession.Icon = old.Icon
 		}
+		newSession.IsSleeping = old.IsSleeping
 	}
 
 	tx.ExecContext(ctx, "DELETE FROM live_sessions WHERE session_id = ?", oldSessionID)
@@ -797,17 +817,25 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 	now := nowUTC()
 	_, err = tx.ExecContext(ctx,
 		`INSERT OR REPLACE INTO live_sessions
-		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, prompt, board_name, board_server, icon, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, prompt, board_name, board_server, icon, is_sleeping, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		newSession.SessionID, newSession.AgentType, newSession.AgentName,
 		newSession.WorkingDir, newSession.DisplayName, newSession.ResumeFromID,
 		newSession.Flags, newSession.Prompt, newSession.BoardName,
-		newSession.BoardServer, newSession.Icon, now)
+		newSession.BoardServer, newSession.Icon, newSession.IsSleeping, now)
 	if err != nil {
 		return err
 	}
 
 	return tx.Commit()
+}
+
+// UpdateLiveSessionDisplayName updates only the display_name field on a live session.
+func (s *SessionStore) UpdateLiveSessionDisplayName(ctx context.Context, sessionID, displayName string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET display_name = ? WHERE session_id = ?",
+		displayName, sessionID)
+	return err
 }
 
 // SetIcon sets or clears the emoji icon for a live session.
@@ -847,6 +875,47 @@ func (s *SessionStore) GetIcons(ctx context.Context, sessionIDs []string) (map[s
 	return result, nil
 }
 
+// ── Sleep/Wake ────────────────────────────────────────────────────────
+
+// SetBoardSleeping sets is_sleeping for all sessions on a board. Returns the count of affected rows.
+func (s *SessionStore) SetBoardSleeping(ctx context.Context, boardName string, sleeping bool) (int, error) {
+	val := 0
+	if sleeping {
+		val = 1
+	}
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET is_sleeping = ? WHERE board_name = ?",
+		val, boardName)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
+// SetSessionSleeping sets is_sleeping for a single session.
+func (s *SessionStore) SetSessionSleeping(ctx context.Context, sessionID string, sleeping bool) error {
+	val := 0
+	if sleeping {
+		val = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET is_sleeping = ? WHERE session_id = ?",
+		val, sessionID)
+	return err
+}
+
+// GetSleepingBoardNames returns distinct board names that have at least one sleeping session.
+func (s *SessionStore) GetSleepingBoardNames(ctx context.Context) ([]string, error) {
+	var names []string
+	err := s.db.SelectContext(ctx, &names,
+		"SELECT DISTINCT board_name FROM live_sessions WHERE is_sleeping = 1 AND board_name IS NOT NULL")
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
 // ── Live Session Flags Helper ──────────────────────────────────────────
 
 // ParseFlags deserializes a JSON flags string into a slice.
@@ -872,6 +941,18 @@ func MarshalFlags(flags []string) *string {
 	}
 	s := string(b)
 	return &s
+}
+
+// UnmarshalFlags deserializes a JSON flags string to a slice.
+func UnmarshalFlags(flags *string) []string {
+	if flags == nil || *flags == "" {
+		return nil
+	}
+	var result []string
+	if err := json.Unmarshal([]byte(*flags), &result); err != nil {
+		return nil
+	}
+	return result
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────

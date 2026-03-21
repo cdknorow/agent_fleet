@@ -34,6 +34,7 @@ function formatStaleness(seconds) {
 }
 
 function getStateLabel(s) {
+    if (s.sleeping) return "Sleeping";
     if (s.waiting_for_input) return "Needs input";
     if (s.stuck) return "Stuck";
     if (s.working) return "Working";
@@ -66,6 +67,7 @@ function buildSessionTooltip(s) {
 }
 
 function getDotClass(s) {
+    if (s.sleeping) return "sleeping";
     if (s.waiting_for_input) return "waiting";
     if (s.stuck) return "stuck";
     if (s.working) return "working";
@@ -397,6 +399,25 @@ export async function saveTeamFromSidebar(boardName) {
     showToast(`Saved template "${templateName}" (${agents.length} agents)`);
 }
 
+export async function toggleTeamSleep(boardName, action) {
+    if (action === 'sleep' && !confirm(`Put all agents on "${boardName}" to sleep?`)) return;
+    try {
+        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(boardName)}/${action}`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        // Update local state
+        const sleeping = !!data.sleeping;
+        for (const s of state.liveSessions) {
+            if (s.board_project === boardName) s.sleeping = sleeping;
+        }
+        renderLiveSessions(state.liveSessions);
+        showToast(sleeping ? `Team "${boardName}" is now sleeping` : `Team "${boardName}" is awake`);
+    } catch (e) {
+        showToast('Failed to toggle team sleep', true);
+    }
+}
+
 // Drag-and-drop state
 let _draggedSid = null;
 
@@ -415,8 +436,9 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const goal = goalText || (isTerminal ? "" : `<a href="#" class="generate-goal-link" onclick="event.preventDefault(); event.stopPropagation(); requestGoal('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')" title="Ask agent to set a goal">Generate Goal</a>`);
     const displayLabel = s.display_name || (isCompact && s.board_job_title) || (isTerminal ? "Terminal" : "Agent");
     const isOrchestrator = (s.display_name || s.board_job_title || '').toLowerCase().includes('orchestrator');
-    const agentIcon = s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
-    const orchIcon = (!s.icon && isOrchestrator) ? '<svg class="orch-icon" width="12" height="12" viewBox="0 0 16 16" fill="var(--warning, #d29922)" stroke="none"><path d="M8 1l2 4 3-1-1 4H4L3 4l3 1 2-4zM4 10h8v2H4z"/></svg> ' : '';
+    const sleepIcon = s.sleeping ? '<span class="agent-icon">🌙</span> ' : '';
+    const agentIcon = !s.sleeping && s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
+    const orchIcon = (!s.sleeping && !s.icon && isOrchestrator) ? '<svg class="orch-icon" width="12" height="12" viewBox="0 0 16 16" fill="var(--warning, #d29922)" stroke="none"><path d="M8 1l2 4 3-1-1 4H4L3 4l3 1 2-4zM4 10h8v2H4z"/></svg> ' : '';
     const kebabMenu = `<div class="sidebar-kebab-wrapper">
         <button class="sidebar-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="More actions">&#x22EE;</button>
         <div class="sidebar-kebab-menu" style="display:none">
@@ -450,7 +472,8 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const tooltip = buildSessionTooltip(s);
     const compactClass = isCompact ? ' session-compact' : '';
     const collapsedClass = collapsed ? ' group-collapsed' : '';
-    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}"
+    const sleepingClass = s.sleeping ? ' sleeping' : '';
+    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}"
         draggable="true"
         data-session-id="${sid}"
         data-group="${escapeAttr(groupName)}"
@@ -458,7 +481,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
         <span class="session-dot ${dotClass}"></span>
         <div class="session-info">
             <div class="session-name-row">
-                <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${agentIcon}${orchIcon}${escapeHtml(displayLabel)}${typeTag}</span>
+                <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${sleepIcon}${agentIcon}${orchIcon}${escapeHtml(displayLabel)}${typeTag}</span>
                 <span class="session-name-spacer"></span>
                 ${waitingBadge}
                 ${kebabMenu}
@@ -556,6 +579,10 @@ export function renderLiveSessions(sessions) {
                 const bChevron = boardCollapsed ? '&#x25B8;' : '&#x25BE;';
                 const boardLink = `<button class="group-board-link" onclick="event.stopPropagation(); selectBoardProject('${escapeAttr(boardName)}')" title="View board: ${escapeAttr(boardName)}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12v8H5l-3 3V3z"/></svg></button>`;
                 const boardWorkDir = boardSessions[0]?.working_directory || '';
+                const boardIsSleeping = boardSessions.some(s => s.sleeping);
+                const boardSleepIcon = boardIsSleeping ? ' <span class="agent-icon" title="Team is sleeping">🌙</span>' : '';
+                const sleepLabel = boardIsSleeping ? 'Wake Team' : 'Sleep Team';
+                const sleepAction = boardIsSleeping ? 'wake' : 'sleep';
                 const bKebab = `<div class="sidebar-kebab-wrapper group-kebab">
                     <button class="sidebar-kebab-btn group-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="Group actions">&#x22EE;</button>
                     <div class="sidebar-kebab-menu" style="display:none">
@@ -571,6 +598,10 @@ export function renderLiveSessions(sessions) {
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v1a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-1"/><polyline points="8 3 8 10"/><polyline points="5 6 8 3 11 6"/></svg>
                             Share Team
                         </button>
+                        <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); toggleTeamSleep('${escapeAttr(boardName)}', '${sleepAction}')">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
+                            ${sleepLabel}
+                        </button>
                         <hr class="overflow-menu-divider">
                         <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killBoard('${escapeAttr(boardName)}')">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
@@ -581,7 +612,7 @@ export function renderLiveSessions(sessions) {
                 const teamSubline = `<div class="board-card-subline"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M17 11a4 4 0 0 1 4 4v2"/></svg> Agent Team</div>`;
                 html += `<li class="session-board-card" style="border-left-color: ${accentColor}">
                     <div class="session-group-header board-card-header" onclick="toggleGroupCollapse('${escapeAttr(boardName)}')">
-                        <span class="group-chevron">${bChevron}</span><div class="group-header-text"><div class="group-name-line">${escapeHtml(boardName)} <span class="session-group-count">${boardSessions.length}</span></div>${teamSubline}</div><span class="session-name-spacer"></span>${boardLink}${bKebab}
+                        <span class="group-chevron">${bChevron}</span><div class="group-header-text"><div class="group-name-line">${escapeHtml(boardName)}${boardSleepIcon} <span class="session-group-count">${boardSessions.length}</span></div>${teamSubline}</div><span class="session-name-spacer"></span>${boardLink}${bKebab}
                     </div>
                     <ul class="board-card-agents${boardCollapsed ? ' board-card-collapsed' : ''}">`;
                 // Sort orchestrator to top

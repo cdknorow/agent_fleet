@@ -8,7 +8,7 @@ import { filterState, deserializeFromUrl, serializeToUrl,
 import { connectCoralWs } from './websocket.js';
 import { sendCommand, sendCommandWithTeam, sendRawKeys, sendModeToggle, cycleModeToggle, sendQuickCommand, executeMacro, addMacro, deleteMacro, showMacroModal, hideMacroModal, attachTerminal, killSession, restartSession, hideRestartModal, confirmRestart, initImageDrop, removeAttachment, editGoal, refreshGoal, requestGoal } from './controls.js';
 import { selectLiveSession, selectHistorySession, editAndResubmit, renameAgent, setAgentIcon, showEmojiPicker } from './sessions.js';
-import { toggleGroupCollapse, killGroup, killBoard, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, copyFolderPath, moveGroupUp, moveGroupDown } from './render.js';
+import { toggleGroupCollapse, killGroup, killBoard, toggleTeamSleep, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, copyFolderPath, moveGroupUp, moveGroupDown } from './render.js';
 import { syncPaneWidth, refreshCapture } from './capture.js';
 import { showLaunchModal, hideLaunchModal, launchSession, showInfoModal, hideInfoModal, copyInfoCommand, showResumeModal, hideResumeModal, resumeIntoSession, showSettingsModal, hideSettingsModal, applySettings, loadSettings, toggleFlag, showAddAgentToBoard, hideAddAgentBoardModal, launchAgentToBoard, exportPersonas, importPersonas, exportTeamTemplates, importTeamTemplates, showDefaultPromptsModal, hideDefaultPromptsModal, resetDefaultPrompt, saveDefaultPrompts } from './modals.js';
 import { toggleBrowser, browserNavigateTo, browserNavigateUp } from './browser.js';
@@ -17,9 +17,11 @@ import { fitTerminal } from './xterm_renderer.js';
 import { loadSessionNotes, saveNotes, resummarize, toggleNotesEdit, cancelNotesEdit, switchHistoryTab } from './notes.js';
 import { loadSessionTags, addTagToSession, removeTagFromSession, showTagDropdown, hideTagDropdown, createTag, loadAllTags } from './tags.js';
 import { loadSessionCommits } from './commits.js';
+import { showTemplateBrowser } from './template_browser.js';
 import { loadAgentTasks, addAgentTask, toggleAgentTask, deleteAgentTask, editAgentTaskTitle } from './tasks.js';
-import { loadChangedFiles, openFileDiff, refreshChangedFiles } from './changed_files.js';
+import { loadChangedFiles, openFileDiff, openFilePreview, refreshChangedFiles } from './changed_files.js';
 import { initFileMention } from './file_mention.js';
+import { initCommandMention } from './command_mention.js';
 import { loadAgentNotes, initNotesMd } from './agent_notes.js';
 import { switchAgenticTab, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
@@ -32,7 +34,7 @@ import {
 } from './webhooks.js';
 import { initLiveJobs, renderLiveJobs, selectLiveJobRun } from './live_jobs.js';
 import { showThemeConfigurator, hideThemeConfigurator } from './theme_config.js';
-import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, deleteBoardMessage } from './message_board.js';
+import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, toggleBoardSleep, deleteBoardMessage } from './message_board.js';
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 
@@ -80,6 +82,72 @@ window.openTeamIconPicker = function(btn) {
         if (hiddenInput) hiddenInput.value = emoji;
     });
 };
+window.browseAgentTemplatesNew = function() {
+    showTemplateBrowser('agents', (template) => {
+        const name = (template.name || '').replace(/-/g, ' ');
+        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+        if (window._addTeamAgent) {
+            window._addTeamAgent(name, prompt);
+        }
+    });
+};
+window.browseAgentTemplates = function(btn) {
+    showTemplateBrowser('agents', (template) => {
+        const row = btn.closest('.team-agent-row');
+        if (!row) return;
+        const promptEl = row.querySelector('.team-agent-prompt');
+        if (promptEl) {
+            promptEl.value = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+            promptEl.dispatchEvent(new Event('input'));
+        }
+        const nameEl = row.querySelector('.team-agent-name');
+        if (nameEl && template.name && !nameEl.value.trim()) {
+            nameEl.value = (template.name || '').replace(/-/g, ' ');
+            nameEl.dispatchEvent(new Event('input'));
+        }
+    });
+};
+window.showMacroAddMenu = function(btn) {
+    // Remove existing menu
+    const existing = document.getElementById('macro-add-menu');
+    if (existing) { existing.remove(); return; }
+
+    const rect = btn.getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.id = 'macro-add-menu';
+    menu.className = 'sidebar-kebab-menu';
+    menu.style.cssText = `display:block;position:fixed;bottom:${window.innerHeight - rect.top + 4}px;left:${rect.left}px;min-width:180px;z-index:10000`;
+    menu.innerHTML = `
+        <button class="overflow-menu-item" onclick="this.closest('#macro-add-menu').remove(); showMacroModal()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+            Create Custom
+        </button>
+        <button class="overflow-menu-item" onclick="this.closest('#macro-add-menu').remove(); browseCommandTemplates()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="10" height="10" rx="1.5"/><line x1="6" y1="6" x2="10" y2="6"/><line x1="6" y1="8.5" x2="10" y2="8.5"/><line x1="6" y1="11" x2="8" y2="11"/></svg>
+            Browse Commands <span style="font-size:9px;color:var(--text-muted)">(aitmpl.com)</span>
+        </button>
+    `;
+    document.body.appendChild(menu);
+
+    // Close on outside click
+    setTimeout(() => {
+        const close = (e) => { if (!menu.contains(e.target) && e.target !== btn) { menu.remove(); document.removeEventListener('click', close, true); } };
+        document.addEventListener('click', close, true);
+    }, 50);
+};
+window.browseCommandTemplates = async function() {
+    const { getMacros, saveMacros } = await import('./controls.js');
+    showTemplateBrowser('commands', async (template) => {
+        const label = template.description || template.name || 'Template';
+        const truncLabel = label.length > 20 ? label.substring(0, 20) + '...' : label;
+        const command = template.body || '';
+        const macros = getMacros();
+        macros.push({ label: truncLabel, command });
+        await saveMacros(macros);
+        const { renderQuickActions } = await import('./controls.js');
+        renderQuickActions();
+    });
+};
 window.showLaunchModal = showLaunchModal;
 window.hideLaunchModal = hideLaunchModal;
 window.launchSession = launchSession;
@@ -109,6 +177,7 @@ window.createTag = createTag;
 window.loadHistoryPage = loadHistoryPage;
 window.loadChangedFiles = loadChangedFiles;
 window.openFileDiff = openFileDiff;
+window.openFilePreview = openFilePreview;
 window.refreshChangedFiles = refreshChangedFiles;
 window.loadAgentTasks = loadAgentTasks;
 window.addAgentTask = addAgentTask;
@@ -153,6 +222,7 @@ window.showMessageBoardProjects = showMessageBoardProjects;
 window.postBoardMessage = postBoardMessage;
 window.deleteMessageBoardProject = deleteMessageBoardProject;
 window.toggleBoardPause = toggleBoardPause;
+window.toggleBoardSleep = toggleBoardSleep;
 window.deleteBoardMessage = deleteBoardMessage;
 window.showFolderTagDropdown = showFolderTagDropdown;
 window.hideFolderTagDropdown = hideFolderTagDropdown;
@@ -188,6 +258,7 @@ window.moveGroupUp = moveGroupUp;
 window.moveGroupDown = moveGroupDown;
 window.copyFolderPath = copyFolderPath;
 window.killBoard = killBoard;
+window.toggleTeamSleep = toggleTeamSleep;
 window.shareAgentTeam = shareAgentTeam;
 window.saveTeamFromSidebar = saveTeamFromSidebar;
 window.showConfirmModal = showConfirmModal;
@@ -199,6 +270,7 @@ window.exportPersonas = exportPersonas;
 window.importPersonas = importPersonas;
 window.exportTeamTemplates = exportTeamTemplates;
 window.importTeamTemplates = importTeamTemplates;
+window.showTemplateBrowser = showTemplateBrowser;
 window.killSessionDirect = killSessionDirect;
 window.showInfoDirect = showInfoDirect;
 window.attachDirect = attachDirect;
@@ -518,6 +590,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // @file mention autocomplete
     initFileMention();
+
+    // /command mention autocomplete
+    initCommandMention();
 
     // Markdown notes panel: click-to-edit, blur-to-save
     initNotesMd();

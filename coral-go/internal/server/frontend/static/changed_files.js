@@ -55,6 +55,28 @@ function splitPath(filepath) {
     return { dir: filepath.substring(0, lastSlash + 1), name: filepath.substring(lastSlash + 1) };
 }
 
+export function openFilePreview(filepath) {
+    if (!state.currentSession || state.currentSession.type !== 'live') return;
+    const agentName = state.currentSession.name;
+    const sessionId = state.currentSession.session_id;
+
+    const qs = new URLSearchParams({
+        agent: agentName,
+        file: filepath,
+    });
+
+    const width = Math.min(900, Math.round(window.screen.width * 0.6));
+    const height = Math.min(800, Math.round(window.screen.height * 0.75));
+    const left = Math.round((window.screen.width - width) / 2);
+    const top = Math.round((window.screen.height - height) / 2);
+
+    window.open(
+        `/preview?${qs}`,
+        'coral-preview',
+        `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,status=no`,
+    );
+}
+
 export function openFileDiff(filepath) {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
     const agentName = state.currentSession.name;

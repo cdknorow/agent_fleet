@@ -95,6 +95,11 @@ func (h *HistoryHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		chatType = "all"
 	}
 
+	// Check if any filters are active (used for cold-start fast path)
+	hasAnyFilter := params.Search != "" || len(params.TagIDs) > 0 ||
+		len(params.SourceTypes) > 0 || params.DateFrom != "" || params.DateTo != "" ||
+		params.MinDurationSec != nil || params.MaxDurationSec != nil
+
 	// ── Agent sessions ──
 	agentSessions := make([]map[string]any, 0)
 	agentTotal := 0
@@ -104,6 +109,19 @@ func (h *HistoryHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+
+		// Cold-start fast path: when DB is empty and no filters active,
+		// match Python's file-scan fallback response shape (page_size=0).
+		if result.Total == 0 && !hasAnyFilter && chatType != "group" {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"sessions":  agentSessions,
+				"total":     0,
+				"page":      1,
+				"page_size": 0,
+			})
+			return
+		}
+
 		agentTotal = result.Total
 		for _, s := range result.Sessions {
 			m := map[string]any{

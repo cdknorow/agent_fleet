@@ -16,6 +16,7 @@ const needsInputThreshold = 300 // 5 minutes
 type IdleDetector struct {
 	taskStore    *store.TaskStore
 	webhookStore *store.WebhookStore
+	sessionStore *store.SessionStore
 	interval     time.Duration
 	logger       *slog.Logger
 	discoverFn   func(ctx context.Context) ([]AgentInfo, error)
@@ -31,6 +32,11 @@ func NewIdleDetector(taskStore *store.TaskStore, webhookStore *store.WebhookStor
 		logger:       slog.Default().With("service", "idle_detector"),
 		notified:     make(map[string]bool),
 	}
+}
+
+// SetSessionStore sets the session store for sleep-awareness.
+func (d *IdleDetector) SetSessionStore(ss *store.SessionStore) {
+	d.sessionStore = ss
 }
 
 // SetDiscoverFn sets a custom agent discovery function.
@@ -66,6 +72,19 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 		return err
 	}
 
+	// Build set of sleeping session IDs to skip
+	sleepingSIDs := make(map[string]bool)
+	if d.sessionStore != nil {
+		allLive, err := d.sessionStore.GetAllLiveSessions(ctx)
+		if err == nil {
+			for _, ls := range allLive {
+				if ls.IsSleeping == 1 {
+					sleepingSIDs[ls.SessionID] = true
+				}
+			}
+		}
+	}
+
 	sessionIDs := make([]string, 0, len(agents))
 	for _, a := range agents {
 		if a.SessionID != "" {
@@ -78,12 +97,17 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 	}
 
 	for _, agent := range agents {
+		// Skip sleeping sessions — they are intentionally idle
+		if sleepingSIDs[agent.SessionID] {
+			delete(d.notified, agent.AgentName)
+			continue
+		}
 		evPair, ok := latestEvents[agent.SessionID]
 		latestEv := ""
 		if ok {
 			latestEv = evPair[0]
 		}
-		waiting := latestEv == "stop" || latestEv == "notification"
+		waiting := latestEv == "notification"
 
 		if !waiting {
 			delete(d.notified, agent.AgentName)

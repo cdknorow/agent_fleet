@@ -11,3 +11,7 @@ site/
 coral-go/coral
 coral-go/db-compare
 coral-go/cmd/db-compare/db-compare
+
+# Large video files (use GitHub Releases for distribution)
+icons/history.mp4
+icons/main_loop.mp4

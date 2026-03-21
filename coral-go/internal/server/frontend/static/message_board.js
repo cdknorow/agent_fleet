@@ -1,10 +1,12 @@
 /* Message Board: project list, messages, subscribers, posting */
 
 import { escapeHtml, escapeAttr } from './utils.js';
+import { loadLiveSessions } from './api.js';
 
 let currentProject = null;
 let pollTimer = null;
 let isPaused = false;
+let isSleeping = false;
 const PAGE_SIZE = 50;
 let _allMessages = [];
 let _totalMessages = 0;
@@ -80,6 +82,7 @@ export function selectBoardProject(project) {
     document.getElementById('mb-subscribers-panel').style.display = 'block';
     document.getElementById('mb-back-btn').style.display = '';
     document.getElementById('mb-pause-btn').style.display = '';
+    document.getElementById('mb-sleep-btn').style.display = '';
     document.getElementById('mb-delete-btn').style.display = '';
 
     const badge = document.getElementById('messageboard-project-badge');
@@ -90,8 +93,9 @@ export function selectBoardProject(project) {
     // Ensure dashboard is subscribed as a reader
     subscribeDashboard(project);
 
-    // Load paused state
+    // Load paused and sleep state
     loadPausedState(project);
+    loadSleepState(project);
 
     loadBoardMessages(project);
     loadBoardSubscribers(project);
@@ -114,6 +118,7 @@ export function showMessageBoardProjects() {
     document.getElementById('mb-subscribers-panel').style.display = 'none';
     document.getElementById('mb-back-btn').style.display = 'none';
     document.getElementById('mb-pause-btn').style.display = 'none';
+    document.getElementById('mb-sleep-btn').style.display = 'none';
     document.getElementById('mb-delete-btn').style.display = 'none';
     document.getElementById('messageboard-project-badge').style.display = 'none';
 
@@ -181,18 +186,25 @@ async function loadEarlierMessages() {
 }
 window.loadEarlierMessages = loadEarlierMessages;
 
-// Agent color palette for bubble accents
+// Agent color palette — Nord/Solarized-inspired muted tones
 const _agentColors = [
-    { bg: 'rgba(88, 166, 255, 0.08)', border: 'rgba(88, 166, 255, 0.25)', name: '#58a6ff' },   // blue
-    { bg: 'rgba(126, 231, 135, 0.08)', border: 'rgba(126, 231, 135, 0.25)', name: '#7ee787' },  // green
-    { bg: 'rgba(210, 153, 237, 0.08)', border: 'rgba(210, 153, 237, 0.25)', name: '#d299ed' },  // purple
-    { bg: 'rgba(255, 166, 87, 0.08)', border: 'rgba(255, 166, 87, 0.25)', name: '#ffa657' },    // orange
-    { bg: 'rgba(255, 123, 114, 0.08)', border: 'rgba(255, 123, 114, 0.25)', name: '#ff7b72' },  // red
-    { bg: 'rgba(121, 192, 255, 0.08)', border: 'rgba(121, 192, 255, 0.25)', name: '#79c0ff' },  // sky
-    { bg: 'rgba(238, 190, 95, 0.08)', border: 'rgba(238, 190, 95, 0.25)', name: '#eebe5f' },    // gold
-    { bg: 'rgba(150, 210, 200, 0.08)', border: 'rgba(150, 210, 200, 0.25)', name: '#96d2c8' },  // teal
+    { name: '#81a1c1' },   // soft blue (Nord)
+    { name: '#a3be8c' },   // sage green (Nord)
+    { name: '#b48ead' },   // muted lavender (Nord)
+    { name: '#d08770' },   // warm tan (Nord)
+    { name: '#bf616a' },   // dusty rose (Nord)
+    { name: '#88c0d0' },   // frost blue (Nord)
+    { name: '#ebcb8b' },   // warm yellow (Nord)
+    { name: '#8fbcbb' },   // teal (Nord)
 ];
 const _agentColorMap = {};
+
+function _hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
 
 function _getAgentColor(name) {
     if (!name) return _agentColors[0];
@@ -240,18 +252,22 @@ function renderMessages(messages) {
         Showing ${messages.length} of ${_totalMessages} messages
     </div>`;
 
-    container.innerHTML = loadEarlierHtml + countHtml + messages.map(m => {
+    container.innerHTML = loadEarlierHtml + countHtml + messages.map((m, i) => {
         const color = _getAgentColor(m.job_title || 'Unknown');
+        const agent = m.job_title || 'Unknown';
+        const prevAgent = i > 0 ? (messages[i - 1].job_title || 'Unknown') : null;
+        const sameAsPrev = agent === prevAgent;
+        const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
+        const isLeader = /orchestrator/i.test(agent) || m.session_id === 'dashboard';
+        const indentClass = isLeader ? '' : ' mb-message-worker';
         return `
-        <div class="mb-message" style="background:${color.bg};border:1px solid ${color.border};border-radius:10px;padding:10px 14px;margin-bottom:10px;position:relative">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-                <span class="mb-agent-name" style="font-weight:600;font-size:13px;color:${color.name}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(m.job_title || 'Unknown')}</span>
-                <div style="display:flex;align-items:center;gap:8px">
-                    <span style="font-size:10px;color:var(--text-muted)">${formatTime(m.created_at)}</span>
-                    <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
-                </div>
+        <div class="mb-message ${spacing}${indentClass}" style="border-left:3px solid ${_hexToRgba(color.name, 0.55)}">
+            <div class="mb-message-header">
+                <span class="mb-agent-name" style="color:${color.name}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
+                <span class="mb-message-time">${formatTime(m.created_at)}</span>
+                <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
             </div>
-            <div class="mb-message-body" style="font-size:13px;color:var(--text-primary);line-height:1.5">${_renderMarkdown(m.content)}</div>
+            <div class="mb-message-body">${_renderMarkdown(m.content)}</div>
         </div>`;
     }).join('');
     if (wasAtBottom) {
@@ -451,6 +467,59 @@ function stopBoardPoll() {
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
+    }
+}
+
+// ── Sleep / Wake ─────────────────────────────────────────────────────
+
+async function loadSleepState(project) {
+    try {
+        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(project)}/sleep-status`);
+        const data = await resp.json();
+        isSleeping = !!data.sleeping;
+        updateSleepUI();
+    } catch (e) {
+        isSleeping = false;
+        updateSleepUI();
+    }
+}
+
+function updateSleepUI() {
+    const btn = document.getElementById('mb-sleep-btn');
+    if (btn) {
+        btn.textContent = isSleeping ? 'Wake Team' : 'Sleep Team';
+        btn.classList.toggle('btn-warning', isSleeping);
+    }
+    const banner = document.getElementById('mb-sleep-banner');
+    if (banner) {
+        banner.style.display = isSleeping ? '' : 'none';
+    }
+    const input = document.getElementById('mb-post-input');
+    const sendBtn = document.querySelector('#mb-board .btn-primary');
+    if (input) {
+        input.disabled = isSleeping;
+        input.placeholder = isSleeping ? 'Team is sleeping...' : 'Post a message as Operator...';
+    }
+    if (sendBtn) {
+        sendBtn.disabled = isSleeping;
+        sendBtn.style.opacity = isSleeping ? '0.4' : '';
+    }
+}
+
+export async function toggleBoardSleep() {
+    if (!currentProject) return;
+    const action = isSleeping ? 'wake' : 'sleep';
+    if (!isSleeping && !confirm(`Put all agents on "${currentProject}" to sleep?`)) return;
+    try {
+        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(currentProject)}/${action}`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        isSleeping = !!data.sleeping;
+        updateSleepUI();
+        loadLiveSessions();
+    } catch (e) {
+        console.error('Failed to toggle sleep:', e);
     }
 }
 

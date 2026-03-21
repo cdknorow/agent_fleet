@@ -17,6 +17,7 @@ type BoardNotifier struct {
 	interval   time.Duration
 	logger     *slog.Logger
 	discoverFn func(ctx context.Context) ([]AgentInfo, error)
+	isPausedFn func(project string) bool
 	notified   map[string]int // session_id -> unread count at last notification
 }
 
@@ -34,6 +35,11 @@ func NewBoardNotifier(boardStore *board.Store, tmuxClient *tmux.Client, interval
 // SetDiscoverFn sets a custom agent discovery function.
 func (n *BoardNotifier) SetDiscoverFn(fn func(ctx context.Context) ([]AgentInfo, error)) {
 	n.discoverFn = fn
+}
+
+// SetIsPausedFn sets a function to check if a board project is paused.
+func (n *BoardNotifier) SetIsPausedFn(fn func(project string) bool) {
+	n.isPausedFn = fn
 }
 
 // Run starts the notification loop.
@@ -76,6 +82,10 @@ func (n *BoardNotifier) RunOnce(ctx context.Context) error {
 		}
 		// Skip remote subscribers
 		if sub.OriginServer != nil && *sub.OriginServer != "" {
+			continue
+		}
+		// Skip agents on paused/sleeping boards
+		if n.isPausedFn != nil && sub.Project != "" && n.isPausedFn(sub.Project) {
 			continue
 		}
 

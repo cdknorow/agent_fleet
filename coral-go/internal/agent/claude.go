@@ -24,35 +24,136 @@ func (a *ClaudeAgent) HistoryBasePath() string {
 
 func (a *ClaudeAgent) HistoryGlobPattern() string { return "*.jsonl" }
 
-func (a *ClaudeAgent) BuildLaunchCommand(sessionID, protocolPath, resumeSessionID string, flags []string, workingDir string) string {
+// Default board system-prompt fragments (injected into settings systemPrompt).
+const DefaultOrchestratorSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
+	"then discuss your proposed plan with the operator (the human user) before posting assignments to the team."
+
+const DefaultWorkerSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
+	"then wait for instructions from the Orchestrator."
+
+// Default action prompts (appended to user prompt as CLI positional arg).
+const DefaultOrchestratorActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Post a message with coral-board post "<your introduction>" that introduces yourself, then discuss your proposed plan with the operator (the human user) before posting assignments. Periodically check for new messages.`
+
+const DefaultWorkerActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Do not start any actions until you receive instructions from the Orchestrator on the message board. Post a message with coral-board post "<your introduction>" that introduces yourself, then periodically check for new messages.`
+
+func (a *ClaudeAgent) buildBoardSystemPrompt(boardName, role, prompt string, promptOverrides map[string]string) string {
+	var parts []string
+	if prompt != "" {
+		parts = append(parts, prompt)
+	}
+	if boardName != "" {
+		roleLabel := ""
+		if role != "" {
+			roleLabel = fmt.Sprintf(" Your role is: %s.", role)
+		}
+		boardIntro := fmt.Sprintf(
+			"You were automatically joined to message board \"%s\".%s "+
+				"Do NOT run coral-board join — you are already subscribed.\n\n"+
+				"Use the coral-board CLI to communicate with your teammates:\n"+
+				"  coral-board read          — read new messages from teammates\n"+
+				"  coral-board post \"msg\"    — post a message to the board\n"+
+				"  coral-board read --last 5 — see the 5 most recent messages\n"+
+				"  coral-board subscribers   — see who is on the board\n"+
+				"Check the board periodically for updates from your teammates.\n\n",
+			boardName, roleLabel)
+
+		isOrchestrator := role != "" && strings.Contains(strings.ToLower(role), "orchestrator")
+		var tail string
+		if isOrchestrator {
+			if v, ok := promptOverrides["default_prompt_orchestrator"]; ok && v != "" {
+				tail = v
+			} else {
+				tail = DefaultOrchestratorSystemPrompt
+			}
+		} else {
+			if v, ok := promptOverrides["default_prompt_worker"]; ok && v != "" {
+				tail = v
+			} else {
+				tail = DefaultWorkerSystemPrompt
+			}
+		}
+		boardIntro += tail
+		parts = append(parts, boardIntro)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	parts := []string{"claude"}
 
-	effectiveID := sessionID
-	if resumeSessionID != "" {
-		effectiveID = resumeSessionID
-		parts = append(parts, "--resume", resumeSessionID)
+	effectiveID := params.SessionID
+	if params.ResumeSessionID != "" {
+		effectiveID = params.ResumeSessionID
+		parts = append(parts, "--resume", params.ResumeSessionID)
 	} else {
-		parts = append(parts, "--session-id", sessionID)
+		parts = append(parts, "--session-id", params.SessionID)
 	}
 
 	// Build merged settings with hooks and system prompt
-	merged := buildMergedSettings(workingDir)
-	if protocolPath != "" {
-		content, err := os.ReadFile(protocolPath)
+	merged := buildMergedSettings(params.WorkingDir)
+
+	// Combine protocol + board system prompt into systemPrompt
+	var sysParts []string
+	if params.ProtocolPath != "" {
+		content, err := os.ReadFile(params.ProtocolPath)
 		if err == nil {
-			merged["systemPrompt"] = string(content)
+			sysParts = append(sysParts, string(content))
 		}
 	}
+	boardSysPrompt := a.buildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides)
+	if boardSysPrompt != "" {
+		sysParts = append(sysParts, boardSysPrompt)
+	}
+	if len(sysParts) > 0 {
+		merged["systemPrompt"] = strings.Join(sysParts, "\n\n")
+	}
 
-	// Write to temp file
-	settingsFile := fmt.Sprintf("/tmp/coral_settings_%s.json", effectiveID)
+	// Write settings to temp file
+	settingsFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_settings_%s.json", effectiveID))
 	data, _ := json.MarshalIndent(merged, "", "  ")
 	os.WriteFile(settingsFile, append(data, '\n'), 0644)
 	parts = append(parts, "--settings", settingsFile)
 
-	if len(flags) > 0 {
-		parts = append(parts, flags...)
+	if len(params.Flags) > 0 {
+		parts = append(parts, params.Flags...)
 	}
+
+	// Pass the prompt as a CLI positional argument so the agent starts immediately
+	// without relying on fragile tmux send-keys delivery.
+	cliPrompt := params.Prompt
+	if params.BoardName != "" {
+		isOrchestrator := params.Role != "" && strings.Contains(strings.ToLower(params.Role), "orchestrator")
+		overrides := params.PromptOverrides
+		if overrides == nil {
+			overrides = map[string]string{}
+		}
+		var template string
+		if isOrchestrator {
+			if v, ok := overrides["default_prompt_orchestrator"]; ok && v != "" {
+				template = v
+			} else {
+				template = DefaultOrchestratorActionPrompt
+			}
+		} else {
+			if v, ok := overrides["default_prompt_worker"]; ok && v != "" {
+				template = v
+			} else {
+				template = DefaultWorkerActionPrompt
+			}
+		}
+		actionText := strings.ReplaceAll(template, "{board_name}", params.BoardName)
+		if cliPrompt != "" {
+			cliPrompt = cliPrompt + "\n\n" + actionText
+		} else {
+			cliPrompt = actionText
+		}
+	}
+	if cliPrompt != "" {
+		promptFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_prompt_%s.txt", effectiveID))
+		os.WriteFile(promptFile, []byte(cliPrompt), 0644)
+		parts = append(parts, fmt.Sprintf("\"$(cat '%s')\"", promptFile))
+	}
+
 	return strings.Join(parts, " ")
 }
 

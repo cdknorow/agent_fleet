@@ -1,5 +1,3 @@
-// Package ptymanager provides terminal session management via native PTY
-// or tmux backends. It replaces direct tmux dependency for Mac App Store compatibility.
 package ptymanager
 
 // SessionInfo holds metadata about a running terminal session.

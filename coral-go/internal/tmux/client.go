@@ -246,10 +246,28 @@ func (c *Client) KillSession(ctx context.Context, agentName, agentType, sessionI
 		os.Remove(logPath)
 
 		// Clean up settings temp file
-		settingsFile := fmt.Sprintf("/tmp/coral_settings_%s.json", sessionID)
+		settingsFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_settings_%s.json", sessionID))
 		os.Remove(settingsFile)
 	}
 
+	return nil
+}
+
+// KillSessionOnly kills a tmux session without cleaning up log/settings files.
+// Used by sleep to preserve state for later wake.
+func (c *Client) KillSessionOnly(ctx context.Context, agentName, agentType, sessionID string) error {
+	pane, err := c.FindPane(ctx, agentName, agentType, sessionID)
+	if err != nil {
+		return err
+	}
+	if pane == nil {
+		return fmt.Errorf("pane %q not found in any tmux session", agentName)
+	}
+
+	_, err = c.run(ctx, "kill-session", "-t", pane.SessionName)
+	if err != nil {
+		return fmt.Errorf("kill-session failed: %w", err)
+	}
 	return nil
 }
 

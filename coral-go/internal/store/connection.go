@@ -122,6 +122,7 @@ var columnMigrations = []columnMigration{
 	{"scheduled_runs", "trigger_type", "TEXT DEFAULT 'cron'"},
 	{"scheduled_runs", "webhook_url", "TEXT"},
 	{"scheduled_runs", "display_name", "TEXT"},
+	{"live_sessions", "is_sleeping", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 var additionalIndexes = []string{

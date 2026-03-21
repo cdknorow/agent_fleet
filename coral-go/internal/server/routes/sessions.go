@@ -40,9 +40,16 @@ type SessionsHandler struct {
 	jsonl   *jsonl.SessionReader
 	backend ptymanager.TerminalBackend // nil = use tmux directly
 
+	boardHandler *BoardHandler // for sleep/wake board pausing
+
 	// Deduplication state for status/summary events (mirrors Python _last_known)
 	lastKnownMu sync.RWMutex
 	lastKnown   map[string]lastKnownState
+}
+
+// SetBoardHandler sets the board handler reference for sleep/wake operations.
+func (h *SessionsHandler) SetBoardHandler(bh *BoardHandler) {
+	h.boardHandler = bh
 }
 
 type lastKnownState struct {
@@ -243,23 +250,31 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Fallback: board_name from live_sessions DB for agents not yet subscribed
 	liveBoardNames := make(map[string][2]string) // session_id -> [board_name, display_name]
+	liveSleeping := make(map[string]bool)         // session_id -> is_sleeping
 	{
 		var rows []struct {
 			SessionID   string  `db:"session_id"`
 			BoardName   *string `db:"board_name"`
 			DisplayName *string `db:"display_name"`
+			IsSleeping  int     `db:"is_sleeping"`
 		}
-		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name FROM live_sessions WHERE board_name IS NOT NULL"); err == nil {
+		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name, is_sleeping FROM live_sessions"); err == nil {
 			for _, r := range rows {
-				bn, dn := "", ""
-				if r.BoardName != nil { bn = *r.BoardName }
-				if r.DisplayName != nil { dn = *r.DisplayName }
-				liveBoardNames[r.SessionID] = [2]string{bn, dn}
+				if r.BoardName != nil {
+					bn := *r.BoardName
+					dn := ""
+					if r.DisplayName != nil { dn = *r.DisplayName }
+					liveBoardNames[r.SessionID] = [2]string{bn, dn}
+				}
+				if r.IsSleeping == 1 {
+					liveSleeping[r.SessionID] = true
+				}
 			}
 		}
 	}
 
 	var sessions []map[string]any
+	liveSIDs := make(map[string]bool) // track session IDs already in results
 	for _, agent := range agents {
 		logInfo := getLogStatus(agent.LogPath)
 
@@ -349,18 +364,64 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			"waiting_reason":     nilIf(!waiting, latestEv),
 			"waiting_summary":    nilIf(!waiting, evSummary),
 			"working":            working,
+			"stuck":              false,
 			"changed_file_count": fc,
 			"commands":           map[string]string{"compress": "/compact", "clear": "/clear"},
 			"board_project":      boardProject(boardSubs, liveBoardNames, tmuxName, sid),
 			"board_job_title":    boardJobTitle(boardSubs, liveBoardNames, tmuxName, sid),
 			"board_unread":       boardUnread,
 			"log_path":           agent.LogPath,
+			"sleeping":           liveSleeping[sid],
 		}
 
 		// Track status/summary for event deduplication
 		h.trackStatusSummary(ctx, agent.AgentName, status, summary, sid)
 
+		if sid != "" {
+			liveSIDs[sid] = true
+		}
 		sessions = append(sessions, entry)
+	}
+
+	// Add placeholder entries for sleeping sessions without active tmux
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	for _, ls := range allLive {
+		if ls.IsSleeping != 1 || liveSIDs[ls.SessionID] {
+			continue
+		}
+		bp, dn := "", ""
+		if ls.BoardName != nil {
+			bp = *ls.BoardName
+		}
+		if ls.DisplayName != nil {
+			dn = *ls.DisplayName
+		}
+		sessions = append(sessions, map[string]any{
+			"name":               ls.AgentName,
+			"agent_type":         ls.AgentType,
+			"session_id":         ls.SessionID,
+			"tmux_session":       nil,
+			"status":             "Sleeping",
+			"summary":            nil,
+			"staleness_seconds":  nil,
+			"working_directory":  ls.WorkingDir,
+			"display_name":       dn,
+			"icon":               ls.Icon,
+			"branch":             nil,
+			"waiting_for_input":  false,
+			"done":               false,
+			"waiting_reason":     nil,
+			"waiting_summary":    nil,
+			"working":            false,
+			"stuck":              false,
+			"changed_file_count": 0,
+			"commands":           map[string]string{"compress": "/compact", "clear": "/clear"},
+			"board_project":      bp,
+			"board_job_title":    dn,
+			"board_unread":       0,
+			"log_path":           "",
+			"sleeping":           true,
+		})
 	}
 
 	if sessions == nil {
@@ -952,6 +1013,14 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		agentType = "claude"
 	}
 
+	// Skip sleeping sessions — they should be woken via the wake endpoint, not restarted
+	if body.SessionID != "" {
+		if ls, err := h.ss.GetLiveSession(ctx, body.SessionID); err == nil && ls != nil && ls.IsSleeping == 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Session is sleeping. Use wake endpoint to resume."})
+			return
+		}
+	}
+
 	pane, err := h.tmux.FindPane(ctx, name, agentType, body.SessionID)
 	if err != nil || pane == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Pane not found"})
@@ -987,25 +1056,63 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	h.tmux.SendKeysToTarget(ctx, target, titleCmd)
 	time.Sleep(300 * time.Millisecond)
 
-	// Build and send launch command
+	// Load stored flags, prompt, board_name, board_server from the DB
 	agentImpl := agent.GetAgent(agentType)
-	protocolPath := h.protocolPath()
-	var flags []string
-	if body.ExtraFlags != "" {
-		flags = strings.Fields(body.ExtraFlags)
+	var storedFlags []string
+	var storedPrompt, storedBoard, storedBoardServer, storedDisplayName string
+	if body.SessionID != "" {
+		if ls, err := h.ss.GetLiveSession(ctx, body.SessionID); err == nil && ls != nil {
+			storedFlags = store.UnmarshalFlags(ls.Flags)
+			storedPrompt = derefStrPtr(ls.Prompt)
+			storedBoard = derefStrPtr(ls.BoardName)
+			storedBoardServer = derefStrPtr(ls.BoardServer)
+			storedDisplayName = derefStrPtr(ls.DisplayName)
+		}
 	}
-	cmd := agentImpl.BuildLaunchCommand(newSessionID, protocolPath, "", flags, pane.CurrentPath)
+
+	allFlags := append(storedFlags, strings.Fields(body.ExtraFlags)...)
+
+	role := storedDisplayName
+	if role == "" {
+		role = agentType
+	}
+
+	// Read user prompt overrides from settings
+	userSettings, _ := h.ss.GetSettings(ctx)
+	promptOverrides := map[string]string{
+		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
+		"default_prompt_worker":       userSettings["default_prompt_worker"],
+	}
+
+	cmd := agentImpl.BuildLaunchCommand(agent.LaunchParams{
+		SessionID:       newSessionID,
+		ProtocolPath:    h.protocolPath(),
+		Flags:           allFlags,
+		WorkingDir:      pane.CurrentPath,
+		BoardName:       storedBoard,
+		Role:            role,
+		Prompt:          storedPrompt,
+		PromptOverrides: promptOverrides,
+	})
 	h.tmux.SendKeysToTarget(ctx, target, cmd)
 
-	// Replace live session in DB
+	// Replace live session in DB (carry forward stored fields)
 	h.ss.ReplaceLiveSession(ctx, body.SessionID, &store.LiveSession{
 		SessionID:    newSessionID,
 		AgentType:    agentType,
 		AgentName:    folderName,
 		WorkingDir:   pane.CurrentPath,
 		ResumeFromID: strPtr(body.SessionID),
+		Prompt:       strPtr(storedPrompt),
+		BoardName:    strPtr(storedBoard),
+		BoardServer:  strPtr(storedBoardServer),
 	})
 	h.ss.MigrateDisplayName(ctx, body.SessionID, newSessionID)
+
+	// Re-subscribe to board if needed
+	if storedBoard != "" {
+		go h.setupBoardAndPrompt(newSessionID, newSessionName, agentType, storedBoard, storedDisplayName)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "session_id": newSessionID, "session_name": newSessionName,
@@ -1050,6 +1157,29 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	newSessionName := fmt.Sprintf("%s-%s", agentType, newSessionID)
 	newLogPath := filepath.Join(h.cfg.LogDir, fmt.Sprintf("%s_coral_%s.log", agentType, newSessionID))
 
+	// Load stored fields from current session
+	var storedPrompt, storedBoard, storedBoardServer, storedDisplayName string
+	if body.CurrentSessionID != "" {
+		if ls, err := h.ss.GetLiveSession(ctx, body.CurrentSessionID); err == nil && ls != nil {
+			storedPrompt = derefStrPtr(ls.Prompt)
+			storedBoard = derefStrPtr(ls.BoardName)
+			storedBoardServer = derefStrPtr(ls.BoardServer)
+			storedDisplayName = derefStrPtr(ls.DisplayName)
+		}
+	}
+
+	role := storedDisplayName
+	if role == "" {
+		role = agentType
+	}
+
+	// Read user prompt overrides
+	userSettings, _ := h.ss.GetSettings(ctx)
+	promptOverrides := map[string]string{
+		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
+		"default_prompt_worker":       userSettings["default_prompt_worker"],
+	}
+
 	h.tmux.ClosePipePane(ctx, pane.Target)
 	h.tmux.RespawnPane(ctx, pane.Target, pane.CurrentPath)
 	h.tmux.RenameSession(ctx, pane.SessionName, newSessionName)
@@ -1060,7 +1190,16 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	os.WriteFile(newLogPath, []byte{}, 0644)
 	h.tmux.PipePane(ctx, target, newLogPath)
 
-	cmd := agentImpl.BuildLaunchCommand(newSessionID, h.protocolPath(), body.SessionID, nil, pane.CurrentPath)
+	cmd := agentImpl.BuildLaunchCommand(agent.LaunchParams{
+		SessionID:       newSessionID,
+		ProtocolPath:    h.protocolPath(),
+		ResumeSessionID: body.SessionID,
+		WorkingDir:      pane.CurrentPath,
+		BoardName:       storedBoard,
+		Role:            role,
+		Prompt:          storedPrompt,
+		PromptOverrides: promptOverrides,
+	})
 	h.tmux.SendKeysToTarget(ctx, target, cmd)
 
 	h.ss.ReplaceLiveSession(ctx, body.CurrentSessionID, &store.LiveSession{
@@ -1069,7 +1208,15 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		AgentName:    filepath.Base(strings.TrimRight(pane.CurrentPath, "/")),
 		WorkingDir:   pane.CurrentPath,
 		ResumeFromID: strPtr(body.SessionID),
+		Prompt:       strPtr(storedPrompt),
+		BoardName:    strPtr(storedBoard),
+		BoardServer:  strPtr(storedBoardServer),
 	})
+
+	// Re-subscribe to board if needed
+	if storedBoard != "" {
+		go h.setupBoardAndPrompt(newSessionID, newSessionName, agentType, storedBoard, storedDisplayName)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "session_id": newSessionID, "session_name": newSessionName,
@@ -1153,10 +1300,10 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup board and prompt in background
-	if body.BoardName != "" || body.Prompt != "" {
+	// Setup board subscription in background (prompt is passed as CLI arg, not via tmux send-keys)
+	if body.BoardName != "" {
 		go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
-			body.AgentType, body.Prompt, body.BoardName, body.DisplayName, result["backend"].(string))
+			body.AgentType, body.BoardName, body.DisplayName)
 	}
 
 	writeJSON(w, http.StatusOK, result)
@@ -1200,8 +1347,11 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
-			body.AgentType, agentDef.Prompt, body.BoardName, agentDef.Name, result["backend"].(string))
+		// Board subscription handled by setupBoardAndPrompt (prompt passed as CLI arg)
+		if body.BoardName != "" {
+			go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
+				body.AgentType, body.BoardName, agentDef.Name)
+		}
 
 		launched = append(launched, map[string]any{
 			"name": agentDef.Name, "session_id": result["session_id"], "session_name": result["session_name"],
@@ -1544,11 +1694,35 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		agentImpl.PrepareResume(resumeSessionID, absDir)
 	}
 
+	// Read user prompt overrides from settings
+	userSettings, _ := h.ss.GetSettings(ctx)
+	promptOverrides := map[string]string{
+		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
+		"default_prompt_worker":       userSettings["default_prompt_worker"],
+	}
+
+	role := displayName
+	if role == "" {
+		role = agentType
+	}
+
+	launchParams := agent.LaunchParams{
+		SessionID:       sessionID,
+		ProtocolPath:    h.protocolPath(),
+		ResumeSessionID: resumeSessionID,
+		Flags:           flags,
+		WorkingDir:      absDir,
+		BoardName:       boardName,
+		Role:            role,
+		Prompt:          prompt,
+		PromptOverrides: promptOverrides,
+	}
+
 	if backend == "pty" && h.backend != nil {
 		// PTY backend: spawn the agent process directly
 		var cmd string
 		if !isTerminal {
-			cmd = agentImpl.BuildLaunchCommand(sessionID, h.protocolPath(), resumeSessionID, flags, absDir)
+			cmd = agentImpl.BuildLaunchCommand(launchParams)
 		}
 		if err := h.backend.Spawn(sessionName, agentType, absDir, sessionID, cmd, 200, 50); err != nil {
 			return nil, fmt.Errorf("pty spawn failed: %w", err)
@@ -1576,7 +1750,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 
 		// Launch the agent (unless terminal)
 		if !isTerminal {
-			cmd := agentImpl.BuildLaunchCommand(sessionID, h.protocolPath(), resumeSessionID, flags, absDir)
+			cmd := agentImpl.BuildLaunchCommand(launchParams)
 			h.tmux.SendKeysToTarget(ctx, sessionName+".0", cmd)
 		}
 	}
@@ -1606,131 +1780,39 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 	}, nil
 }
 
-// setupBoardAndPrompt subscribes to a board and sends the initial prompt.
+// setupBoardAndPrompt subscribes a session to a message board.
+// The agent prompt is now passed directly as a CLI positional argument
+// in launchSession, so no tmux-based prompt delivery is needed.
 // Includes auto-accept for trust prompts and retry with verification.
-func (h *SessionsHandler) setupBoardAndPrompt(sessionID, sessionName, agentType, prompt, boardName, displayName, backend string) {
+func (h *SessionsHandler) setupBoardAndPrompt(sessionID, sessionName, agentType, boardName, displayName string) {
 	role := displayName
 	if role == "" {
 		role = agentType
 	}
 	ctx := context.Background()
 
-	// Append board-specific prompt template with user overrides
-	if prompt != "" && boardName != "" {
-		isOrchestrator := strings.Contains(strings.ToLower(role), "orchestrator")
-
-		// Read user prompt overrides from settings
-		userSettings, _ := h.ss.GetSettings(ctx)
-		var template string
-		if isOrchestrator {
-			template = userSettings["default_prompt_orchestrator"]
-			if template == "" {
-				template = DefaultOrchestratorPrompt
-			}
-		} else {
-			template = userSettings["default_prompt_worker"]
-			if template == "" {
-				template = DefaultWorkerPrompt
-			}
-		}
-		prompt += "\n\n" + strings.ReplaceAll(template, "{board_name}", boardName)
-	}
-
-	if prompt == "" {
+	if boardName == "" {
 		return
 	}
 
-	// Auto-accept trust/permission prompts before sending the real prompt
-	acceptancePhrases := []string{
-		"do you trust", "trust the files", "yes, proceed",
-		"allow access", "(y)", "y/n", "press enter to", "to trust",
-	}
+	// Board subscription (immediate — no delay needed)
+	if h.bs != nil {
+		isOrchestrator := strings.Contains(strings.ToLower(role), "orchestrator")
+		receiveMode := "mentions"
+		if isOrchestrator {
+			receiveMode = "all"
+		}
 
-	for i := 0; i < 5; i++ {
-		time.Sleep(1 * time.Second)
+		// Preserve existing receive_mode on re-subscribe (e.g. restart)
+		existing, err := h.bs.GetSubscription(ctx, sessionName)
+		if err == nil && existing != nil && existing.ReceiveMode != "" {
+			receiveMode = existing.ReceiveMode
+		}
 
-		if backend == "pty" && h.backend != nil {
-			// PTY: check captured content
-			content, err := h.backend.CaptureContent(sessionName)
-			if err != nil || content == "" {
-				continue
-			}
-			lower := strings.ToLower(content)
-			needsAccept := false
-			for _, phrase := range acceptancePhrases {
-				if strings.Contains(lower, phrase) {
-					needsAccept = true
-					break
-				}
-			}
-			if needsAccept {
-				log.Printf("Detected acceptance prompt in session %s, sending 'y'", sessionID[:8])
-				h.backend.SendInput(sessionName, []byte("y\n"))
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			if strings.Contains(content, ">") || strings.Contains(content, "❯") || strings.Contains(content, "...") {
-				break
-			}
-		} else {
-			// Tmux: capture pane
-			paneText, _ := h.tmux.CapturePane(ctx, agentType, 50, agentType, sessionID)
-			if paneText == "" {
-				continue
-			}
-			lower := strings.ToLower(paneText)
-			needsAccept := false
-			for _, phrase := range acceptancePhrases {
-				if strings.Contains(lower, phrase) {
-					needsAccept = true
-					break
-				}
-			}
-			if needsAccept {
-				log.Printf("Detected acceptance prompt in session %s, sending 'y'", sessionID[:8])
-				h.tmux.SendKeysToTarget(ctx, sessionName+".0", "y")
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			if strings.Contains(paneText, ">") || strings.Contains(paneText, "❯") || strings.Contains(paneText, "...") {
-				break
-			}
+		if _, err := h.bs.Subscribe(ctx, boardName, sessionName, role, nil, nil, receiveMode); err != nil {
+			log.Printf("Failed to subscribe session %s to board %s: %v", sessionID[:8], boardName, err)
 		}
 	}
-
-	// Send prompt with retry and verification
-	maxAttempts := 3
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		time.Sleep(3 * time.Second)
-
-		if backend == "pty" && h.backend != nil {
-			h.backend.SendInput(sessionName, []byte(prompt+"\n"))
-		} else {
-			err := h.tmux.SendKeys(ctx, agentType, prompt, agentType, sessionID)
-			if err != nil {
-				log.Printf("Failed to send prompt to %s (attempt %d/%d): %v",
-					sessionID[:8], attempt+1, maxAttempts, err)
-				continue
-			}
-		}
-
-		// Verify prompt was received
-		time.Sleep(2 * time.Second)
-		var paneText string
-		if backend == "pty" && h.backend != nil {
-			paneText, _ = h.backend.CaptureContent(sessionName)
-		} else {
-			paneText, _ = h.tmux.CapturePane(ctx, agentType, 100, agentType, sessionID)
-		}
-
-		if paneText != "" && len(prompt) > 40 && strings.Contains(paneText, prompt[:40]) {
-			log.Printf("Prompt verified in session %s (attempt %d)", sessionID[:8], attempt+1)
-			return
-		}
-		log.Printf("Prompt not found in pane for session %s (attempt %d/%d)",
-			sessionID[:8], attempt+1, maxAttempts)
-	}
-	log.Printf("Failed to deliver prompt to session %s after %d attempts", sessionID[:8], maxAttempts)
 }
 
 func (h *SessionsHandler) protocolPath() string {
@@ -1905,4 +1987,145 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "icon": icon})
+}
+
+// ── Team Sleep/Wake ──────────────────────────────────────────────────────
+
+// SleepStatus returns whether a team board is sleeping.
+// GET /api/sessions/live/team/{boardName}/sleep-status
+func (h *SessionsHandler) SleepStatus(w http.ResponseWriter, r *http.Request) {
+	boardName := chi.URLParam(r, "boardName")
+	boards, err := h.ss.GetSleepingBoardNames(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"sleeping": false})
+		return
+	}
+	sleeping := false
+	for _, b := range boards {
+		if b == boardName {
+			sleeping = true
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sleeping": sleeping})
+}
+
+// Sleep puts a team to sleep: sets is_sleeping, kills tmux sessions, pauses board.
+// POST /api/sessions/live/team/{boardName}/sleep
+func (h *SessionsHandler) Sleep(w http.ResponseWriter, r *http.Request) {
+	boardName := chi.URLParam(r, "boardName")
+	ctx := r.Context()
+
+	// Check if any sessions exist on this board
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	var boardSessions []store.LiveSession
+	for _, ls := range allLive {
+		if ls.BoardName != nil && *ls.BoardName == boardName {
+			boardSessions = append(boardSessions, ls)
+		}
+	}
+	if len(boardSessions) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "No sessions found on that board"})
+		return
+	}
+
+	// Set all board sessions to sleeping
+	affected, err := h.ss.SetBoardSleeping(ctx, boardName, true)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Pause the message board
+	boardPaused := false
+	if h.boardHandler != nil {
+		h.boardHandler.SetPaused(boardName, true)
+		boardPaused = true
+	}
+
+	// Kill tmux sessions for agents on this board
+	killed := 0
+	for _, ls := range boardSessions {
+		err := h.tmux.KillSessionOnly(ctx, ls.AgentName, ls.AgentType, ls.SessionID)
+		if err == nil {
+			killed++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                true,
+		"sleeping":          true,
+		"sessions_affected": affected,
+		"sessions_killed":   killed,
+		"board_paused":      boardPaused,
+	})
+}
+
+// Wake wakes a sleeping team: relaunches sessions, clears sleeping, unpauses board.
+// POST /api/sessions/live/team/{boardName}/wake
+func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
+	boardName := chi.URLParam(r, "boardName")
+	ctx := r.Context()
+
+	// Find sleeping sessions on this board and relaunch
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	relaunched := 0
+	for _, ls := range allLive {
+		if ls.IsSleeping != 1 || ls.BoardName == nil || *ls.BoardName != boardName {
+			continue
+		}
+		// Clear sleeping flag
+		h.ss.SetSessionSleeping(ctx, ls.SessionID, false)
+
+		// Relaunch the session
+		flags := store.ParseFlags(ls.Flags)
+		prompt := ""
+		if ls.Prompt != nil {
+			prompt = *ls.Prompt
+		}
+		bn := ""
+		if ls.BoardName != nil {
+			bn = *ls.BoardName
+		}
+		bs := ""
+		if ls.BoardServer != nil {
+			bs = *ls.BoardServer
+		}
+		bk := "tmux"
+		if ls.Backend != nil {
+			bk = *ls.Backend
+		}
+		dn := ""
+		if ls.DisplayName != nil {
+			dn = *ls.DisplayName
+		}
+		result, err := h.launchSession(ctx, ls.WorkingDir, ls.AgentType, dn,
+			"", flags, prompt, bn, bs, bk)
+		if err != nil {
+			continue
+		}
+		// Setup board subscription
+		if bn != "" {
+			go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
+				ls.AgentType, bn, dn)
+		}
+		relaunched++
+	}
+
+	// Clear board sleeping state
+	h.ss.SetBoardSleeping(ctx, boardName, false)
+
+	// Unpause the message board
+	boardPaused := true
+	if h.boardHandler != nil {
+		h.boardHandler.SetPaused(boardName, false)
+		boardPaused = false
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                  true,
+		"sleeping":            false,
+		"sessions_relaunched": relaunched,
+		"board_paused":        boardPaused,
+	})
 }

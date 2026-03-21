@@ -23,19 +23,19 @@ func (a *GeminiAgent) HistoryBasePath() string {
 
 func (a *GeminiAgent) HistoryGlobPattern() string { return "session-*.json" }
 
-func (a *GeminiAgent) BuildLaunchCommand(sessionID, protocolPath, resumeSessionID string, flags []string, workingDir string) string {
+func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 	var cmd string
-	if protocolPath != "" {
-		if _, err := os.Stat(protocolPath); err == nil {
-			cmd = fmt.Sprintf(`GEMINI_SYSTEM_MD="%s" gemini`, protocolPath)
+	if params.ProtocolPath != "" {
+		if _, err := os.Stat(params.ProtocolPath); err == nil {
+			cmd = fmt.Sprintf(`GEMINI_SYSTEM_MD="%s" gemini`, params.ProtocolPath)
 		} else {
 			cmd = "gemini"
 		}
 	} else {
 		cmd = "gemini"
 	}
-	if len(flags) > 0 {
-		cmd += " " + strings.Join(flags, " ")
+	if len(params.Flags) > 0 {
+		cmd += " " + strings.Join(params.Flags, " ")
 	}
 	return cmd
 }

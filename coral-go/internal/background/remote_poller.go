@@ -8,27 +8,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cdknorow/coral/internal/store"
 	"github.com/cdknorow/coral/internal/tmux"
 )
 
-// RemoteSubscription represents a subscription to a remote board.
-type RemoteSubscription struct {
-	ID                 int64  `db:"id" json:"id"`
-	SessionID          string `db:"session_id" json:"session_id"`
-	RemoteServer       string `db:"remote_server" json:"remote_server"`
-	Project            string `db:"project" json:"project"`
-	LastNotifiedUnread int    `db:"last_notified_unread" json:"last_notified_unread"`
-}
-
-// RemoteBoardStore is the interface for remote board subscription storage.
-type RemoteBoardStore interface {
-	ListAll(ctx context.Context) ([]RemoteSubscription, error)
-	UpdateLastNotified(ctx context.Context, id int64, unread int) error
-}
-
 // RemoteBoardPoller polls remote Coral servers for unread board messages.
 type RemoteBoardPoller struct {
-	store      RemoteBoardStore
+	store      *store.RemoteBoardStore
 	tmux       *tmux.Client
 	client     *http.Client
 	interval   time.Duration
@@ -37,9 +23,9 @@ type RemoteBoardPoller struct {
 }
 
 // NewRemoteBoardPoller creates a new RemoteBoardPoller.
-func NewRemoteBoardPoller(store RemoteBoardStore, tmuxClient *tmux.Client, interval time.Duration) *RemoteBoardPoller {
+func NewRemoteBoardPoller(rbStore *store.RemoteBoardStore, tmuxClient *tmux.Client, interval time.Duration) *RemoteBoardPoller {
 	return &RemoteBoardPoller{
-		store:    store,
+		store:    rbStore,
 		tmux:     tmuxClient,
 		client:   &http.Client{Timeout: 10 * time.Second},
 		interval: interval,
@@ -70,7 +56,7 @@ func (p *RemoteBoardPoller) Run(ctx context.Context) error {
 
 // RunOnce performs a single remote poll pass.
 func (p *RemoteBoardPoller) RunOnce(ctx context.Context) error {
-	subs, err := p.store.ListAll(ctx)
+	subs, err := p.store.ListAllRemoteSubs(ctx)
 	if err != nil || len(subs) == 0 {
 		return err
 	}

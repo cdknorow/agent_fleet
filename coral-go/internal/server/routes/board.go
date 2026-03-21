@@ -35,6 +35,22 @@ func (h *BoardHandler) isPaused(project string) bool {
 	return h.paused[project]
 }
 
+// SetPaused programmatically pauses or resumes a board (used by sleep/wake and startup).
+func (h *BoardHandler) SetPaused(project string, paused bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if paused {
+		h.paused[project] = true
+	} else {
+		delete(h.paused, project)
+	}
+}
+
+// IsPaused returns whether a board is paused (exported for use by notifier).
+func (h *BoardHandler) IsPaused(project string) bool {
+	return h.isPaused(project)
+}
+
 // ListProjects returns all boards with subscriber and message counts.
 // GET /api/board/projects
 func (h *BoardHandler) ListProjects(w http.ResponseWriter, r *http.Request) {

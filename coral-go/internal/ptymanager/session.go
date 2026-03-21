@@ -5,13 +5,10 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-
-	"github.com/creack/pty"
 )
 
 // session represents a single running PTY session.
@@ -22,8 +19,7 @@ type session struct {
 	workingDir string
 	command    string
 
-	cmd     *exec.Cmd
-	ptyFile *os.File
+	proc    ptyProcess
 	logFile *os.File
 	logPath string
 
@@ -34,8 +30,6 @@ type session struct {
 	ringMu  sync.Mutex
 	ring    []byte
 	ringMax int
-
-	done chan struct{} // closed when process exits
 }
 
 // newSession creates and starts a new PTY session.
@@ -45,26 +39,18 @@ func newSession(name, agentType, workDir, sessionID, command string, cols, rows 
 		return nil, fmt.Errorf("empty command")
 	}
 
-	cmd := exec.Command(parts[0], parts[1:]...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 	)
-	// Create new process group so we can kill the entire tree
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-		Pgid:    0,
-	}
 
-	winSize := &pty.Winsize{Rows: rows, Cols: cols}
-	ptmx, err := pty.StartWithSize(cmd, winSize)
+	proc, err := startPTYProcess(parts[0], parts[1:], workDir, env, cols, rows)
 	if err != nil {
-		return nil, fmt.Errorf("pty.StartWithSize: %w", err)
+		return nil, fmt.Errorf("startPTYProcess: %w", err)
 	}
 
-	// Set up log file
-	logPath := fmt.Sprintf("/tmp/%s_coral_%s.log", agentType, sessionID)
+	// Set up log file (use os.TempDir for cross-platform support)
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_coral_%s.log", agentType, sessionID))
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Printf("Warning: could not open log file %s: %v", logPath, err)
@@ -76,24 +62,16 @@ func newSession(name, agentType, workDir, sessionID, command string, cols, rows 
 		sessionID:   sessionID,
 		workingDir:  workDir,
 		command:     command,
-		cmd:         cmd,
-		ptyFile:     ptmx,
+		proc:        proc,
 		logFile:     logFile,
 		logPath:     logPath,
 		subscribers: make(map[string]chan []byte),
 		ring:        make([]byte, 0, 256*1024),
 		ringMax:     256 * 1024, // 256KB ring buffer
-		done:        make(chan struct{}),
 	}
 
 	// Start output reader goroutine
 	go s.readLoop()
-
-	// Wait for process exit in background
-	go func() {
-		cmd.Wait()
-		close(s.done)
-	}()
 
 	return s, nil
 }
@@ -102,7 +80,7 @@ func newSession(name, agentType, workDir, sessionID, command string, cols, rows 
 func (s *session) readLoop() {
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := s.ptyFile.Read(buf)
+		n, err := s.proc.Read(buf)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
@@ -142,13 +120,13 @@ func (s *session) readLoop() {
 
 // sendInput writes raw bytes to the PTY (terminal input).
 func (s *session) sendInput(data []byte) error {
-	_, err := s.ptyFile.Write(data)
+	_, err := s.proc.Write(data)
 	return err
 }
 
 // resize changes the PTY window size.
 func (s *session) resize(cols, rows uint16) error {
-	return pty.Setsize(s.ptyFile, &pty.Winsize{Rows: rows, Cols: cols})
+	return s.proc.Resize(cols, rows)
 }
 
 // subscribe registers a subscriber for terminal output.
@@ -179,35 +157,21 @@ func (s *session) captureContent() string {
 
 // kill terminates the session and all child processes.
 func (s *session) kill() error {
-	// Send SIGTERM to process group
-	if s.cmd.Process != nil {
-		pgid, err := syscall.Getpgid(s.cmd.Process.Pid)
-		if err == nil && pgid > 0 {
-			syscall.Kill(-pgid, syscall.SIGTERM)
-		} else {
-			s.cmd.Process.Signal(syscall.SIGTERM)
-		}
-	}
+	// Graceful termination
+	s.proc.Terminate()
 
 	// Wait for graceful exit (5s timeout)
 	select {
-	case <-s.done:
+	case <-s.proc.Done():
 		// Clean exit
 	case <-time.After(5 * time.Second):
 		// Force kill
-		if s.cmd.Process != nil {
-			pgid, err := syscall.Getpgid(s.cmd.Process.Pid)
-			if err == nil && pgid > 0 {
-				syscall.Kill(-pgid, syscall.SIGKILL)
-			} else {
-				s.cmd.Process.Kill()
-			}
-			<-s.done
-		}
+		s.proc.ForceKill()
+		<-s.proc.Done()
 	}
 
-	// Close PTY master
-	s.ptyFile.Close()
+	// Close PTY handle
+	s.proc.Close()
 
 	// Close log file
 	if s.logFile != nil {
@@ -228,7 +192,7 @@ func (s *session) kill() error {
 // isRunning returns true if the process is still alive.
 func (s *session) isRunning() bool {
 	select {
-	case <-s.done:
+	case <-s.proc.Done():
 		return false
 	default:
 		return true
@@ -236,15 +200,15 @@ func (s *session) isRunning() bool {
 }
 
 // parseCommand splits a shell command string into parts.
-// Handles simple quoting but delegates complex cases to sh -c.
+// Handles simple quoting but delegates complex cases to the platform shell.
 func parseCommand(cmd string) []string {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
 		return nil
 	}
-	// If the command contains shell metacharacters, wrap in sh -c
+	// If the command contains shell metacharacters, wrap via platform shell
 	if strings.ContainsAny(cmd, "|&;`$(){}[]<>!~*?#") || strings.Contains(cmd, "&&") {
-		return []string{"sh", "-c", cmd}
+		return shellWrap(cmd)
 	}
 	return strings.Fields(cmd)
 }

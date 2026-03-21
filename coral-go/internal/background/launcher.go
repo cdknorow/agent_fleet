@@ -92,7 +92,13 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	if !isTerminal {
 		// Build and send the agent launch command
 		protocolPath := findProtocolMD()
-		launchCmd := ag.BuildLaunchCommand(sessionID, protocolPath, resumeSessionID, flags, workingDir)
+		launchCmd := ag.BuildLaunchCommand(agent.LaunchParams{
+			SessionID:       sessionID,
+			ProtocolPath:    protocolPath,
+			ResumeSessionID: resumeSessionID,
+			Flags:           flags,
+			WorkingDir:      workingDir,
+		})
 		l.tmux.SendKeysToTarget(ctx, target, launchCmd)
 	}
 

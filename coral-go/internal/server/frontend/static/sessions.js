@@ -85,8 +85,17 @@ export async function selectLiveSession(name, agentType, sessionId) {
     updateSessionBranch(agent && agent.branch ? agent.branch : null);
     updateWaitingIndicator(agent || {});
 
+    // Show sleeping overlay if agent is sleeping
+    const sleepOverlay = document.getElementById('session-sleeping-overlay');
+    if (sleepOverlay) {
+        sleepOverlay.style.display = (agent && agent.sleeping) ? '' : 'none';
+    }
+
     // Set up quick action buttons
-    state.currentCommands = (agent && agent.commands) || { compress: "/compact", clear: "/clear" };
+    state.currentCommands = (agent && agent.commands) || [
+        { name: "compact", command: "/compact", description: "Compress conversation history" },
+        { name: "clear", command: "/clear", description: "Clear conversation and start fresh" },
+    ];
     renderQuickActions();
 
     // Highlight in sidebar

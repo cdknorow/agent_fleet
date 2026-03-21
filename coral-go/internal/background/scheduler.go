@@ -354,14 +354,13 @@ func (s *JobScheduler) KillRun(ctx context.Context, runID int64) bool {
 	// Kill the tmux session if we have a session_id
 	if run.SessionID != nil && *run.SessionID != "" {
 		sid := *run.SessionID
-		// Try common agent type prefixes to find the tmux session
-		for _, prefix := range []string{"claude", "gemini", "terminal"} {
-			sessionName := prefix + "-" + sid
-			err := exec.CommandContext(ctx, "tmux", "kill-session", "-t", sessionName).Run()
-			if err == nil {
-				break // Successfully killed
-			}
+		// Look up agent_type from the job record
+		agentType := "claude"
+		if job, err := s.store.GetScheduledJob(ctx, run.JobID); err == nil && job != nil {
+			agentType = job.AgentType
 		}
+		sessionName := agentType + "-" + sid
+		exec.CommandContext(ctx, "tmux", "kill-session", "-t", sessionName).Run()
 	}
 
 	now := time.Now().UTC().Format(isoFormat)

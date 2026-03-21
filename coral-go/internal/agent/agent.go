@@ -1,6 +1,19 @@
 // Package agent provides agent implementations for Claude and Gemini.
 package agent
 
+// LaunchParams holds all parameters for building a launch command.
+type LaunchParams struct {
+	SessionID       string
+	ProtocolPath    string
+	ResumeSessionID string
+	Flags           []string
+	WorkingDir      string
+	BoardName       string
+	Role            string
+	Prompt          string
+	PromptOverrides map[string]string // user overrides for orchestrator/worker prompts
+}
+
 // Agent defines the interface for all agent implementations.
 type Agent interface {
 	// AgentType returns the short identifier (e.g. "claude", "gemini").
@@ -8,7 +21,7 @@ type Agent interface {
 	// SupportsResume returns whether the agent supports resuming a previous session.
 	SupportsResume() bool
 	// BuildLaunchCommand builds the shell command to launch this agent.
-	BuildLaunchCommand(sessionID string, protocolPath string, resumeSessionID string, flags []string, workingDir string) string
+	BuildLaunchCommand(params LaunchParams) string
 	// PrepareResume prepares for resuming a session (e.g. copy files).
 	PrepareResume(sessionID, workingDir string)
 	// HistoryBasePath returns the root directory for history files.

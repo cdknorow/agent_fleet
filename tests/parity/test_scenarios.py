@@ -1093,6 +1093,56 @@ def scenario_default_prompts(py_base: str, go_base: str, client: httpx.Client) -
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+# Scenario: Team Sleep/Wake
+# ---------------------------------------------------------------------------
+
+def scenario_sleep_wake(py_base: str, go_base: str, client: httpx.Client) -> list[ComparisonResult]:
+    """Test team sleep/wake API endpoints."""
+    results = []
+    scenario = "sleep_wake"
+    board_name = "parity-test-sleep-board"
+
+    # Sleep status for non-existent board — should return {sleeping: false}
+    results.append(_call(client, py_base, go_base, scenario, "GET",
+                         f"/api/sessions/live/team/{board_name}/sleep-status"))
+
+    # Sleep with no sessions on the board — both should return error
+    py_resp = client.post(f"{py_base}/api/sessions/live/team/{board_name}/sleep")
+    go_resp = client.post(f"{go_base}/api/sessions/live/team/{board_name}/sleep")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    # Python returns {ok: false, error: "No sessions found on that board"}
+    passed = py_body.get("ok") == go_body.get("ok")
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint=f"/api/sessions/live/team/{board_name}/sleep",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"Sleep empty board: py={py_body}, go={go_body}",
+    ))
+
+    # Wake with no sleeping sessions — should succeed gracefully
+    py_resp = client.post(f"{py_base}/api/sessions/live/team/{board_name}/wake")
+    go_resp = client.post(f"{go_base}/api/sessions/live/team/{board_name}/wake")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    # Both should return ok: true, sleeping: false, sessions_relaunched: 0
+    passed = (py_body.get("ok") == go_body.get("ok")
+              and py_body.get("sleeping") == go_body.get("sleeping"))
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint=f"/api/sessions/live/team/{board_name}/wake",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"Wake empty board: py={py_body}, go={go_body}",
+    ))
+
+    # Verify sleep-status is still false after wake on empty board
+    results.append(_call(client, py_base, go_base, scenario, "GET",
+                         f"/api/sessions/live/team/{board_name}/sleep-status"))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 
 ALL_SCENARIOS = [
     ("tags", scenario_tags),
@@ -1112,6 +1162,7 @@ ALL_SCENARIOS = [
     ("session_icon", scenario_session_icon),
     ("history_endpoints", scenario_history_endpoints),
     ("default_prompts", scenario_default_prompts),
+    ("sleep_wake", scenario_sleep_wake),
 ]
 
 

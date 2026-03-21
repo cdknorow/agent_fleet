@@ -99,8 +99,13 @@ class PythonServer(ServerProcess):
         # Ensure the .coral directory exists
         (self.home_dir / ".coral").mkdir(parents=True, exist_ok=True)
 
+        # Prefer venv coral binary if available
+        project_root = Path(__file__).resolve().parent.parent
+        venv_coral = project_root / ".venv" / "bin" / "coral"
+        coral_cmd = str(venv_coral) if venv_coral.exists() else "coral"
+
         self.proc = subprocess.Popen(
-            ["coral", "--host", "127.0.0.1", "--port", str(self.port)],
+            [coral_cmd, "--host", "127.0.0.1", "--port", str(self.port)],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -139,6 +144,20 @@ class GoServer(ServerProcess):
         coral_dir = self.home_dir / ".coral-go"
         coral_dir.mkdir(parents=True, exist_ok=True)
         self._coral_dir = coral_dir
+
+        # Seed a test license file so the license middleware doesn't block API access
+        import datetime
+        license_data = {
+            "license_key": "TEST-PARITY-KEY",
+            "instance_id": "test-instance",
+            "customer_name": "Parity Test",
+            "customer_email": "test@test.com",
+            "activated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "last_validated": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "valid": True,
+        }
+        license_path = coral_dir / "license.json"
+        license_path.write_text(json.dumps(license_data))
 
         env = os.environ.copy()
         env["HOME"] = str(self.home_dir)
@@ -272,8 +291,8 @@ def main():
     parser = argparse.ArgumentParser(description="Functional parity test harness")
     parser.add_argument("--scenarios", type=str, help="Path to scenarios module")
     parser.add_argument("--go-binary", type=str, help="Path to Go binary")
-    parser.add_argument("--py-port", type=int, default=8430, help="Python server port")
-    parser.add_argument("--go-port", type=int, default=8431, help="Go server port")
+    parser.add_argument("--py-port", type=int, default=9420, help="Python server port")
+    parser.add_argument("--go-port", type=int, default=9421, help="Go server port")
     parser.add_argument("--skip-python", action="store_true", help="Skip Python backend")
     parser.add_argument("--skip-go", action="store_true", help="Skip Go backend")
     args = parser.parse_args()
