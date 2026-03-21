@@ -44,6 +44,24 @@ import { checkForUpdates, dismissUpdateToast } from './update_check.js';
 window._coralLoadLiveSessions = loadLiveSessions;
 window.sendCommand = sendCommand;
 window.sendCommandWithTeam = sendCommandWithTeam;
+window.toggleSendMenu = function(btn) {
+    const menu = btn.parentElement.querySelector('.send-btn-menu');
+    if (!menu) return;
+    const show = menu.style.display === 'none';
+    menu.style.display = show ? '' : 'none';
+    if (show) {
+        const close = (e) => {
+            if (!menu.contains(e.target) && !btn.contains(e.target)) {
+                menu.style.display = 'none';
+                document.removeEventListener('click', close);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', close), 0);
+    }
+};
+window.closeSendMenu = function() {
+    document.querySelectorAll('.send-btn-menu').forEach(m => m.style.display = 'none');
+};
 window.sendRawKeys = sendRawKeys;
 window.sendModeToggle = sendModeToggle;
 window.cycleModeToggle = cycleModeToggle;
@@ -89,6 +107,16 @@ window.browseAgentTemplatesNew = function() {
         if (window._addTeamAgent) {
             window._addTeamAgent(name, prompt);
         }
+    });
+};
+window.browseAgentTemplatesForModal = function() {
+    showTemplateBrowser('agents', (template) => {
+        const name = (template.name || '').replace(/-/g, ' ');
+        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+        const nameEl = document.getElementById('add-agent-board-agent-name');
+        const promptEl = document.getElementById('add-agent-board-prompt');
+        if (nameEl) nameEl.value = name;
+        if (promptEl) promptEl.value = prompt;
     });
 };
 window.browseAgentTemplates = function(btn) {

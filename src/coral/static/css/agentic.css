@@ -81,6 +81,24 @@
     background: var(--accent);
 }
 
+/* ── Block Header (no-tab blocks like Activity) ───────────── */
+
+.agentic-block-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.agentic-block-header-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
 /* ── Tabs ──────────────────────────────────────────────────── */
 
 .agentic-state-tabs {
@@ -118,6 +136,21 @@
 
 .agentic-tab .material-icons {
     font-size: 18px;
+}
+
+.agentic-tab-spacer {
+    flex: 100;
+}
+
+.agentic-tab.agentic-tab-subtle {
+    flex: none;
+    opacity: 0.6;
+    padding: 8px 8px;
+}
+
+.agentic-tab.agentic-tab-subtle:hover,
+.agentic-tab.agentic-tab-subtle.active {
+    opacity: 1;
 }
 
 .agentic-tab-count:empty {
@@ -608,6 +641,29 @@
 .event-icon.tool-confidence   { color: var(--color-tool-confidence); background: rgba(227, 179, 65, 0.15); }
 .event-icon.tool-pulse  { color: var(--color-tool-pulse); background: rgba(188, 140, 255, 0.15); }
 .event-icon.tool-default { color: var(--color-tool-default); background: rgba(72, 79, 88, 0.2); }
+
+/* ── Activity Stats (collapsible within Activity tab) ──────── */
+
+.activity-stats-details {
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.activity-stats-summary {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.activity-stats-summary:hover {
+    color: var(--text-primary);
+}
 
 /* ── Activity Chart ────────────────────────────────────────── */
 

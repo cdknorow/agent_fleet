@@ -194,6 +194,85 @@
     box-shadow: 0 1px 0 var(--border);
 }
 
+/* ── Split Send Button ─────────────────────────────────────── */
+
+.send-btn-group {
+    display: flex;
+    position: relative;
+    flex-shrink: 0;
+    align-self: flex-end;
+}
+
+.send-btn-group .mobile-send-btn {
+    display: flex;
+    border-radius: 0;
+    width: auto;
+    height: 34px;
+    min-width: unset;
+}
+
+.send-btn-group .send-btn-main {
+    border-radius: 8px 0 0 8px;
+    padding: 8px 10px;
+}
+
+.send-btn-group .send-btn-dropdown {
+    border-radius: 0 8px 8px 0;
+    padding: 8px 6px;
+    border-left: 1px solid rgba(255,255,255,0.15);
+}
+
+.send-btn-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.3));
+    min-width: 200px;
+    z-index: 100;
+    padding: 4px;
+}
+
+.send-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.send-menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.send-menu-hint {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.send-menu-hint kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}
+
 /* ── File @mention Dropdown ───────────────────────────────── */
 
 .file-mention-dropdown {

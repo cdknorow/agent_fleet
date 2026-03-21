@@ -580,30 +580,39 @@
         </div>
     </div>
 
-    <!-- Add Agent to Board Modal -->
+    <!-- Add Agent Modal (used for both "add to board" and "add to team") -->
     <div id="add-agent-board-modal" class="modal" style="display:none">
         <div class="modal-content modal-content-wide">
-            <h3>Add Agent to Board</h3>
+            <h3 id="add-agent-board-title">Add Agent to Board</h3>
             <p class="add-agent-board-subtitle" id="add-agent-board-subtitle"></p>
             <input type="hidden" id="add-agent-board-name">
             <input type="hidden" id="add-agent-board-workdir">
-            <div id="add-agent-board-presets" class="agent-preset-selector" style="margin-bottom:16px"></div>
-            <label>Name / Role:
-                <input type="text" id="add-agent-board-agent-name" placeholder="e.g. Security Reviewer">
-            </label>
-            <label>Behavior Prompt:
-                <textarea id="add-agent-board-prompt" rows="5" placeholder="Describe the agent's role and behavior..."></textarea>
-            </label>
-            <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                <input type="text" id="add-agent-board-flags" placeholder="e.g. --verbose">
-            </label>
-            <div class="flag-shortcuts">
-                <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('add-agent-board-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
+            <input type="hidden" id="add-agent-board-mode" value="board">
+            <div class="agent-three-columns">
+                <div class="agent-col-presets">
+                    <strong style="font-size:13px">Persona</strong>
+                    <p class="team-agents-desc">Choose a preset or custom.</p>
+                    <div id="add-agent-board-presets" class="agent-preset-selector agent-preset-vertical"></div>
+                    <button class="btn btn-small btn-subtle" onclick="browseAgentTemplatesForModal()" title="Browse community agent templates from aitmpl.com" style="margin-top:8px;width:100%">Browse Templates</button>
+                </div>
+                <div class="agent-col-fields">
+                    <label>Name / Role:
+                        <input type="text" id="add-agent-board-agent-name" placeholder="e.g. Security Reviewer">
+                    </label>
+                    <label class="agent-prompt-label" for="add-agent-board-prompt">Behavior Prompt:</label>
+                    <textarea id="add-agent-board-prompt" rows="5" placeholder="Describe the agent's role and behavior..."></textarea>
+                    <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                        <input type="text" id="add-agent-board-flags" placeholder="e.g. --verbose">
+                    </label>
+                    <div class="flag-shortcuts">
+                        <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('add-agent-board-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
+                    </div>
+                </div>
             </div>
             <div class="modal-actions">
                 <button class="btn" onclick="hideAddAgentBoardModal()">Cancel</button>
                 <button class="btn btn-save-persona" onclick="window._saveCurrentPersona('add-agent-board-agent-name','add-agent-board-prompt','add-agent-board-flags')" title="Save as reusable persona">Save Persona</button>
-                <button class="btn btn-primary" onclick="launchAgentToBoard()">Launch</button>
+                <button class="btn btn-primary" id="add-agent-board-submit" onclick="launchAgentToBoard()">Launch</button>
             </div>
         </div>
     </div>

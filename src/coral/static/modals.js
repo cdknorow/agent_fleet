@@ -480,17 +480,12 @@ window._selectAgentPreset = _selectAgentPreset;
 // ── Add Agent to Board ───────────────────────────────────────────────────
 
 export function showAddAgentToBoard(boardName, workDir) {
-    const modal = document.getElementById("add-agent-board-modal");
+    _showAddAgentModal("board");
     document.getElementById("add-agent-board-name").value = boardName;
     document.getElementById("add-agent-board-workdir").value = workDir;
     document.getElementById("add-agent-board-subtitle").textContent = `Board: ${boardName}`;
-    document.getElementById("add-agent-board-agent-name").value = "";
-    document.getElementById("add-agent-board-prompt").value = "";
     document.getElementById("add-agent-board-flags").value = "--dangerously-skip-permissions";
-
-    _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
-
-    modal.style.display = "flex";
+    _syncFlagButtons("add-agent-board-flags");
 }
 
 export function hideAddAgentBoardModal() {
@@ -808,63 +803,48 @@ function _addTeamAgent(defaultName, defaultPrompt) {
 }
 
 function _showAddAgentPicker() {
-    const picker = document.getElementById("team-agent-picker");
-    if (!picker) return;
-
-    // Get names of agents already added
-    const existingNames = new Set();
-    document.querySelectorAll("#team-agents-list .team-agent-name").forEach(input => {
-        const n = input.value.trim().toLowerCase();
-        if (n) existingNames.add(n);
-    });
-
-    // Build picker items: presets not already in the list
-    const available = AGENT_PRESETS.filter(p => !existingNames.has(p.name.toLowerCase()));
-    const savedAvailable = _getSavedPersonas().filter(p => !existingNames.has(p.name.toLowerCase()));
-
-    let html = '';
-    for (const preset of available) {
-        html += `<button class="agent-picker-item" onclick="window._addPresetAgent('${escapeAttr(preset.name)}')">${escapeHtml(preset.name)}</button>`;
-    }
-    if (savedAvailable.length > 0) {
-        if (available.length > 0) html += '<div class="agent-picker-divider"></div>';
-        for (const persona of savedAvailable) {
-            html += `<button class="agent-picker-item agent-preset-saved" onclick="window._addPresetAgent('${escapeAttr(persona.name)}')">${escapeHtml(persona.name)}</button>`;
-        }
-    }
-    if (available.length > 0 || savedAvailable.length > 0) {
-        html += '<div class="agent-picker-divider"></div>';
-    }
-    html += `<button class="agent-picker-item agent-picker-custom" onclick="window._addTeamAgent()">+ Create Custom</button>`;
-    html += `<button class="agent-picker-item agent-picker-custom" onclick="document.getElementById('team-agent-picker').style.display='none'; browseAgentTemplatesNew()" title="Browse community agent templates from aitmpl.com">Browse Templates</button>`;
-
-    picker.innerHTML = html;
-    picker.style.display = "";
-
-    // Close picker on outside click
-    const closeHandler = (e) => {
-        if (!picker.contains(e.target) && !e.target.closest('.team-add-agent-btn')) {
-            picker.style.display = "none";
-            document.removeEventListener("click", closeHandler);
-        }
-    };
-    setTimeout(() => document.addEventListener("click", closeHandler), 0);
+    _showAddAgentModal("team");
 }
 window._showAddAgentPicker = _showAddAgentPicker;
 
-function _addPresetAgent(name) {
-    const persona = _findPersona(name);
-    if (persona) {
-        _addTeamAgent(persona.name, persona.prompt);
+function _showAddAgentModal(mode) {
+    const modal = document.getElementById("add-agent-board-modal");
+    const modeInput = document.getElementById("add-agent-board-mode");
+    const titleEl = document.getElementById("add-agent-board-title");
+    const subtitleEl = document.getElementById("add-agent-board-subtitle");
+    const submitBtn = document.getElementById("add-agent-board-submit");
+
+    modeInput.value = mode;
+    document.getElementById("add-agent-board-agent-name").value = "";
+    document.getElementById("add-agent-board-prompt").value = "";
+    document.getElementById("add-agent-board-flags").value = "";
+    _syncFlagButtons("add-agent-board-flags");
+
+    if (mode === "team") {
+        titleEl.textContent = "Add Agent to Team";
+        subtitleEl.textContent = "";
+        submitBtn.textContent = "Add to Team";
+        submitBtn.onclick = _addAgentFromModal;
+    } else {
+        titleEl.textContent = "Add Agent to Board";
+        submitBtn.textContent = "Launch";
+        submitBtn.onclick = () => launchAgentToBoard();
     }
-    const picker = document.getElementById("team-agent-picker");
-    if (picker) picker.style.display = "none";
+
+    _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
+    modal.style.display = "flex";
+    setTimeout(() => document.getElementById("add-agent-board-agent-name").focus(), 50);
 }
-window._addPresetAgent = _addPresetAgent;
+
+function _addAgentFromModal() {
+    const name = document.getElementById("add-agent-board-agent-name").value.trim();
+    const prompt = document.getElementById("add-agent-board-prompt").value.trim();
+    _addTeamAgent(name, prompt);
+    hideAddAgentBoardModal();
+}
+
 window._addTeamAgent = (name, prompt) => {
     _addTeamAgent(name || "", prompt || "");
-    const picker = document.getElementById("team-agent-picker");
-    if (picker) picker.style.display = "none";
 };
 
 function _onTeamBoardChange() {

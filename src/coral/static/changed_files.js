@@ -217,8 +217,7 @@ export function renderChangedFiles() {
         const statusIcon = f.status === '??' ? '?' : f.status === 'A' || f.status === 'AM' ? '+' : f.status === 'D' ? '-' : '~';
         const escapedPath = escapeHtml(f.filepath).replace(/'/g, "\\'");
 
-        const isPreviewable = /\.(md|mdx|txt|rst|html)$/i.test(name);
-        const previewBtn = isPreviewable ? `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file">&#x1F4C4;</button>` : '';
+        const previewBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file">&#x1F4C4;</button>`;
 
         return `<div class="file-item ${statusCls}" title="${escapeHtml(f.filepath)} (${statusLabel})"
                      onclick="openFileDiff('${escapedPath}')">

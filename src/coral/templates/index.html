@@ -89,6 +89,14 @@
                 <img src="/static/favicon.png" alt="Coral" class="welcome-logo">
                 <h2>Welcome to Coral</h2>
                 <p>Select a session from the sidebar, or get started:</p>
+                <button class="welcome-hero-btn" onclick="showLaunchModal(); if (window._selectLaunchType) window._selectLaunchType('team')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/>
+                        <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                        <path d="M17 11a4 4 0 0 1 4 4v2"/>
+                    </svg>
+                    Launch Agent Team
+                </button>
                 <div class="welcome-actions">
                     <button class="welcome-action-card" onclick="showLaunchModal()" aria-label="Launch Agent">
                         <span class="material-icons">add_circle</span>
@@ -102,20 +110,18 @@
                         <span class="material-icons">webhook</span>
                         <span>Create Webhook</span>
                     </button>
-                    <button class="welcome-action-card" onclick="showThemeConfigurator()" aria-label="Customize Theme">
-                        <span class="material-icons">palette</span>
-                        <span>Customize Theme</span>
+                </div>
+                <div class="welcome-secondary">
+                    <button class="welcome-secondary-link" onclick="showThemeConfigurator()">
+                        <span class="material-icons">palette</span> Theme
                     </button>
-                    <button class="welcome-action-card" onclick="showSettingsModal()" aria-label="Settings">
-                        <span class="material-icons">settings</span>
-                        <span>Settings</span>
+                    <button class="welcome-secondary-link" onclick="showSettingsModal()">
+                        <span class="material-icons">settings</span> Settings
                     </button>
-                    <a class="welcome-action-card" href="https://cdknorow.github.io/coral/" target="_blank" rel="noopener" aria-label="Documentation">
-                        <span class="material-icons">menu_book</span>
-                        <span>Documentation</span>
+                    <a class="welcome-secondary-link" href="https://cdknorow.github.io/coral/" target="_blank" rel="noopener">
+                        <span class="material-icons">menu_book</span> Docs
                     </a>
                 </div>
-                <p class="welcome-tip">Tip: Launch an <strong>Agent Team</strong> to see multi-agent collaboration in action.</p>
             </div>
 
             {% include "includes/views/live_session.html" %}

@@ -299,8 +299,8 @@
         display: none !important;
     }
 
-    /* Show the inline send button on mobile */
-    .command-pane .mobile-send-btn {
+    /* Send button group is always visible; ensure it shows on mobile too */
+    .command-pane .send-btn-group {
         display: flex;
     }
 

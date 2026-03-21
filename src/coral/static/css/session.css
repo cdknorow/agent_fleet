@@ -255,6 +255,61 @@
     cursor: default !important;
 }
 
+.session-board-card.session-board-card-toplevel {
+    border-left-width: 4px !important;
+    margin: 6px 8px 6px 0 !important;
+}
+
+.session-board-card.team-sleeping {
+    opacity: 0.6;
+    filter: grayscale(0.3);
+}
+
+.board-card-folder-footer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px 6px 22px;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    opacity: 0.7;
+    height: 24px;
+    box-sizing: border-box;
+}
+
+.board-card-folder-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.board-card-folder-footer .folder-copy-btn {
+    flex-shrink: 0;
+    display: none;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.board-card-folder-footer:hover .folder-copy-btn {
+    display: inline-flex;
+    align-items: center;
+}
+
+.agent-folder-path {
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.7;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+}
+
 .session-board-card:hover {
     background: rgba(255, 255, 255, 0.02) !important;
     box-shadow: none !important;
@@ -267,6 +322,11 @@
     font-size: 11px;
     min-height: 46px;
     box-sizing: border-box;
+}
+
+.session-board-card-toplevel .board-card-header .group-name-line {
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .board-card-subline {
