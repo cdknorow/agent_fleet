@@ -815,6 +815,10 @@ async def launch_claude_session(working_dir: str, agent_type: str = "claude", di
         if rc != 0:
             return {"error": f"tmux new-session failed: {stderr}"}
 
+        # Remove inherited CLAUDECODE env var so Claude Code doesn't think
+        # it's being launched inside another Claude Code session.
+        await run_cmd("tmux", "set-environment", "-t", session_name, "-r", "CLAUDECODE")
+
         # Set up pipe-pane logging
         await run_cmd(
             "tmux", "pipe-pane", "-t", session_name, "-o", f"cat >> '{log_file}'"

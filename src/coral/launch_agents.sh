@@ -38,6 +38,7 @@ launch_web_server() {
 
     echo "=== Launching Web Server (tmux: $WEB_SESSION) ==="
     tmux new-session -d -s "$WEB_SESSION"
+    tmux set-environment -t "$WEB_SESSION" -r CLAUDECODE
     tmux send-keys -t "$WEB_SESSION" "$cmd" Enter
     echo "  [+] Web server started on http://localhost:$WEB_PORT"
     echo "      Attach  : tmux attach -t $WEB_SESSION"
@@ -122,6 +123,7 @@ if [ "$LAUNCH_AGENTS" = "agents" ]; then
 
         # Create a new detached session rooted in the worktree
         tmux new-session -d -s "$session_name" -c "$dir"
+        tmux set-environment -t "$session_name" -r CLAUDECODE
 
         # Stream stdout to log file
         tmux pipe-pane -t "${session_name}" -o "cat >> '${log_file}'"
@@ -152,7 +154,7 @@ with open('${settings_file}', 'w') as f:
     json.dump(merged, f, indent=2)
     f.write('\n')
 "
-            tmux send-keys -t "${session_name}.0" "claude --session-id ${session_id} --settings ${settings_file}" Enter
+            tmux send-keys -t "${session_name}.0" "env -u CLAUDECODE claude --session-id ${session_id} --settings ${settings_file}" Enter
         fi
 
 
