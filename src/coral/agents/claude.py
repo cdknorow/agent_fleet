@@ -199,7 +199,7 @@ class ClaudeAgent(BaseAgent):
         prompt: str | None = None,
         prompt_overrides: dict[str, str] | None = None,
     ) -> str:
-        parts = ["claude"]
+        parts = ["env", "-u", "CLAUDECODE", "claude"]
         effective_id = resume_session_id or session_id
         if resume_session_id:
             parts.append(f"--resume {resume_session_id}")
