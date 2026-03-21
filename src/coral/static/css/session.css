@@ -266,6 +266,9 @@
 .session-board-card.team-sleeping .board-card-agents {
     opacity: 0.6;
 }
+.session-board-card.team-sleeping .group-kebab .sidebar-kebab-btn {
+    opacity: 0.5;
+}
 
 .board-card-folder-footer {
     display: flex;

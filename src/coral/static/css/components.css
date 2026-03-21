@@ -145,9 +145,12 @@
     margin-left: 40px;
 }
 
-/* Sleeping agent in sidebar — dim content but keep kebab menu at full opacity */
+/* Sleeping agent in sidebar — dim content but keep kebab menu visible */
 .session-group-item.sleeping .session-dot,
 .session-group-item.sleeping .session-info {
+    opacity: 0.5;
+}
+.session-group-item.sleeping .sidebar-kebab-btn {
     opacity: 0.5;
 }
 
