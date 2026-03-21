@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 4.2.0 — 2026-03-21
+
+### Added
+- **Agent team sleep/wake** — Put entire agent teams to sleep (terminates sessions, pauses board) and wake them later (relaunches via resume). Sleep/wake available from message board header and sidebar kebab menu. Sleeping agents show 🌙 icon, dimmed sidebar, and terminal overlay.
+- **Message board redesign** — Slack-style thread layout with left accent bars, Nord-inspired muted agent colors, card depth, and max-width centering. Message board colors customizable via theme picker (--mb-* CSS variables).
+- **Message alignment** — Orchestrator/operator messages left-aligned, worker messages indented right for visual hierarchy.
+- **Faster file and command search** — Improved file search and new command/skill search
+
+### Fixed
+- **Sleeping sessions skip resume** — Sleeping agents not relaunched on Coral restart; wake endpoint handles relaunch
+- **Agent prompt delivery** — Pass agent prompt as CLI argument instead of fragile tmux send-keys
+- **Max-width on message board** — Messages capped at 840px width and centered for readability
+
 ## 4.1.0 — 2026-03-20
 
 ### Added
