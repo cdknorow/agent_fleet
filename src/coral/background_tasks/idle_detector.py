@@ -41,12 +41,22 @@ class IdleDetector:
         session_ids = [a["session_id"] for a in agents if a.get("session_id")]
         latest_events = await self._store.get_latest_event_types(session_ids)
 
+        # Skip sleeping sessions — they're intentionally idle
+        try:
+            all_live = await self._store.get_all_live_sessions()
+            sleeping_sids = {s["session_id"] for s in all_live if s.get("is_sleeping")}
+        except Exception:
+            sleeping_sids = set()
+
         count = 0
         active_waiting: set[str] = set()
 
         for agent in agents:
             name = agent["agent_name"]
             sid = agent.get("session_id")
+            if sid and sid in sleeping_sids:
+                self._notified.discard(name)
+                continue
             ev_tuple = latest_events.get(sid) if sid else None
             latest_ev = ev_tuple[0] if ev_tuple else None
             waiting = latest_ev == "notification"

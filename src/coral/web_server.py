@@ -97,6 +97,16 @@ async def lifespan(app: FastAPI):
         await resume_persistent_sessions(store, schedule_store)
         log.info("Deferred startup: resume_persistent_sessions took %.2fs", _time.monotonic() - _t0)
 
+        # Restore board pause state for sleeping teams
+        try:
+            sleeping_boards = await store.get_sleeping_board_names()
+            if sleeping_boards:
+                from coral.messageboard.api import _paused_projects
+                _paused_projects.update(sleeping_boards)
+                log.info("Restored pause state for %d sleeping board(s)", len(sleeping_boards))
+        except Exception:
+            log.exception("Failed to restore sleeping board pause state")
+
         # Register any tmux sessions not yet tracked in the live_sessions table.
         log.info("Deferred startup: discovering agents...")
         _t1 = _time.monotonic()

@@ -8,6 +8,7 @@
         <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-small" id="mb-back-btn" style="display:none" onclick="showMessageBoardProjects()">All Projects</button>
             <button class="btn btn-small" id="mb-pause-btn" style="display:none" onclick="toggleBoardPause()">Pause Reads</button>
+            <button class="btn btn-small" id="mb-sleep-btn" style="display:none" onclick="toggleBoardSleep()">Sleep Team</button>
             <button class="btn btn-small btn-danger" id="mb-delete-btn" style="display:none" onclick="deleteMessageBoardProject()">Delete Project</button>
         </div>
     </div>
@@ -23,6 +24,9 @@
         <div id="mb-board" style="display:none;flex:1;flex-direction:column;overflow:hidden">
             <!-- Messages -->
             <div id="mb-messages" style="flex:1;overflow-y:auto;padding:8px 4px 12px">
+                <div id="mb-sleep-banner" class="mb-sleep-banner" style="display:none">
+                    <span>🌙 This team is sleeping. Messages are paused.</span>
+                </div>
                 <div class="empty-state" id="mb-messages-empty">No messages yet</div>
             </div>
 

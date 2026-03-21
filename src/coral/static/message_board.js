@@ -5,6 +5,7 @@ import { escapeHtml, escapeAttr } from './utils.js';
 let currentProject = null;
 let pollTimer = null;
 let isPaused = false;
+let isSleeping = false;
 const PAGE_SIZE = 50;
 let _allMessages = [];
 let _totalMessages = 0;
@@ -80,6 +81,7 @@ export function selectBoardProject(project) {
     document.getElementById('mb-subscribers-panel').style.display = 'block';
     document.getElementById('mb-back-btn').style.display = '';
     document.getElementById('mb-pause-btn').style.display = '';
+    document.getElementById('mb-sleep-btn').style.display = '';
     document.getElementById('mb-delete-btn').style.display = '';
 
     const badge = document.getElementById('messageboard-project-badge');
@@ -90,8 +92,9 @@ export function selectBoardProject(project) {
     // Ensure dashboard is subscribed as a reader
     subscribeDashboard(project);
 
-    // Load paused state
+    // Load paused and sleep state
     loadPausedState(project);
+    loadSleepState(project);
 
     loadBoardMessages(project);
     loadBoardSubscribers(project);
@@ -114,6 +117,7 @@ export function showMessageBoardProjects() {
     document.getElementById('mb-subscribers-panel').style.display = 'none';
     document.getElementById('mb-back-btn').style.display = 'none';
     document.getElementById('mb-pause-btn').style.display = 'none';
+    document.getElementById('mb-sleep-btn').style.display = 'none';
     document.getElementById('mb-delete-btn').style.display = 'none';
     document.getElementById('messageboard-project-badge').style.display = 'none';
 
@@ -460,6 +464,60 @@ function stopBoardPoll() {
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
+    }
+}
+
+// ── Sleep / Wake ─────────────────────────────────────────────────────
+
+async function loadSleepState(project) {
+    try {
+        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(project)}/sleep-status`);
+        const data = await resp.json();
+        isSleeping = !!data.sleeping;
+        updateSleepUI();
+    } catch (e) {
+        isSleeping = false;
+        updateSleepUI();
+    }
+}
+
+function updateSleepUI() {
+    const btn = document.getElementById('mb-sleep-btn');
+    if (btn) {
+        btn.textContent = isSleeping ? 'Wake Team' : 'Sleep Team';
+        btn.classList.toggle('btn-warning', isSleeping);
+    }
+    // Sleep banner
+    const banner = document.getElementById('mb-sleep-banner');
+    if (banner) {
+        banner.style.display = isSleeping ? '' : 'none';
+    }
+    // Disable input area when sleeping
+    const input = document.getElementById('mb-post-input');
+    const sendBtn = document.querySelector('#mb-board .btn-primary');
+    if (input) {
+        input.disabled = isSleeping;
+        input.placeholder = isSleeping ? 'Team is sleeping...' : 'Post a message as Developer...';
+    }
+    if (sendBtn) {
+        sendBtn.disabled = isSleeping;
+        sendBtn.style.opacity = isSleeping ? '0.4' : '';
+    }
+}
+
+export async function toggleBoardSleep() {
+    if (!currentProject) return;
+    const action = isSleeping ? 'wake' : 'sleep';
+    if (!isSleeping && !confirm(`Put all agents on "${currentProject}" to sleep?`)) return;
+    try {
+        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(currentProject)}/${action}`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        isSleeping = !!data.sleeping;
+        updateSleepUI();
+    } catch (e) {
+        console.error('Failed to toggle sleep:', e);
     }
 }
 

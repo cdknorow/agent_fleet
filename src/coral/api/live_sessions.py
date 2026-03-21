@@ -112,13 +112,15 @@ async def _build_session_list(include_commands: bool = False) -> list[dict]:
     # subscribed (race condition during team launch — the async
     # setup_board_and_prompt task may not have completed yet).
     live_board_names: dict[str, tuple[str, str]] = {}
+    live_sleeping: dict[str, bool] = {}
     try:
         conn = await store._get_conn()
         rows = await (await conn.execute(
-            "SELECT session_id, board_name, display_name FROM live_sessions WHERE board_name IS NOT NULL"
+            "SELECT session_id, board_name, display_name, is_sleeping FROM live_sessions WHERE board_name IS NOT NULL"
         )).fetchall()
         for row in rows:
             live_board_names[row["session_id"]] = (row["board_name"], row["display_name"] or "")
+            live_sleeping[row["session_id"]] = bool(row["is_sleeping"])
     except Exception:
         pass
 
@@ -213,6 +215,7 @@ async def _build_session_list(include_commands: bool = False) -> list[dict]:
             "board_project": board_project,
             "board_job_title": board_job_title,
             "board_unread": board_unread,
+            "sleeping": live_sleeping.get(sid, False) if sid else False,
         }
         if include_commands:
             wd = agent.get("working_directory", "")
@@ -965,6 +968,45 @@ async def get_agent_event_counts(name: str, session_id: str | None = None):
 async def clear_agent_events(name: str, session_id: str | None = None):
     await store.clear_agent_events(name, session_id=session_id)
     return {"ok": True}
+
+
+# ── Team Sleep/Wake ────────────────────────────────────────────────────────
+
+
+@router.get("/api/sessions/live/team/{board_name}/sleep-status")
+async def get_sleep_status(board_name: str):
+    """Return the sleep state for a team board."""
+    sleeping_boards = await store.get_sleeping_board_names()
+    return {"sleeping": board_name in sleeping_boards}
+
+
+@router.post("/api/sessions/live/team/{board_name}/sleep")
+async def sleep_team(board_name: str):
+    """Put all agents on a board to sleep.
+
+    Sets is_sleeping=1 for all sessions on the board and pauses the board
+    so no messages are delivered to sleeping agents.
+    """
+    count = await store.set_board_sleeping(board_name, sleeping=True)
+    if count == 0:
+        return {"ok": False, "error": "No sessions found on that board"}
+    # Pause the board so agents don't get nudged about new messages
+    from coral.messageboard.api import _paused_projects
+    _paused_projects.add(board_name)
+    return {"ok": True, "sessions_affected": count, "board_paused": True}
+
+
+@router.post("/api/sessions/live/team/{board_name}/wake")
+async def wake_team(board_name: str):
+    """Wake all agents on a board.
+
+    Sets is_sleeping=0 for all sessions on the board and unpauses the board.
+    """
+    count = await store.set_board_sleeping(board_name, sleeping=False)
+    # Unpause the board
+    from coral.messageboard.api import _paused_projects
+    _paused_projects.discard(board_name)
+    return {"ok": True, "sessions_affected": count, "board_paused": False}
 
 
 # ── WebSocket Endpoints ─────────────────────────────────────────────────────

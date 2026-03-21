@@ -34,6 +34,7 @@ function formatStaleness(seconds) {
 }
 
 function getStateLabel(s) {
+    if (s.sleeping) return "Sleeping";
     if (s.waiting_for_input) return "Needs input";
     if (s.stuck) return "Stuck";
     if (s.working) return "Working";
@@ -66,6 +67,7 @@ function buildSessionTooltip(s) {
 }
 
 function getDotClass(s) {
+    if (s.sleeping) return "sleeping";
     if (s.waiting_for_input) return "waiting";
     if (s.stuck) return "stuck";
     if (s.working) return "working";
@@ -415,8 +417,9 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const goal = goalText || (isTerminal ? "" : `<a href="#" class="generate-goal-link" onclick="event.preventDefault(); event.stopPropagation(); requestGoal('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')" title="Ask agent to set a goal">Generate Goal</a>`);
     const displayLabel = s.display_name || (isCompact && s.board_job_title) || (isTerminal ? "Terminal" : "Agent");
     const isOrchestrator = (s.display_name || s.board_job_title || '').toLowerCase().includes('orchestrator');
-    const agentIcon = s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
-    const orchIcon = (!s.icon && isOrchestrator) ? '<svg class="orch-icon" width="12" height="12" viewBox="0 0 16 16" fill="var(--warning, #d29922)" stroke="none"><path d="M8 1l2 4 3-1-1 4H4L3 4l3 1 2-4zM4 10h8v2H4z"/></svg> ' : '';
+    const sleepIcon = s.sleeping ? '<span class="agent-icon">🌙</span> ' : '';
+    const agentIcon = !s.sleeping && s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
+    const orchIcon = (!s.sleeping && !s.icon && isOrchestrator) ? '<svg class="orch-icon" width="12" height="12" viewBox="0 0 16 16" fill="var(--warning, #d29922)" stroke="none"><path d="M8 1l2 4 3-1-1 4H4L3 4l3 1 2-4zM4 10h8v2H4z"/></svg> ' : '';
     const kebabMenu = `<div class="sidebar-kebab-wrapper">
         <button class="sidebar-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="More actions">&#x22EE;</button>
         <div class="sidebar-kebab-menu" style="display:none">
@@ -450,7 +453,8 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const tooltip = buildSessionTooltip(s);
     const compactClass = isCompact ? ' session-compact' : '';
     const collapsedClass = collapsed ? ' group-collapsed' : '';
-    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}"
+    const sleepingClass = s.sleeping ? ' sleeping' : '';
+    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}"
         draggable="true"
         data-session-id="${sid}"
         data-group="${escapeAttr(groupName)}"
@@ -458,7 +462,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
         <span class="session-dot ${dotClass}"></span>
         <div class="session-info">
             <div class="session-name-row">
-                <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${agentIcon}${orchIcon}${escapeHtml(displayLabel)}${typeTag}</span>
+                <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${sleepIcon}${agentIcon}${orchIcon}${escapeHtml(displayLabel)}${typeTag}</span>
                 <span class="session-name-spacer"></span>
                 ${waitingBadge}
                 ${kebabMenu}

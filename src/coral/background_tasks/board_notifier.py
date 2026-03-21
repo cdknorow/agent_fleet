@@ -61,6 +61,12 @@ class MessageBoardNotifier:
                 continue
 
             project = sub["project"]
+
+            # Skip agents on paused/sleeping boards
+            from coral.messageboard.api import _paused_projects
+            if project in _paused_projects:
+                continue
+
             unread = await self._board_store.check_unread(project, board_sid)
 
             if unread == 0:

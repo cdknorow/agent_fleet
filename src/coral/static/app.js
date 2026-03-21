@@ -34,7 +34,7 @@ import {
 } from './webhooks.js';
 import { initLiveJobs, renderLiveJobs, selectLiveJobRun } from './live_jobs.js';
 import { showThemeConfigurator, hideThemeConfigurator } from './theme_config.js';
-import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, deleteBoardMessage } from './message_board.js';
+import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, toggleBoardSleep, deleteBoardMessage } from './message_board.js';
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 
@@ -222,6 +222,7 @@ window.showMessageBoardProjects = showMessageBoardProjects;
 window.postBoardMessage = postBoardMessage;
 window.deleteMessageBoardProject = deleteMessageBoardProject;
 window.toggleBoardPause = toggleBoardPause;
+window.toggleBoardSleep = toggleBoardSleep;
 window.deleteBoardMessage = deleteBoardMessage;
 window.showFolderTagDropdown = showFolderTagDropdown;
 window.hideFolderTagDropdown = hideFolderTagDropdown;
