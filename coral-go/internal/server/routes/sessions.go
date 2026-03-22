@@ -25,7 +25,6 @@ import (
 	"github.com/cdknorow/coral/internal/pulse"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
-	"github.com/cdknorow/coral/internal/tmux"
 )
 
 // SessionsHandler handles all live session API endpoints.
@@ -58,7 +57,7 @@ type lastKnownState struct {
 }
 
 // NewSessionsHandler creates a SessionsHandler with the given dependencies.
-func NewSessionsHandler(db *store.DB, cfg *config.Config, backend ptymanager.TerminalBackend, bs *board.Store) *SessionsHandler {
+func NewSessionsHandler(db *store.DB, cfg *config.Config, backend ptymanager.TerminalBackend, terminal ptymanager.SessionTerminal, bs *board.Store) *SessionsHandler {
 	return &SessionsHandler{
 		db:        db,
 		ss:        store.NewSessionStore(db),
@@ -66,7 +65,7 @@ func NewSessionsHandler(db *store.DB, cfg *config.Config, backend ptymanager.Ter
 		gs:        store.NewGitStore(db),
 		bs:        bs,
 		cfg:       cfg,
-		terminal:  ptymanager.NewTmuxSessionTerminal(tmux.NewClient()),
+		terminal:  terminal,
 		jsonl:     jsonl.NewSessionReader(),
 		backend:   backend,
 		lastKnown: make(map[string]lastKnownState),
@@ -1695,7 +1694,11 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		agentType = "claude"
 	}
 	if backend == "" {
-		backend = "tmux"
+		if h.backend != nil {
+			backend = "pty"
+		} else {
+			backend = "tmux"
+		}
 	}
 	folderName := filepath.Base(absDir)
 

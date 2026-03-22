@@ -51,21 +51,24 @@ func main() {
 	// Select terminal backend and agent runtime
 	var backend ptymanager.TerminalBackend
 	var agentRT background.AgentRuntime
+	var terminal ptymanager.SessionTerminal
 	if *backendFlag == "pty" {
 		ptyBackend := ptymanager.NewPTYBackend()
 		backend = ptyBackend
 		agentRT = background.NewPTYRuntime(ptyBackend)
+		terminal = ptymanager.NewPTYSessionTerminal(ptyBackend)
 		log.Println("Using native PTY terminal backend")
 	} else {
 		tmuxClient := tmux.NewClient()
 		tmuxBackend := ptymanager.NewTmuxBackend(tmuxClient, cfg.LogDir)
 		backend = tmuxBackend
 		agentRT = background.NewTmuxRuntime(tmuxClient)
+		terminal = ptymanager.NewTmuxSessionTerminal(tmuxClient)
 		log.Println("Using tmux terminal backend")
 	}
 
 	// Build and start the HTTP server
-	srv := server.New(cfg, db, backend)
+	srv := server.New(cfg, db, backend, terminal)
 	srv.RestoreSleepingBoards()
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 

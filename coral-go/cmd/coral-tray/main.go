@@ -33,6 +33,7 @@ import (
 
 	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/server"
 	"github.com/cdknorow/coral/internal/store"
 	"github.com/cdknorow/coral/internal/tmux"
@@ -145,7 +146,9 @@ func runForeground(host string, port int, noBrowser bool, dataDir string) {
 	}
 	defer db.Close()
 
-	srv := server.New(cfg, db, nil) // nil backend = tmux mode
+	tmuxClient := tmux.NewClient()
+	terminal := ptymanager.NewTmuxSessionTerminal(tmuxClient)
+	srv := server.New(cfg, db, nil, terminal) // nil backend = tmux mode
 	srv.RestoreSleepingBoards()
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -158,7 +161,6 @@ func runForeground(host string, port int, noBrowser bool, dataDir string) {
 	}
 
 	// Start background services (same as cmd/coral)
-	tmuxClient := tmux.NewClient()
 	agentRT := background.NewTmuxRuntime(tmuxClient)
 	gitStore := store.NewGitStore(db)
 	webhookStore := store.NewWebhookStore(db)

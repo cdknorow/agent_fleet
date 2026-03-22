@@ -30,6 +30,7 @@ import (
 	"github.com/cdknorow/coral/internal/agent"
 	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/server"
 	"github.com/cdknorow/coral/internal/store"
 	"github.com/cdknorow/coral/internal/tmux"
@@ -222,7 +223,9 @@ func startWebServer(ctx context.Context, cfg *config.Config) {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 
-	srv := server.New(cfg, db, nil) // nil backend = tmux mode
+	tmuxClient := tmux.NewClient()
+	terminal := ptymanager.NewTmuxSessionTerminal(tmuxClient)
+	srv := server.New(cfg, db, nil, terminal) // nil backend = tmux mode
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	httpServer := &http.Server{
@@ -234,7 +237,6 @@ func startWebServer(ctx context.Context, cfg *config.Config) {
 	}
 
 	// Start background services
-	tmuxClient := tmux.NewClient()
 	agentRT := background.NewTmuxRuntime(tmuxClient)
 	gitStore := store.NewGitStore(db)
 	webhookStore := store.NewWebhookStore(db)

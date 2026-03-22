@@ -40,6 +40,7 @@ type Server struct {
 	db            *store.DB
 	boardStore    *board.Store
 	backend       ptymanager.TerminalBackend
+	terminal      ptymanager.SessionTerminal
 	licenseMgr    *license.Manager
 	router        chi.Router
 	indexTmpl     *template.Template
@@ -58,7 +59,7 @@ type templateData struct {
 
 // New creates a Server with all routes registered.
 // If backend is nil, the server will use tmux-based terminal management.
-func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend) *Server {
+func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, terminal ptymanager.SessionTerminal) *Server {
 	// Open the board store (separate SQLite DB)
 	boardStore, err := board.NewStore(filepath.Join(cfg.CoralDir(), "messageboard.db"))
 	if err != nil {
@@ -77,6 +78,7 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend) *
 		db:         db,
 		boardStore: boardStore,
 		backend:    backend,
+		terminal:   terminal,
 		licenseMgr: licenseMgr,
 	}
 
@@ -196,7 +198,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/license/status", licRoutes.Status)
 
 	// ── API Routes ──────────────────────────────────────────────
-	sessHandler := routes.NewSessionsHandler(s.db, s.cfg, s.backend, s.boardStore)
+	sessHandler := routes.NewSessionsHandler(s.db, s.cfg, s.backend, s.terminal, s.boardStore)
 	sysHandler := routes.NewSystemHandler(s.db, s.cfg)
 	s.systemHandler = sysHandler
 	histHandler := routes.NewHistoryHandler(s.db, s.cfg, s.boardStore)

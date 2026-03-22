@@ -85,12 +85,39 @@ func (p *PTYSessionTerminal) CreateSession(_ context.Context, name, workDir stri
 	return p.backend.Spawn(name, agentType, workDir, sessionID, "", 200, 50)
 }
 
-func (p *PTYSessionTerminal) KillSession(_ context.Context, name, _, _ string) error {
-	return p.backend.Kill(name)
+func (p *PTYSessionTerminal) KillSession(ctx context.Context, name, agentType, sessionID string) error {
+	return p.killByAnyKey(ctx, name, agentType, sessionID)
 }
 
-func (p *PTYSessionTerminal) KillSessionOnly(_ context.Context, name, _, _ string) error {
-	return p.backend.Kill(name)
+func (p *PTYSessionTerminal) KillSessionOnly(ctx context.Context, name, agentType, sessionID string) error {
+	return p.killByAnyKey(ctx, name, agentType, sessionID)
+}
+
+// killByAnyKey finds a session by name, agentType-sessionID, or sessionID and kills it.
+func (p *PTYSessionTerminal) killByAnyKey(_ context.Context, name, agentType, sessionID string) error {
+	// Try direct name match first (fastest path)
+	if err := p.backend.Kill(name); err == nil {
+		return nil
+	}
+	// Try agentType-sessionID format
+	if sessionID != "" {
+		composed := fmt.Sprintf("%s-%s", agentType, sessionID)
+		if err := p.backend.Kill(composed); err == nil {
+			return nil
+		}
+		// Try sessionID alone
+		if err := p.backend.Kill(sessionID); err == nil {
+			return nil
+		}
+	}
+	// Search through all sessions for a matching agent name, session ID, or folder name
+	for _, s := range p.backend.ListSessions() {
+		sessName := fmt.Sprintf("%s-%s", s.AgentType, s.SessionID)
+		if s.AgentName == name || s.SessionID == sessionID || filepath.Base(s.WorkingDir) == name {
+			return p.backend.Kill(sessName)
+		}
+	}
+	return fmt.Errorf("session %q not found", name)
 }
 
 func (p *PTYSessionTerminal) RestartPane(_ context.Context, target, _ string) error {

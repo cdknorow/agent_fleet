@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,8 @@ type session struct {
 func newSession(name, agentType, workDir, sessionID, command string, cols, rows uint16) (*session, error) {
 	parts := parseCommand(command)
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("empty command")
+		// Default to a shell if no command specified
+		parts = defaultShell()
 	}
 
 	env := append(os.Environ(),
@@ -211,4 +213,15 @@ func parseCommand(cmd string) []string {
 		return shellWrap(cmd)
 	}
 	return strings.Fields(cmd)
+}
+
+// defaultShell returns the platform default shell command.
+func defaultShell() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"cmd.exe"}
+	}
+	if sh := os.Getenv("SHELL"); sh != "" {
+		return []string{sh}
+	}
+	return []string{"/bin/sh"}
 }
