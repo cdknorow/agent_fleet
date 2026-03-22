@@ -106,8 +106,8 @@
 /* ── Sidebar ───────────────────────────────────────────────── */
 
 .sidebar {
-    width: 286px;
-    min-width: 140px;
+    width: 320px;
+    min-width: 200px;
     max-width: 50vw;
     background: var(--bg-secondary);
     border-right: none;

@@ -447,7 +447,13 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 
 	// Resolve pane target
 	target, err := h.terminal.FindTarget(ctx, name, agentType, sessionID)
+	if debugEnabled() {
+		slog.Info("[debug] ws/terminal polling resolve", "name", name, "agentType", agentType, "sessionID", sessionID, "target", target, "err", err)
+	}
 	if err != nil || target == "" {
+		if debugEnabled() {
+			slog.Info("[debug] ws/terminal pane not found — closing", "name", name)
+		}
 		conn.Close(websocket.StatusInternalError, "pane not found")
 		return
 	}

@@ -5,6 +5,9 @@ import { escapeHtml } from './utils.js';
 
 let historyPollInterval = null;
 let historyMessageCount = 0;
+let historyOffset = 0;      // pagination offset for "Load More"
+let historyHasMore = false;  // whether older messages exist
+let initialLoadDone = false; // whether the initial full load has completed
 
 function renderMarkdown(text) {
     if (typeof marked !== 'undefined') {
@@ -195,9 +198,18 @@ export async function refreshLiveHistory() {
 
     const params = new URLSearchParams();
     params.set("session_id", session.session_id);
-    params.set("after", historyMessageCount);
     if (session.working_directory) {
         params.set("working_directory", session.working_directory);
+    }
+
+    if (!initialLoadDone) {
+        // First load: fetch most recent messages with pagination
+        params.set("after", "0");
+        params.set("limit", "100");
+        params.set("offset", "0");
+    } else {
+        // Subsequent polls: only fetch new messages
+        params.set("after", historyMessageCount);
     }
 
     try {
@@ -205,10 +217,26 @@ export async function refreshLiveHistory() {
         const data = await resp.json();
 
         if (data.messages && data.messages.length > 0) {
-            for (const msg of data.messages) {
-                renderMessage(msg, container);
+            if (!initialLoadDone) {
+                // Initial load — render all and add "Load More" button if needed
+                for (const msg of data.messages) {
+                    renderMessage(msg, container);
+                }
+                historyHasMore = data.has_more || false;
+                historyOffset = data.messages.length;
+                _updateLoadMoreButton(container);
+                initialLoadDone = true;
+            } else {
+                // Poll — append new messages at the bottom
+                for (const msg of data.messages) {
+                    renderMessage(msg, container);
+                }
             }
             historyMessageCount = data.total;
+        } else if (!initialLoadDone) {
+            historyHasMore = false;
+            initialLoadDone = true;
+            _updateLoadMoreButton(container);
         }
 
         if (state.autoScroll) {
@@ -216,6 +244,73 @@ export async function refreshLiveHistory() {
         }
     } catch (e) {
         console.error("Failed to refresh live history:", e);
+    }
+}
+
+/** Load older messages (prepend above current messages). */
+export async function loadMoreHistory() {
+    if (!state.currentSession || !historyHasMore) return;
+
+    const session = state.currentSession;
+    const container = document.getElementById("live-history-messages");
+    if (!container) return;
+
+    const params = new URLSearchParams();
+    params.set("session_id", session.session_id);
+    if (session.working_directory) {
+        params.set("working_directory", session.working_directory);
+    }
+    params.set("after", "0");
+    params.set("limit", "100");
+    params.set("offset", String(historyOffset));
+
+    try {
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(session.name)}/chat?${params}`);
+        const data = await resp.json();
+
+        if (data.messages && data.messages.length > 0) {
+            // Preserve scroll position: measure before inserting
+            const prevScrollHeight = container.scrollHeight;
+
+            // Find the insertion point (after the Load More button)
+            const loadMoreBtn = container.querySelector(".load-more-btn");
+            const refNode = loadMoreBtn ? loadMoreBtn.nextSibling : container.firstChild;
+
+            for (const msg of data.messages) {
+                const temp = document.createElement("div");
+                renderMessage(msg, temp);
+                while (temp.firstChild) {
+                    container.insertBefore(temp.firstChild, refNode);
+                }
+            }
+
+            historyOffset += data.messages.length;
+            historyHasMore = data.has_more || false;
+
+            // Restore scroll position so the view doesn't jump
+            container.scrollTop = container.scrollHeight - prevScrollHeight;
+        } else {
+            historyHasMore = false;
+        }
+
+        _updateLoadMoreButton(container);
+    } catch (e) {
+        console.error("Failed to load more history:", e);
+    }
+}
+
+function _updateLoadMoreButton(container) {
+    let btn = container.querySelector(".load-more-btn");
+    if (historyHasMore) {
+        if (!btn) {
+            btn = document.createElement("button");
+            btn.className = "load-more-btn";
+            btn.textContent = "Load older messages";
+            btn.onclick = loadMoreHistory;
+            container.insertBefore(btn, container.firstChild);
+        }
+    } else if (btn) {
+        btn.remove();
     }
 }
 
@@ -236,4 +331,7 @@ export function resetLiveHistory() {
     const container = document.getElementById("live-history-messages");
     if (container) container.innerHTML = "";
     historyMessageCount = 0;
+    historyOffset = 0;
+    historyHasMore = false;
+    initialLoadDone = false;
 }

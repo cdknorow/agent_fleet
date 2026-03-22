@@ -75,6 +75,39 @@ function getDotClass(s) {
     return "stale";
 }
 
+// ── Board accent colors (localStorage) ────────────────────────────────
+
+function _getBoardColor(boardName) {
+    try {
+        const colors = JSON.parse(localStorage.getItem('coral-board-colors') || '{}');
+        return colors[boardName] || null;
+    } catch { return null; }
+}
+
+function _setBoardColor(boardName, color) {
+    try {
+        const colors = JSON.parse(localStorage.getItem('coral-board-colors') || '{}');
+        if (color) {
+            colors[boardName] = color;
+        } else {
+            delete colors[boardName];
+        }
+        localStorage.setItem('coral-board-colors', JSON.stringify(colors));
+    } catch { /* ignore */ }
+}
+
+export function setBoardAccentColor(boardName) {
+    const current = _getBoardColor(boardName) || '#58a6ff';
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = current;
+    input.addEventListener('input', () => {
+        _setBoardColor(boardName, input.value);
+        renderLiveSessions(state.liveSessions);
+    });
+    input.click();
+}
+
 // ── Session ordering ──────────────────────────────────────────────────
 
 function _getSessionOrder() {
@@ -562,6 +595,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
         data-session-id="${sid}"
         data-group="${escapeAttr(groupName)}"
         onclick="selectLiveSession('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')">
+        <span class="drag-grip" title="Drag to reorder">&#x2630;</span>
         <span class="session-dot ${dotClass}"></span>
         <div class="session-info">
             <div class="session-name-row">
@@ -602,6 +636,10 @@ export function renderLiveSessions(sessions) {
 
     // Helper to generate a deterministic accent color from a string
     function _boardAccentColor(name) {
+        // Check for user-set accent color first
+        const custom = _getBoardColor(name);
+        if (custom) return custom;
+        // Default: hash-based color
         let hash = 0;
         for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
         const hue = ((hash % 360) + 360) % 360;
@@ -664,6 +702,10 @@ export function renderLiveSessions(sessions) {
                 <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); toggleTeamSleep('${escapeAttr(boardName)}', '${sleepAction}')">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
                     ${sleepLabel}
+                </button>
+                <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); setBoardAccentColor('${escapeAttr(boardName)}')">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
+                    Set Color
                 </button>
                 <hr class="overflow-menu-divider">
                 <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killBoard('${escapeAttr(boardName)}')">
@@ -843,6 +885,10 @@ export function renderLiveSessions(sessions) {
                         <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); toggleTeamSleep('${escapeAttr(boardName)}', '${sleepAction}')">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
                             ${sleepLabel}
+                        </button>
+                        <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); setBoardAccentColor('${escapeAttr(boardName)}')">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
+                            Set Color
                         </button>
                         <hr class="overflow-menu-divider">
                         <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killBoard('${escapeAttr(boardName)}')">

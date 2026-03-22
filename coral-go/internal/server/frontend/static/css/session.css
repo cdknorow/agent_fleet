@@ -9,10 +9,10 @@
 }
 
 .session-list li {
-    padding: 10px 16px;
+    padding: 10px 18px;
     cursor: pointer;
     font-size: 14px;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -288,7 +288,7 @@
 }
 
 .board-card-agents .session-group-item {
-    padding-left: 22px !important;
+    padding-left: 26px !important;
 }
 
 .board-card-collapsed {
@@ -345,6 +345,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .group-branch-line {
@@ -473,6 +475,31 @@
 .session-group-item.drag-over {
     border-top: 2px solid var(--accent-primary, #58a6ff);
     margin-top: -2px;
+}
+
+.drag-grip {
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0;
+    cursor: grab;
+    padding: 0 2px;
+    transition: opacity 0.15s;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.session-group-item:hover .drag-grip {
+    opacity: 0.5;
+}
+
+.session-group-item:hover .drag-grip:hover {
+    opacity: 1;
+    color: var(--text-primary);
+}
+
+.session-group-item.dragging .drag-grip {
+    opacity: 1;
+    cursor: grabbing;
 }
 
 /* ── Session View ──────────────────────────────────────────── */

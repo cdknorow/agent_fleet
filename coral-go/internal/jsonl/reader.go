@@ -88,6 +88,22 @@ func (r *SessionReader) ReadNewMessages(sessionID, workingDirectory, agentType s
 	return newMessages, len(c.messages)
 }
 
+// ReadAllMessages reads any new data from the file and returns ALL accumulated
+// messages (not just the new ones). Use this when the client needs the full
+// conversation history (e.g. after=0).
+func (r *SessionReader) ReadAllMessages(sessionID, workingDirectory, agentType string) ([]map[string]any, int) {
+	// ReadNewMessages updates the cache with any new data
+	r.ReadNewMessages(sessionID, workingDirectory, agentType)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.cache[sessionID]
+	if c == nil {
+		return nil, 0
+	}
+	return c.messages, len(c.messages)
+}
+
 // ClearSession removes cached state for a session.
 func (r *SessionReader) ClearSession(sessionID string) {
 	r.mu.Lock()

@@ -18,7 +18,7 @@ export function initSidebarResize() {
 
     document.addEventListener("mousemove", (e) => {
         if (!dragging) return;
-        const newWidth = Math.min(Math.max(e.clientX, 140), window.innerWidth * 0.5);
+        const newWidth = Math.min(Math.max(e.clientX, 200), window.innerWidth * 0.5);
         sidebar.style.width = newWidth + "px";
     });
 

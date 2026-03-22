@@ -547,11 +547,49 @@ func (h *SessionsHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		id = name
 	}
 
-	newMessages, total := h.jsonl.ReadNewMessages(id, workingDir, agentType)
-	if newMessages == nil {
-		newMessages = []map[string]any{}
+	// When after=0, the client wants the full conversation history (e.g. after
+	// switching to the Chat tab). Return all accumulated messages, not just new ones.
+	// Supports pagination: ?after=0&limit=100&offset=0 returns the last 100 messages.
+	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+	var messages []map[string]any
+	var total int
+	if after == 0 {
+		messages, total = h.jsonl.ReadAllMessages(id, workingDir, agentType)
+	} else {
+		messages, total = h.jsonl.ReadNewMessages(id, workingDir, agentType)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": newMessages, "total": total})
+	if messages == nil {
+		messages = []map[string]any{}
+	}
+
+	// Pagination for full history: return the most recent `limit` messages,
+	// with `offset` counting backwards from the end for "Load More".
+	if after == 0 && len(messages) > 0 {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		if limit <= 0 {
+			limit = 100 // default page size
+		}
+		// offset=0 means the most recent messages; offset=100 means skip the last 100
+		end := len(messages) - offset
+		start := end - limit
+		if start < 0 {
+			start = 0
+		}
+		if end < 0 {
+			end = 0
+		}
+		hasMore := start > 0
+		messages = messages[start:end]
+		writeJSON(w, http.StatusOK, map[string]any{
+			"messages": messages,
+			"total":    total,
+			"has_more": hasMore,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "total": total})
 }
 
 // Info returns enriched metadata for the session info modal.
