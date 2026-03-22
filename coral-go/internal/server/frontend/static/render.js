@@ -97,20 +97,27 @@ function _setBoardColor(boardName, color) {
 }
 
 export function setBoardAccentColor(boardName) {
-    dbg('setBoardAccentColor', boardName);
+    console.log('[coral] setBoardAccentColor called for:', boardName);
     const current = _getBoardColor(boardName) || '#58a6ff';
     const input = document.createElement('input');
     input.type = 'color';
     input.value = current;
-    // Listen to both 'input' (live preview) and 'change' (final pick) —
-    // some browsers only fire 'change' for color inputs.
+    // Append to DOM — some browsers (WebKit webview) won't open the picker
+    // for detached elements.
+    input.style.position = 'fixed';
+    input.style.top = '-100px';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
     const apply = () => {
-        dbg('setBoardAccentColor apply:', boardName, input.value, 'sessions:', state.liveSessions?.length);
+        console.log('[coral] color picked:', input.value, 'for:', boardName);
         _setBoardColor(boardName, input.value);
         renderLiveSessions(state.liveSessions);
     };
+    const cleanup = () => {
+        input.remove();
+    };
     input.addEventListener('input', apply);
-    input.addEventListener('change', apply);
+    input.addEventListener('change', () => { apply(); cleanup(); });
     input.click();
 }
 
@@ -187,8 +194,11 @@ function _getCurrentGroupNames() {
 }
 
 export async function moveGroupUp(groupName) {
+    console.log('[coral] moveGroupUp:', groupName);
     const names = _getCurrentGroupNames();
+    console.log('[coral] group names:', names);
     const idx = names.indexOf(groupName);
+    console.log('[coral] idx:', idx);
     if (idx <= 0) return;
     [names[idx - 1], names[idx]] = [names[idx], names[idx - 1]];
     await _saveGroupOrder(names);
@@ -196,8 +206,11 @@ export async function moveGroupUp(groupName) {
 }
 
 export async function moveGroupDown(groupName) {
+    console.log('[coral] moveGroupDown:', groupName);
     const names = _getCurrentGroupNames();
+    console.log('[coral] group names:', names);
     const idx = names.indexOf(groupName);
+    console.log('[coral] idx:', idx);
     if (idx < 0 || idx >= names.length - 1) return;
     [names[idx], names[idx + 1]] = [names[idx + 1], names[idx]];
     await _saveGroupOrder(names);
@@ -215,15 +228,18 @@ export function moveSessionDown(sessionId) {
 }
 
 function _moveSession(sessionId, direction) {
+    console.log('[coral] _moveSession called:', sessionId, direction);
     const list = document.getElementById("live-sessions-list");
-    if (!list) return;
+    if (!list) { console.log('[coral] _moveSession: list not found'); return; }
     const items = [...list.querySelectorAll(".session-group-item")];
     const ids = items.map(el => el.dataset.sessionId);
+    console.log('[coral] _moveSession: found', ids.length, 'items, looking for', sessionId);
     const idx = ids.indexOf(sessionId);
-    if (idx < 0) return;
+    if (idx < 0) { console.log('[coral] _moveSession: session not found in list'); return; }
     const targetIdx = idx + direction;
-    if (targetIdx < 0 || targetIdx >= ids.length) return;
+    if (targetIdx < 0 || targetIdx >= ids.length) { console.log('[coral] _moveSession: at boundary'); return; }
     [ids[idx], ids[targetIdx]] = [ids[targetIdx], ids[idx]];
+    console.log('[coral] _moveSession: swapped, saving order');
     _saveSessionOrder(ids);
     renderLiveSessions(state.liveSessions);
 }
@@ -714,13 +730,18 @@ export function renderLiveSessions(sessions) {
     }
 
     // Step 2: Render team groups at top level
-    // Sort: active teams first, sleeping teams after
-    const teamEntries = Object.entries(teamGroups).sort((a, b) => {
-        const aAllSleeping = a[1].every(s => s.sleeping);
-        const bAllSleeping = b[1].every(s => s.sleeping);
-        if (aAllSleeping !== bAllSleeping) return aAllSleeping ? 1 : -1;
-        return 0;
-    });
+    // Apply saved group order first, then sort active before sleeping
+    const teamEntries = _sortGroups(Object.entries(teamGroups));
+    // Secondary sort: if no saved order, put sleeping teams after active
+    const hasOrder = _getGroupOrder().length > 0;
+    if (!hasOrder) {
+        teamEntries.sort((a, b) => {
+            const aAllSleeping = a[1].every(s => s.sleeping);
+            const bAllSleeping = b[1].every(s => s.sleeping);
+            if (aAllSleeping !== bAllSleeping) return aAllSleeping ? 1 : -1;
+            return 0;
+        });
+    }
 
     for (const [boardName, boardSessions] of teamEntries) {
         const accentColor = _boardAccentColor(boardName);
@@ -756,6 +777,15 @@ export function renderLiveSessions(sessions) {
                     Set Color
                 </button>
                 <hr class="overflow-menu-divider">
+                <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); moveGroupUp('${escapeAttr(boardName)}')">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v10M4 7l4-4 4 4"/></svg>
+                    Move Up
+                </button>
+                <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); moveGroupDown('${escapeAttr(boardName)}')">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 9l4 4 4-4"/></svg>
+                    Move Down
+                </button>
+                <hr class="overflow-menu-divider">
                 <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killBoard('${escapeAttr(boardName)}')">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
                     Kill All
@@ -765,7 +795,7 @@ export function renderLiveSessions(sessions) {
         const teamSubline = `<div class="board-card-subline"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M17 11a4 4 0 0 1 4 4v2"/></svg> Agent Team · ${boardSessions.length} agents</div>`;
         const sleepingClass = boardIsSleeping ? ' team-sleeping' : '';
         html += `<li class="session-board-card session-board-card-toplevel${sleepingClass}" style="border-left-color: ${accentColor}">
-            <div class="session-group-header board-card-header" onclick="toggleGroupCollapse('${escapeAttr(boardName)}')">
+            <div class="session-group-header board-card-header" data-group-name="${escapeAttr(boardName)}" onclick="toggleGroupCollapse('${escapeAttr(boardName)}')">
                 <span class="group-chevron">${bChevron}</span><div class="group-header-text"><div class="group-name-line">${escapeHtml(boardName)}${boardSleepIcon}</div>${teamSubline}</div><span class="session-name-spacer"></span>${boardLink}${bKebab}
             </div>
             <ul class="board-card-agents${boardCollapsed ? ' board-card-collapsed' : ''}">`;

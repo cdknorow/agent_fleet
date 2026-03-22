@@ -207,7 +207,7 @@ func parseClaudeUserEntry(entry map[string]any, timestamp string, toolUseNames m
 
 	switch c := content.(type) {
 	case string:
-		if strings.TrimSpace(c) == "" {
+		if strings.TrimSpace(c) == "" || isSystemInjected(c) {
 			return nil
 		}
 		return []map[string]any{{"type": "user", "timestamp": timestamp, "content": c}}
@@ -261,9 +261,31 @@ func parseClaudeUserEntry(entry map[string]any, timestamp string, toolUseNames m
 		if strings.TrimSpace(text) == "" {
 			return nil
 		}
-		return []map[string]any{{"type": "user", "timestamp": timestamp, "content": text}}
+		if isSystemInjected(text) {
+		return nil
+	}
+	return []map[string]any{{"type": "user", "timestamp": timestamp, "content": text}}
 	}
 	return nil
+}
+
+// isSystemInjected detects user-role messages that contain system-injected
+// content (task notifications, hook output, system reminders) and should
+// be hidden from the chat view.
+func isSystemInjected(content string) bool {
+	systemTags := []string{
+		"<system-reminder>",
+		"<task-notification>",
+		"<user-prompt-submit-hook>",
+		"<available-deferred-tools>",
+		"<fast_mode_info>",
+	}
+	for _, tag := range systemTags {
+		if strings.Contains(content, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractToolResultContent(content any) string {

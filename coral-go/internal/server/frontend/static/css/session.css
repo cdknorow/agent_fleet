@@ -6,6 +6,7 @@
 
 .session-list {
     list-style: none;
+    padding: 2px 4px;
 }
 
 .session-list li {
@@ -245,11 +246,11 @@
 /* ── Board Card Groups ─────────────────────────────────────── */
 
 .session-board-card {
-    border: 1px solid var(--border) !important;
-    border-left: 3px solid var(--accent) !important;
-    border-radius: 8px !important;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.02) !important;
-    margin: 4px 8px !important;
+    margin: 6px 10px 6px 14px !important;
     padding: 0 !important;
     display: block !important;
     cursor: default !important;
@@ -283,12 +284,13 @@
 
 .board-card-agents {
     list-style: none;
-    padding: 0;
+    padding: 4px 0 4px 8px;
     margin: 0;
 }
 
 .board-card-agents .session-group-item {
-    padding-left: 26px !important;
+    padding-left: 10px !important;
+    padding-right: 6px !important;
 }
 
 .board-card-collapsed {

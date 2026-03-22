@@ -6,7 +6,16 @@
 /* ── Agentic State Panel ───────────────────────────────────── */
 
 .task-bar-resize-handle {
-    display: none;
+    width: 4px;
+    cursor: col-resize;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.task-bar-resize-handle:hover,
+.task-bar-resize-handle.dragging {
+    background: var(--accent);
 }
 
 /* ── Panel Toggle Button ──────────────────────────────────── */

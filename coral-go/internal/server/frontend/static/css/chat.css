@@ -21,10 +21,18 @@
 }
 
 .chat-bubble.human {
-    background: var(--chat-human-bg);
-    color: var(--chat-human-color);
+    background: color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary, #2d333b));
+    color: var(--text-primary);
     margin-left: auto;
-    border-bottom-right-radius: 2px;
+    border-radius: 18px;
+    padding: 8px 16px;
+    max-width: 70%;
+    width: fit-content;
+}
+
+.chat-bubble.human .role-label {
+    text-align: right;
+    color: var(--text-muted);
 }
 
 .chat-bubble.assistant {
