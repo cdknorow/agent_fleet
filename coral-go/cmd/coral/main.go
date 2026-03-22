@@ -31,9 +31,12 @@ func main() {
 	host := flag.String("host", cfg.Host, "Host to bind to")
 	port := flag.Int("port", cfg.Port, "Port to bind to")
 	noBrowser := flag.Bool("no-browser", false, "Don't open the browser on startup")
+	devMode := flag.Bool("dev", false, "Development mode: skip license check")
 	defaultBackend := "pty"
 	backendFlag := flag.String("backend", defaultBackend, "Terminal backend: pty or tmux")
 	flag.Parse()
+
+	cfg.DevMode = *devMode
 
 	cfg.Host = *host
 	cfg.Port = *port

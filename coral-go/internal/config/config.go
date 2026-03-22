@@ -15,8 +15,9 @@ type Config struct {
 	DBBusyTimeoutMS int
 
 	// Server
-	Host string
-	Port int
+	Host    string
+	Port    int
+	DevMode bool
 
 	// Directories
 	CoralRoot  string

@@ -65,9 +65,9 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend) *
 		log.Printf("Warning: failed to open board store: %v", err)
 	}
 
-	// Initialize license manager
+	// Initialize license manager (skip in dev mode)
 	licenseMgr := license.NewManager(cfg.CoralDir())
-	if licenseMgr.NeedsRevalidation() {
+	if !cfg.DevMode && licenseMgr.NeedsRevalidation() {
 		log.Println("Revalidating license...")
 		licenseMgr.Revalidate()
 	}
@@ -185,7 +185,10 @@ func (s *Server) buildRouter() chi.Router {
 
 	// License gate — gates all API access behind a valid license key.
 	// Activation and static asset paths are always accessible.
-	r.Use(license.Middleware(s.licenseMgr))
+	// In dev mode, skip the license check entirely.
+	if !s.cfg.DevMode {
+		r.Use(license.Middleware(s.licenseMgr))
+	}
 
 	// License endpoints (ungated — must be accessible to activate)
 	licRoutes := license.NewRoutes(s.licenseMgr)
@@ -397,8 +400,8 @@ func (s *Server) buildRouter() chi.Router {
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Show activation page if no valid license
-	if !s.licenseMgr.IsValid() {
+	// Show activation page if no valid license (skip in dev mode)
+	if !s.cfg.DevMode && !s.licenseMgr.IsValid() {
 		s.serveActivation(w, r)
 		return
 	}
