@@ -458,10 +458,42 @@ func readPID(dataDir string) int {
 	return pid
 }
 
-// launchCoralApp tries to launch the coral-app native window binary.
+// coralAppProcess tracks the running coral-app subprocess.
+var coralAppProcess *os.Process
+
+// launchCoralApp launches coral-app or brings the existing one to front.
 // Returns an error if coral-app is not found or fails to start.
 func launchCoralApp(url string) error {
-	// Look for coral-app next to the current executable first
+	// If already running, don't spawn another
+	if coralAppProcess != nil {
+		// Check if still alive (signal 0 = no-op, just checks existence)
+		if err := coralAppProcess.Signal(syscall.Signal(0)); err == nil {
+			return nil // already running
+		}
+		// Process exited — clear the reference
+		coralAppProcess = nil
+	}
+
+	// Find the coral-app binary
+	appPath := findCoralApp()
+	if appPath == "" {
+		return fmt.Errorf("coral-app not found")
+	}
+
+	cmd := exec.Command(appPath, "--url", url)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	coralAppProcess = cmd.Process
+
+	// Reap the process in background so we don't leak zombies
+	go cmd.Wait()
+
+	return nil
+}
+
+// findCoralApp looks for the coral-app binary next to the executable, then in PATH.
+func findCoralApp() string {
 	exe, err := os.Executable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "coral-app")
@@ -469,17 +501,13 @@ func launchCoralApp(url string) error {
 			candidate += ".exe"
 		}
 		if _, err := os.Stat(candidate); err == nil {
-			cmd := exec.Command(candidate, "--url", url)
-			return cmd.Start()
+			return candidate
 		}
 	}
-	// Fall back to PATH
-	appPath, err := exec.LookPath("coral-app")
-	if err != nil {
-		return fmt.Errorf("coral-app not found: %w", err)
+	if p, err := exec.LookPath("coral-app"); err == nil {
+		return p
 	}
-	cmd := exec.Command(appPath, "--url", url)
-	return cmd.Start()
+	return ""
 }
 
 func openBrowser(url string) {

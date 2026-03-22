@@ -124,7 +124,9 @@ export async function selectLiveSession(name, agentType, sessionId) {
         container.style.display = "flex";
         container.innerHTML = "";
         createTerminal(container);
-        connectTerminalWs(name, agentType, sessionId);
+        const tmuxName = agentData ? (agentData.tmux_session || name) : name;
+        dbg('terminal WS using tmux_session:', tmuxName, '(agent name:', name, ')');
+        connectTerminalWs(tmuxName, agentType, sessionId);
     } else {
         dbg('switching to capture mode, disposing terminal');
         document.getElementById("xterm-container").style.display = "none";
