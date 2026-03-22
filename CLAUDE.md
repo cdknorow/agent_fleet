@@ -95,6 +95,47 @@ cd coral-go && go build -o coral ./cmd/coral/
 cd coral-go && go run ./cmd/coral/ --host 127.0.0.1 --port 8420
 ```
 
+### Dev Mode
+```bash
+cd coral-go && go run ./cmd/coral/ --dev --host 127.0.0.1 --port 8420
+```
+The `--dev` flag skips license validation.
+
 ### Database
 - SQLite with WAL mode, stored at `~/.coral/sessions.db` (matches Python)
 - Message board DB at `~/.coral/messageboard.db`
+
+## Releases
+
+### Local Builds
+Build installers for each platform from any OS:
+```bash
+./installers/build-windows.sh 0.7.0   # → installers/dist/coral-windows-amd64-0.7.0.zip
+./installers/build-macos.sh 0.7.0     # → installers/dist/Coral-0.7.0.dmg (or .tar.gz on Linux)
+./installers/build-linux.sh 0.7.0     # → installers/dist/coral-linux-amd64-0.7.0.tar.gz
+```
+
+### Tagged Release (CI)
+Pushing a tag triggers the GitHub Actions release workflow, which builds all 3 platforms in parallel and uploads artifacts to the GitHub Release.
+
+```bash
+# 1. Tag the release
+git tag v0.7.0
+
+# 2. Push the tag (pre-push hook runs build + tests first)
+git push origin main --tags
+
+# 3. Create the GitHub Release (uploads happen automatically)
+gh release create v0.7.0 --title "v0.7.0" --generate-notes
+```
+
+The workflow (`.github/workflows/release.yml`) produces:
+- **Linux**: `coral-linux-amd64-<version>.tar.gz`
+- **Windows**: `Coral-<version>-x64.msi` + `Coral-<version>-x64-portable.zip`
+- **macOS**: `Coral.dmg` (universal binary, signed + notarized if certs configured)
+
+### Required GitHub Secrets (for signing)
+- **macOS**: `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, `MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`
+- **Windows**: `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PWD`
+
+Signing is optional — builds succeed without secrets, just unsigned.
