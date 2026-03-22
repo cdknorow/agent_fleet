@@ -193,6 +193,7 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 	}
 
 	var sessions []map[string]any
+	liveSIDs := make(map[string]bool)
 	for _, agent := range agents {
 		logInfo := getLogStatus(agent.LogPath)
 		sid := agent.SessionID
@@ -240,9 +241,53 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 			"board_job_title":    boardJobTitle(boardSubs, liveBoardNames, agent.TmuxSession, sid),
 			"board_unread":       0,
 			"log_path":           agent.LogPath,
+			"sleeping":           false,
 		}
+		liveSIDs[sid] = true
 		sessions = append(sessions, entry)
 	}
+
+	// Add placeholder entries for sleeping sessions without active tmux
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	for _, ls := range allLive {
+		if ls.IsSleeping != 1 || liveSIDs[ls.SessionID] {
+			continue
+		}
+		bp, dn := "", ""
+		if ls.BoardName != nil {
+			bp = *ls.BoardName
+		}
+		if ls.DisplayName != nil {
+			dn = *ls.DisplayName
+		}
+		sessions = append(sessions, map[string]any{
+			"name":               ls.AgentName,
+			"agent_type":         ls.AgentType,
+			"session_id":         ls.SessionID,
+			"tmux_session":       nil,
+			"status":             "Sleeping",
+			"summary":            nil,
+			"staleness_seconds":  nil,
+			"working_directory":  ls.WorkingDir,
+			"display_name":       dn,
+			"icon":               ls.Icon,
+			"branch":             nil,
+			"waiting_for_input":  false,
+			"done":               false,
+			"waiting_reason":     nil,
+			"waiting_summary":    nil,
+			"working":            false,
+			"stuck":              false,
+			"changed_file_count": 0,
+			"commands":           map[string]string{"compress": "/compact", "clear": "/clear"},
+			"board_project":      bp,
+			"board_job_title":    dn,
+			"board_unread":       0,
+			"log_path":           "",
+			"sleeping":           true,
+		})
+	}
+
 	return sessions, nil
 }
 
