@@ -10,6 +10,7 @@ let terminalWs = null;
 let _selectionDisposable = null;
 let _onDataDisposable = null;
 let _onResizeDisposable = null;
+let _resizeObserver = null;
 let _terminalFocused = false;
 
 // Input queue: buffers keystrokes while WebSocket is disconnected
@@ -279,7 +280,27 @@ export function createTerminal(containerEl) {
     });
 
     terminal.open(containerEl);
-    fitAddon.fit();
+
+    // Defer fit() to allow the layout engine to settle. In macOS WebKit
+    // webview (used by coral-app), synchronous fit() right after open()
+    // computes 0 cols/rows because the container hasn't been laid out yet.
+    // Using rAF + a small fallback timeout ensures the terminal gets sized
+    // correctly in both browsers and embedded webviews.
+    requestAnimationFrame(() => {
+        if (fitAddon) fitAddon.fit();
+    });
+
+    // ResizeObserver catches layout changes that rAF misses (e.g. when the
+    // container transitions from display:none to flex, or sidebar resizes).
+    if (typeof ResizeObserver !== 'undefined') {
+        if (_resizeObserver) _resizeObserver.disconnect();
+        _resizeObserver = new ResizeObserver(() => {
+            if (fitAddon && containerEl.offsetWidth > 0 && containerEl.offsetHeight > 0) {
+                fitAddon.fit();
+            }
+        });
+        _resizeObserver.observe(containerEl);
+    }
 
     // Focus management: track terminal focus state
     // (terminal.textarea is only available after open())
@@ -458,6 +479,10 @@ export function disposeTerminal() {
     _terminalFocused = false;
     _pendingContent = null;
     _inputQueue = [];
+    if (_resizeObserver) {
+        _resizeObserver.disconnect();
+        _resizeObserver = null;
+    }
     if (terminal) {
         terminal.dispose();
         terminal = null;

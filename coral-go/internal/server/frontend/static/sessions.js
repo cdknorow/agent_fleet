@@ -16,7 +16,7 @@ import { loadAgentEvents } from './agentic_state.js';
 import { loadHistoryEvents, loadHistoryTasks, loadHistoryAgentNotes } from './history_tabs.js';
 import { startLiveHistoryPoll, stopLiveHistoryPoll, resetLiveHistory } from './live_chat.js';
 import { syncPaneWidth, resetSyncedCols } from './capture.js';
-import { disposeTerminal, createTerminal, connectTerminalWs, disconnectTerminalWs } from './xterm_renderer.js';
+import { disposeTerminal, createTerminal, connectTerminalWs, disconnectTerminalWs, fitTerminal } from './xterm_renderer.js';
 import { getRendererMode } from './renderers.js';
 import { invalidateFileCache, fetchFileList } from './file_mention.js';
 
@@ -127,6 +127,9 @@ export async function selectLiveSession(name, agentType, sessionId) {
         const tmuxName = agentData ? (agentData.tmux_session || name) : name;
         dbg('terminal WS using tmux_session:', tmuxName, '(agent name:', name, ')');
         connectTerminalWs(tmuxName, agentType, sessionId);
+        // Extra deferred fit for WebKit webview where layout settles late
+        setTimeout(fitTerminal, 50);
+        setTimeout(fitTerminal, 200);
     } else {
         dbg('switching to capture mode, disposing terminal');
         document.getElementById("xterm-container").style.display = "none";
