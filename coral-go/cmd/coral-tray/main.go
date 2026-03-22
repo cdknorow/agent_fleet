@@ -60,6 +60,7 @@ func main() {
 	stop := flag.Bool("stop", false, "Stop a running tray instance")
 	noBrowser := flag.Bool("no-browser", false, "Don't open the browser on startup")
 	devMode := flag.Bool("dev", false, "Development mode: skip license check")
+	debugMode := flag.Bool("debug", false, "Enable debug logging to ~/.coral/tray.log")
 	backendFlag := flag.String("backend", "tmux", "Terminal backend: pty or tmux")
 	flag.Parse()
 
@@ -92,7 +93,7 @@ func main() {
 			os.MkdirAll(*homeDir, 0755)
 			os.Chdir(*homeDir)
 		}
-		runForeground(*host, *port, *noBrowser, *devMode, *backendFlag, dataDir)
+		runForeground(*host, *port, *noBrowser, *devMode, *debugMode, *backendFlag, dataDir)
 		return
 	}
 
@@ -118,6 +119,9 @@ func main() {
 	if *devMode {
 		args = append(args, "--dev")
 	}
+	if *debugMode {
+		args = append(args, "--debug")
+	}
 	cmd := exec.Command(exe, args...)
 
 	logFile := filepath.Join(dataDir, "tray.log")
@@ -140,7 +144,7 @@ func main() {
 	fmt.Printf("  Stop: coral-tray --stop\n")
 }
 
-func runForeground(host string, port int, noBrowser, devMode bool, backendType, dataDir string) {
+func runForeground(host string, port int, noBrowser, devMode, debugMode bool, backendType, dataDir string) {
 	// Setup log file FIRST — when launched from .app there's no terminal,
 	// so log.Fatalf messages would disappear silently without this.
 	logFile := filepath.Join(dataDir, "tray.log")
@@ -148,6 +152,11 @@ func runForeground(host string, port int, noBrowser, devMode bool, backendType, 
 		log.SetOutput(lf)
 	}
 	log.Println("coral-tray starting in foreground mode")
+
+	if debugMode {
+		os.Setenv("CORAL_DEBUG", "1")
+		log.Println("Debug mode enabled")
+	}
 
 	// Write PID
 	writePID(dataDir)
