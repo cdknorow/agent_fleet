@@ -86,7 +86,7 @@
 }
 
 .session-dot.stale    { background: var(--text-muted); }
-.session-dot.sleeping { background: var(--warning); opacity: 0.5; }
+.session-dot.sleeping { background: var(--warning); }
 .session-dot.working {
     background: #3b82f6;
     animation: pulse-working 1.5s ease-in-out infinite;
@@ -231,7 +231,7 @@
     opacity: 1;
 }
 .session-list li.sleeping .sidebar-kebab-btn {
-    opacity: 1 !important;
+    opacity: 1;
 }
 
 .sidebar-kebab-menu {
@@ -267,10 +267,7 @@
 .session-board-card.team-sleeping .group-chevron,
 .session-board-card.team-sleeping .group-board-link,
 .session-board-card.team-sleeping .board-card-agents {
-    opacity: 0.6;
-}
-.session-board-card.team-sleeping .group-kebab .sidebar-kebab-btn {
-    opacity: 1 !important;
+    color: var(--text-muted);
 }
 
 .board-card-folder-footer {
