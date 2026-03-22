@@ -46,6 +46,14 @@
         <Component Id="CoralBoardExe" Guid="D4E5F6A7-B8C9-0123-DEFA-345678901234">
           <File Id="coral_board.exe" Source="$(var.BinDir)\coral-board.exe" KeyPath="yes" />
         </Component>
+
+        <Component Id="CoralTrayExe" Guid="E5F6A7B8-C9D0-1234-EFAB-456789012345">
+          <File Id="coral_tray.exe" Source="$(var.BinDir)\coral-tray.exe" KeyPath="yes" />
+        </Component>
+
+        <Component Id="CoralAppExe" Guid="F6A7B8C9-D0E1-2345-FABC-567890123456">
+          <File Id="coral_app.exe" Source="$(var.BinDir)\coral-app.exe" KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -55,8 +63,9 @@
         <Component Id="CoralShortcut" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
           <Shortcut
             Id="CoralStartMenuShortcut"
-            Name="Coral Dashboard"
-            Target="[INSTALLFOLDER]coral.exe"
+            Name="Coral"
+            Target="[INSTALLFOLDER]coral-tray.exe"
+            Arguments="--backend pty"
             WorkingDirectory="INSTALLFOLDER"
             Description="Coral — AI Agent Dashboard" />
 
@@ -76,6 +85,8 @@
       <ComponentRef Id="CoralExe" />
       <ComponentRef Id="LaunchCoralExe" />
       <ComponentRef Id="CoralBoardExe" />
+      <ComponentRef Id="CoralTrayExe" />
+      <ComponentRef Id="CoralAppExe" />
       <ComponentRef Id="CoralShortcut" />
     </Feature>
 

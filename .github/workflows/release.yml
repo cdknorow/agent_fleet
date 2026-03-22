@@ -55,16 +55,27 @@ jobs:
           go-version: "1.23"
           cache-dependency-path: coral-go/go.sum
 
+      - name: Install MinGW (for CGO builds)
+        run: choco install mingw -y
+
       - name: Build Windows binaries (amd64)
         working-directory: coral-go
         run: |
-          $env:CGO_ENABLED = "0"
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
           New-Item -ItemType Directory -Force -Path ..\dist\windows\bin | Out-Null
+
+          # Pure Go binaries (no CGO)
+          $env:CGO_ENABLED = "0"
           foreach ($cmd in @("coral", "launch-coral", "coral-board")) {
             go build -ldflags "-s -w" -o "..\dist\windows\bin\$cmd.exe" "./cmd/$cmd/"
           }
+
+          # CGO binaries (systray, webview)
+          $env:CGO_ENABLED = "1"
+          $env:CC = "gcc"
+          go build -ldflags "-s -w -H windowsgui" -o "..\dist\windows\bin\coral-tray.exe" "./cmd/coral-tray/"
+          go build -tags webview -ldflags "-s -w -H windowsgui" -o "..\dist\windows\bin\coral-app.exe" "./cmd/coral-app/"
 
       - name: Import signing certificate
         if: env.WINDOWS_CERTIFICATE != ''
@@ -82,7 +93,7 @@ jobs:
           WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
         run: |
           $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe"
-          foreach ($exe in @("coral.exe", "launch-coral.exe", "coral-board.exe")) {
+          foreach ($exe in @("coral.exe", "launch-coral.exe", "coral-board.exe", "coral-tray.exe", "coral-app.exe")) {
             $exePath = "dist\windows\bin\$exe"
             if (Test-Path $exePath) {
               & $signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
@@ -155,11 +166,13 @@ jobs:
             lipo -create -output "../dist/macos/$cmd" "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
             rm "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
           done
-          # Tray app requires CGO for native menu bar (Cocoa)
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o "../dist/macos/coral-tray-arm64" "./cmd/coral-tray/"
-          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o "../dist/macos/coral-tray-amd64" "./cmd/coral-tray/"
-          lipo -create -output "../dist/macos/coral-tray" "../dist/macos/coral-tray-arm64" "../dist/macos/coral-tray-amd64"
-          rm "../dist/macos/coral-tray-arm64" "../dist/macos/coral-tray-amd64"
+          # Tray app + webview app require CGO for native platform APIs
+          for cmd in coral-tray coral-app; do
+            CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags webview -ldflags "-s -w" -o "../dist/macos/${cmd}-arm64" "./cmd/$cmd/"
+            CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags webview -ldflags "-s -w" -o "../dist/macos/${cmd}-amd64" "./cmd/$cmd/"
+            lipo -create -output "../dist/macos/$cmd" "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
+            rm "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
+          done
 
       - name: Generate .icns icon
         run: |
@@ -182,7 +195,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           APP="dist/Coral.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          for cmd in coral launch-coral coral-board coral-tray; do
+          for cmd in coral launch-coral coral-board coral-tray coral-app; do
             cp "dist/macos/$cmd" "$APP/Contents/MacOS/$cmd"
             chmod +x "$APP/Contents/MacOS/$cmd"
           done
@@ -215,7 +228,7 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           APP="dist/Coral.app"
-          for bin in coral launch-coral coral-board coral-tray; do
+          for bin in coral launch-coral coral-board coral-tray coral-app; do
             codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
               --entitlements entitlements.plist "$APP/Contents/MacOS/$bin"
           done

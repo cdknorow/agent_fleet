@@ -75,7 +75,7 @@ func main() {
 	if *stop {
 		pid := readPID(dataDir)
 		if pid > 0 {
-			if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			if err := signalProcess(pid, syscall.SIGTERM); err != nil {
 				fmt.Printf("Failed to stop Coral tray (PID %d): %v\n", pid, err)
 			} else {
 				fmt.Printf("Stopped Coral tray (PID %d)\n", pid)
@@ -128,7 +128,7 @@ func main() {
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachProcessAttrs()
 
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("Failed to start background process: %v", err)
@@ -442,7 +442,7 @@ func readPID(dataDir string) int {
 		return 0
 	}
 	// Check if process is alive
-	if err := syscall.Kill(pid, 0); err != nil {
+	if err := signalProcess(pid, 0); err != nil {
 		removePID(dataDir)
 		return 0
 	}

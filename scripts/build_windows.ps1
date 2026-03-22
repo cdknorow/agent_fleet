@@ -47,6 +47,25 @@ Write-Host "Building coral-board.exe..." -ForegroundColor Yellow
 go build -ldflags "-s -w -X main.version=$Version" -o (Join-Path $BinDir "coral-board.exe") ./cmd/coral-board/
 if ($LASTEXITCODE -ne 0) { throw "Go build failed for coral-board" }
 
+# CGO binaries (systray, webview)
+$env:CGO_ENABLED = "1"
+
+Write-Host "Building coral-tray.exe..." -ForegroundColor Yellow
+go build -ldflags "-s -w -X main.version=$Version -H windowsgui" -o (Join-Path $BinDir "coral-tray.exe") ./cmd/coral-tray/
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  WARN: coral-tray build failed (requires C compiler) — skipping" -ForegroundColor Yellow
+} else {
+    Write-Host "  Built coral-tray.exe" -ForegroundColor Green
+}
+
+Write-Host "Building coral-app.exe..." -ForegroundColor Yellow
+go build -tags webview -ldflags "-s -w -H windowsgui" -o (Join-Path $BinDir "coral-app.exe") ./cmd/coral-app/
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  WARN: coral-app build failed (requires C compiler + WebView2) — skipping" -ForegroundColor Yellow
+} else {
+    Write-Host "  Built coral-app.exe" -ForegroundColor Green
+}
+
 Pop-Location
 Write-Host "Binaries built in $BinDir" -ForegroundColor Green
 
@@ -59,7 +78,7 @@ if (Test-Path $IconSrc) {
 # Code signing
 if ($CertPath -and (Test-Path $CertPath)) {
     Write-Host "Signing executables..." -ForegroundColor Yellow
-    foreach ($exe in @("coral.exe", "launch-coral.exe", "coral-board.exe")) {
+    foreach ($exe in @("coral.exe", "launch-coral.exe", "coral-board.exe", "coral-tray.exe", "coral-app.exe")) {
         $exePath = Join-Path $BinDir $exe
         if (Test-Path $exePath) {
             $signArgs = @("sign", "/fd", "SHA256", "/tr", $TimestampServer, "/td", "SHA256", "/f", $CertPath)

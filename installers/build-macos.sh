@@ -45,16 +45,19 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$APP_DIR/Co
 echo "==> Compiling coral-board"
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$APP_DIR/Contents/MacOS/coral-board" ./cmd/coral-board/
 
-# Build tray app (requires CGO for native menu bar integration)
-echo "==> Compiling coral-tray (CGO required)"
+# Build CGO binaries (tray + webview app — require native platform APIs)
+echo "==> Compiling coral-tray + coral-app (CGO required)"
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags="-s -w" -o "$DIST_DIR/coral-tray-arm64" ./cmd/coral-tray/
-    GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w" -o "$DIST_DIR/coral-tray-amd64" ./cmd/coral-tray/
-    lipo -create -output "$APP_DIR/Contents/MacOS/coral-tray" "$DIST_DIR/coral-tray-arm64" "$DIST_DIR/coral-tray-amd64"
-    rm -f "$DIST_DIR/coral-tray-arm64" "$DIST_DIR/coral-tray-amd64"
-    chmod +x "$APP_DIR/Contents/MacOS/coral-tray"
+    for cmd in coral-tray coral-app; do
+        echo "    Building $cmd..."
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags webview -ldflags="-s -w" -o "$DIST_DIR/${cmd}-arm64" ./cmd/$cmd/
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags webview -ldflags="-s -w" -o "$DIST_DIR/${cmd}-amd64" ./cmd/$cmd/
+        lipo -create -output "$APP_DIR/Contents/MacOS/$cmd" "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
+        rm -f "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
+        chmod +x "$APP_DIR/Contents/MacOS/$cmd"
+    done
 else
-    echo "WARNING: coral-tray requires macOS (CGO + Cocoa). Skipping on $(uname -s)."
+    echo "WARNING: coral-tray and coral-app require macOS (CGO + Cocoa/WebKit). Skipping on $(uname -s)."
 fi
 
 # Info.plist
