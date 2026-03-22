@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -216,8 +217,20 @@ func parseCommand(cmd string) []string {
 }
 
 // defaultShell returns the platform default shell command.
+// Respects CORAL_SHELL env var for user shell preference, then
+// falls back to platform defaults.
 func defaultShell() []string {
+	// User override via CORAL_SHELL (e.g. "pwsh.exe", "/usr/bin/zsh", "bash")
+	if cs := os.Getenv("CORAL_SHELL"); cs != "" {
+		return []string{cs}
+	}
 	if runtime.GOOS == "windows" {
+		// Prefer PowerShell if available (more capable for CLI tools)
+		for _, ps := range []string{"pwsh.exe", "powershell.exe"} {
+			if _, err := exec.LookPath(ps); err == nil {
+				return []string{ps}
+			}
+		}
 		return []string{"cmd.exe"}
 	}
 	if sh := os.Getenv("SHELL"); sh != "" {

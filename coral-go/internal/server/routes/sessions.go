@@ -1744,11 +1744,20 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		if !isTerminal {
 			cmd = agentImpl.BuildLaunchCommand(launchParams)
 		}
-		if err := h.backend.Spawn(sessionName, agentType, absDir, sessionID, cmd, 200, 50); err != nil {
+		// Spawn a shell first (empty command), then send the agent command as input.
+		// This matches the tmux pattern and works cross-platform — the shell
+		// interprets bash syntax like $(cat ...) correctly.
+		if err := h.backend.Spawn(sessionName, agentType, absDir, sessionID, "", 200, 50); err != nil {
 			return nil, fmt.Errorf("pty spawn failed: %w", err)
 		}
 		// PTY backend manages its own log file
 		logFile = h.backend.LogPath(sessionName)
+
+		// Wait for shell to initialize, then send the launch command
+		if !isTerminal && cmd != "" {
+			time.Sleep(300 * time.Millisecond)
+			h.backend.SendInput(sessionName, []byte(cmd+"\n"))
+		}
 	} else {
 		// Tmux backend: create session, pipe-pane, send keys
 		backend = "tmux" // normalize if pty requested but no backend available

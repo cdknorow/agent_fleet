@@ -124,7 +124,7 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	// Write settings to temp file
 	settingsFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_settings_%s.json", effectiveID))
 	data, _ := json.MarshalIndent(merged, "", "  ")
-	os.WriteFile(settingsFile, append(data, '\n'), 0644)
+	os.WriteFile(settingsFile, append(data, '\n'), 0600)
 	parts = append(parts, "--settings", settingsFile)
 
 	if len(params.Flags) > 0 {
@@ -165,8 +165,8 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	}
 	if cliPrompt != "" {
 		promptFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_prompt_%s.txt", effectiveID))
-		os.WriteFile(promptFile, []byte(cliPrompt), 0644)
-		parts = append(parts, fmt.Sprintf("\"$(cat '%s')\"", promptFile))
+		os.WriteFile(promptFile, []byte(cliPrompt), 0600)
+		parts = append(parts, FormatPromptFileArg(promptFile))
 	}
 
 	return strings.Join(parts, " ")
