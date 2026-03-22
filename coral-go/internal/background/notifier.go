@@ -7,13 +7,12 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/board"
-	"github.com/cdknorow/coral/internal/tmux"
 )
 
 // BoardNotifier nudges agents when they have unread board messages.
 type BoardNotifier struct {
 	boardStore *board.Store
-	tmux       *tmux.Client
+	runtime    AgentRuntime
 	interval   time.Duration
 	logger     *slog.Logger
 	discoverFn func(ctx context.Context) ([]AgentInfo, error)
@@ -22,10 +21,10 @@ type BoardNotifier struct {
 }
 
 // NewBoardNotifier creates a new BoardNotifier.
-func NewBoardNotifier(boardStore *board.Store, tmuxClient *tmux.Client, interval time.Duration) *BoardNotifier {
+func NewBoardNotifier(boardStore *board.Store, runtime AgentRuntime, interval time.Duration) *BoardNotifier {
 	return &BoardNotifier{
 		boardStore: boardStore,
-		tmux:       tmuxClient,
+		runtime:    runtime,
 		interval:   interval,
 		logger:     slog.Default().With("service", "board_notifier"),
 		notified:   make(map[string]int),
@@ -109,7 +108,8 @@ func (n *BoardNotifier) RunOnce(ctx context.Context) error {
 			plural = ""
 		}
 		nudge := fmt.Sprintf("You have %d unread message%s on the message board. Run 'coral-board read' to see them.", unread, plural)
-		err = n.tmux.SendKeys(ctx, agent.AgentName, nudge, agent.AgentType, agent.SessionID)
+		sessionName := fmt.Sprintf("%s-%s", agent.AgentType, agent.SessionID)
+		err = n.runtime.SendInput(ctx, sessionName, nudge)
 		if err != nil {
 			n.logger.Debug("failed to nudge agent", "agent", agent.AgentName, "error", err)
 			continue

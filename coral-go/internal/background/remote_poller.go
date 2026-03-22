@@ -9,13 +9,12 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/store"
-	"github.com/cdknorow/coral/internal/tmux"
 )
 
 // RemoteBoardPoller polls remote Coral servers for unread board messages.
 type RemoteBoardPoller struct {
 	store      *store.RemoteBoardStore
-	tmux       *tmux.Client
+	runtime    AgentRuntime
 	client     *http.Client
 	interval   time.Duration
 	logger     *slog.Logger
@@ -23,10 +22,10 @@ type RemoteBoardPoller struct {
 }
 
 // NewRemoteBoardPoller creates a new RemoteBoardPoller.
-func NewRemoteBoardPoller(rbStore *store.RemoteBoardStore, tmuxClient *tmux.Client, interval time.Duration) *RemoteBoardPoller {
+func NewRemoteBoardPoller(rbStore *store.RemoteBoardStore, runtime AgentRuntime, interval time.Duration) *RemoteBoardPoller {
 	return &RemoteBoardPoller{
 		store:    rbStore,
-		tmux:     tmuxClient,
+		runtime:  runtime,
 		client:   &http.Client{Timeout: 10 * time.Second},
 		interval: interval,
 		logger:   slog.Default().With("service", "remote_board_poller"),
@@ -118,7 +117,8 @@ func (p *RemoteBoardPoller) RunOnce(ctx context.Context) error {
 		}
 		nudge := fmt.Sprintf("You have %d unread message%s on the message board. Run 'coral-board read' to see them.",
 			data.Unread, plural)
-		err = p.tmux.SendKeys(ctx, agent.AgentName, nudge, agent.AgentType, agent.SessionID)
+		sessionName := fmt.Sprintf("%s-%s", agent.AgentType, agent.SessionID)
+		err = p.runtime.SendInput(ctx, sessionName, nudge)
 		if err != nil {
 			continue
 		}

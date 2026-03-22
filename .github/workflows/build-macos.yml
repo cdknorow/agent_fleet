@@ -14,36 +14,73 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version: "1.23"
+          cache-dependency-path: coral-go/go.sum
 
-      - name: Install dependencies
+      # ── Build Universal Binary ────────────────────────────────────
+      - name: Build arm64 binary
+        working-directory: coral-go
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[tray]"
-          pip install py2app
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "-s -w" \
+            -o ../dist/coral-arm64 \
+            ./cmd/coral/
 
-      - name: Install create-dmg
-        run: brew install create-dmg
+      - name: Build amd64 binary
+        working-directory: coral-go
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "-s -w" \
+            -o ../dist/coral-amd64 \
+            ./cmd/coral/
 
+      - name: Create universal binary
+        run: |
+          lipo -create -output dist/coral dist/coral-arm64 dist/coral-amd64
+          rm dist/coral-arm64 dist/coral-amd64
+
+      # ── Generate Icon ─────────────────────────────────────────────
       - name: Generate .icns icon
         run: |
-          ICON_PNG="src/coral/static/coral.png"
-          ICONSET_DIR="Coral.iconset"
-          mkdir -p "$ICONSET_DIR"
-          for size in 16 32 64 128 256 512; do
-            sips -z $size $size "$ICON_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}.png" >/dev/null
-          done
-          for size in 32 64 128 256 512 1024; do
-            half=$((size / 2))
-            sips -z $size $size "$ICON_PNG" --out "${ICONSET_DIR}/icon_${half}x${half}@2x.png" >/dev/null
-          done
-          iconutil -c icns "$ICONSET_DIR" -o Coral.icns
-          rm -rf "$ICONSET_DIR"
+          ICON_PNG="coral-go/internal/server/frontend/static/coral.png"
+          if [ -f "$ICON_PNG" ]; then
+            ICONSET_DIR="Coral.iconset"
+            mkdir -p "$ICONSET_DIR"
+            for size in 16 32 64 128 256 512; do
+              sips -z $size $size "$ICON_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}.png" >/dev/null
+            done
+            for size in 32 64 128 256 512 1024; do
+              half=$((size / 2))
+              sips -z $size $size "$ICON_PNG" --out "${ICONSET_DIR}/icon_${half}x${half}@2x.png" >/dev/null
+            done
+            iconutil -c icns "$ICONSET_DIR" -o Coral.icns
+            rm -rf "$ICONSET_DIR"
+          fi
 
-      - name: Build Coral.app with py2app
-        run: python setup_app.py py2app
+      # ── Construct .app Bundle ─────────────────────────────────────
+      - name: Create Coral.app bundle
+        run: |
+          APP="dist/Coral.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+          # Binary
+          cp dist/coral "$APP/Contents/MacOS/coral"
+          chmod +x "$APP/Contents/MacOS/coral"
+
+          # Info.plist — substitute version from release tag or default
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -z "$VERSION" ] && VERSION="0.0.0"
+          sed "s/VERSION_PLACEHOLDER/${VERSION}/g" scripts/Info.plist > "$APP/Contents/Info.plist"
+
+          # Icon
+          if [ -f "Coral.icns" ]; then
+            cp Coral.icns "$APP/Contents/Resources/AppIcon.icns"
+          fi
+
+          # Clean up standalone binary
+          rm -f dist/coral
 
       # ── Code Signing ──────────────────────────────────────────────
       - name: Import signing certificate
@@ -52,29 +89,22 @@ jobs:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
         run: |
-          # Decode the certificate
           echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
 
-          # Create a temporary keychain
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PWD="$(openssl rand -base64 32)"
           security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
 
-          # Import the certificate
           security import certificate.p12 -k "$KEYCHAIN_PATH" \
             -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
 
-          # Add to search list
           security list-keychains -d user -s "$KEYCHAIN_PATH" "$(security default-keychain -d user | tr -d '"' | xargs)"
 
-          # Clean up certificate file
           rm -f certificate.p12
-
-          # Store keychain path for cleanup
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Sign Coral.app
@@ -86,43 +116,32 @@ jobs:
           APP="dist/Coral.app"
           ENTITLEMENTS="entitlements.plist"
 
-          echo "Signing embedded libraries and frameworks..."
+          # Sign the main binary
+          codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
+            --entitlements "$ENTITLEMENTS" "$APP/Contents/MacOS/coral"
 
-          # Sign all .so and .dylib files inside the app bundle (inside-out)
-          find "$APP" -name '*.so' -o -name '*.dylib' | while read -r lib; do
-            codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
-              --entitlements "$ENTITLEMENTS" "$lib"
-          done
-
-          # Sign Python framework if bundled
-          PYTHON_FW="$APP/Contents/Frameworks/Python.framework"
-          if [ -d "$PYTHON_FW" ]; then
-            echo "Signing Python.framework..."
-            # Sign the Python binary inside the framework
-            find "$PYTHON_FW" -type f -perm +111 -name 'Python*' | while read -r bin; do
-              codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
-                --entitlements "$ENTITLEMENTS" "$bin"
-            done
-            codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
-              --entitlements "$ENTITLEMENTS" "$PYTHON_FW"
-          fi
-
-          # Sign the main app bundle
-          echo "Signing Coral.app..."
-          codesign --force --deep --options runtime --sign "$SIGNING_IDENTITY" \
+          # Sign the app bundle
+          codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
             --entitlements "$ENTITLEMENTS" "$APP"
 
-          # Verify the signature
-          echo "Verifying signature..."
+          # Verify
           codesign --verify --deep --strict --verbose=2 "$APP"
           echo "Signature verification passed."
 
       # ── DMG Creation ──────────────────────────────────────────────
+      - name: Install create-dmg
+        run: brew install create-dmg
+
       - name: Create DMG
         run: |
+          VOLICON_ARGS=""
+          if [ -f "Coral.icns" ]; then
+            VOLICON_ARGS="--volicon Coral.icns"
+          fi
+
           create-dmg \
             --volname "Coral" \
-            --volicon "Coral.icns" \
+            ${VOLICON_ARGS} \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
@@ -152,7 +171,6 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           echo "Submitting for notarization..."
-          # Submit and capture the submission ID
           SUBMIT_OUT=$(xcrun notarytool submit "dist/Coral.dmg" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
@@ -162,7 +180,6 @@ jobs:
           SUBMISSION_ID=$(echo "$SUBMIT_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Submission ID: $SUBMISSION_ID"
 
-          # Wait for notarization to complete
           echo "Waiting for notarization..."
           if ! xcrun notarytool wait "$SUBMISSION_ID" \
             --apple-id "$APPLE_ID" \
@@ -177,7 +194,6 @@ jobs:
             exit 1
           fi
 
-          # Fetch the log regardless to check for warnings
           echo "Fetching notarization log..."
           xcrun notarytool log "$SUBMISSION_ID" \
             --apple-id "$APPLE_ID" \

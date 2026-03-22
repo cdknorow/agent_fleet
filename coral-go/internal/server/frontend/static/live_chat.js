@@ -8,7 +8,10 @@ let historyMessageCount = 0;
 
 function renderMarkdown(text) {
     if (typeof marked !== 'undefined') {
-        try { return marked.parse(text); } catch (e) { /* fall through */ }
+        try {
+            const html = marked.parse(text);
+            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
+        } catch (e) { /* fall through */ }
     }
     return escapeHtml(text);
 }

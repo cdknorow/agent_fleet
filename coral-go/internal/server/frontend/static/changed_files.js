@@ -77,6 +77,54 @@ export function openFilePreview(filepath) {
     );
 }
 
+// Basic markdown to HTML renderer (no dependencies)
+function _renderMarkdownBasic(md) {
+    let html = md
+        // Code blocks (``` ... ```)
+        .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+            `<pre><code class="language-${lang}">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`)
+        // Headings
+        .replace(/^######\s+(.*)$/gm, '<h6>$1</h6>')
+        .replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>')
+        .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
+        .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
+        .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
+        .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
+        // Horizontal rules
+        .replace(/^---+$/gm, '<hr>')
+        // Bold + italic
+        .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        // Inline code
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        // Links
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+        // Images
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">')
+        // Blockquotes
+        .replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>')
+        // Task lists
+        .replace(/^- \[x\]\s+(.*)$/gm, '<li class="task-list-item"><input type="checkbox" checked disabled> $1</li>')
+        .replace(/^- \[ \]\s+(.*)$/gm, '<li class="task-list-item"><input type="checkbox" disabled> $1</li>')
+        // Unordered lists
+        .replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>')
+        // Paragraphs (double newline)
+        .replace(/\n\n/g, '</p><p>')
+        // Single newlines to <br>
+        .replace(/\n/g, '<br>');
+
+    // Wrap loose <li> in <ul>
+    html = html.replace(/(<li.*?<\/li>(?:<br>)?)+/g, '<ul>$&</ul>');
+    // Clean up <br> inside <ul>
+    html = html.replace(/<ul>(.*?)<\/ul>/gs, (_, inner) => '<ul>' + inner.replace(/<br>/g, '') + '</ul>');
+
+    return '<p>' + html + '</p>';
+}
+
+// Expose for the preview window to use
+window._renderMarkdownBasic = _renderMarkdownBasic;
+
 export function openFileDiff(filepath) {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
     const agentName = state.currentSession.name;
@@ -168,6 +216,7 @@ export function renderChangedFiles() {
         const stats = (adds || dels) ? `<span class="file-stats">${adds}${dels}</span>` : '';
         const statusIcon = f.status === '??' ? '?' : f.status === 'A' || f.status === 'AM' ? '+' : f.status === 'D' ? '-' : '~';
         const escapedPath = escapeHtml(f.filepath).replace(/'/g, "\\'");
+        const previewBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file">&#x1F4C4;</button>`;
 
         return `<div class="file-item ${statusCls}" title="${escapeHtml(f.filepath)} (${statusLabel})"
                      onclick="openFileDiff('${escapedPath}')">
@@ -177,6 +226,7 @@ export function renderChangedFiles() {
                 ${dir ? `<span class="file-dir">${escapeHtml(dir)}</span>` : ''}
             </div>
             ${stats}
+            ${previewBtn}
         </div>`;
     }).join('');
 }

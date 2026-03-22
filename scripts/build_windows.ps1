@@ -10,7 +10,10 @@
 
 param(
     [switch]$SkipMSI,
-    [string]$Version = "1.0.0"
+    [string]$Version = "1.0.0",
+    [string]$CertPath = "",
+    [string]$CertPassword = "",
+    [string]$TimestampServer = "http://timestamp.digicert.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,15 +37,41 @@ $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 
 go build -ldflags "-s -w -X main.version=$Version" -o (Join-Path $BinDir "coral.exe") ./cmd/coral/
-if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
+if ($LASTEXITCODE -ne 0) { throw "Go build failed for coral" }
+
+Write-Host "Building launch-coral.exe..." -ForegroundColor Yellow
+go build -ldflags "-s -w -X main.version=$Version" -o (Join-Path $BinDir "launch-coral.exe") ./cmd/launch-coral/
+if ($LASTEXITCODE -ne 0) { throw "Go build failed for launch-coral" }
+
+Write-Host "Building coral-board.exe..." -ForegroundColor Yellow
+go build -ldflags "-s -w -X main.version=$Version" -o (Join-Path $BinDir "coral-board.exe") ./cmd/coral-board/
+if ($LASTEXITCODE -ne 0) { throw "Go build failed for coral-board" }
 
 Pop-Location
-Write-Host "Binary built: $BinDir\coral.exe" -ForegroundColor Green
+Write-Host "Binaries built in $BinDir" -ForegroundColor Green
 
 # Copy icon if available
 $IconSrc = Join-Path $RepoRoot "icons\coral.ico"
 if (Test-Path $IconSrc) {
     Copy-Item $IconSrc $BuildDir
+}
+
+# Code signing
+if ($CertPath -and (Test-Path $CertPath)) {
+    Write-Host "Signing executables..." -ForegroundColor Yellow
+    foreach ($exe in @("coral.exe", "launch-coral.exe", "coral-board.exe")) {
+        $exePath = Join-Path $BinDir $exe
+        if (Test-Path $exePath) {
+            $signArgs = @("sign", "/fd", "SHA256", "/tr", $TimestampServer, "/td", "SHA256", "/f", $CertPath)
+            if ($CertPassword) { $signArgs += @("/p", $CertPassword) }
+            $signArgs += $exePath
+            & signtool @signArgs
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $exe" }
+            Write-Host "  Signed $exe" -ForegroundColor Green
+        }
+    }
+} else {
+    Write-Host "No certificate provided — skipping code signing" -ForegroundColor Yellow
 }
 
 if ($SkipMSI) {
@@ -68,6 +97,17 @@ wix build $WixSrc `
     -o $MsiPath
 
 if ($LASTEXITCODE -ne 0) { throw "WiX build failed" }
+
+# Sign MSI
+if ($CertPath -and (Test-Path $CertPath)) {
+    Write-Host "Signing MSI..." -ForegroundColor Yellow
+    $signArgs = @("sign", "/fd", "SHA256", "/tr", $TimestampServer, "/td", "SHA256", "/f", $CertPath)
+    if ($CertPassword) { $signArgs += @("/p", $CertPassword) }
+    $signArgs += $MsiPath
+    & signtool @signArgs
+    if ($LASTEXITCODE -ne 0) { throw "MSI signing failed" }
+    Write-Host "  MSI signed" -ForegroundColor Green
+}
 
 Write-Host "Installer built: $MsiPath" -ForegroundColor Green
 Write-Host "=== Done ===" -ForegroundColor Cyan

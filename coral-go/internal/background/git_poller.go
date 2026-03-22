@@ -13,15 +13,14 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/store"
-	"github.com/cdknorow/coral/internal/tmux"
 )
 
 // GitPoller periodically polls git branch/commit info for live agents.
 type GitPoller struct {
-	store     *store.GitStore
-	tmux      *tmux.Client
-	interval  time.Duration
-	logger    *slog.Logger
+	store      *store.GitStore
+	runtime    AgentRuntime
+	interval   time.Duration
+	logger     *slog.Logger
 	discoverFn func(ctx context.Context) ([]AgentInfo, error)
 }
 
@@ -34,10 +33,10 @@ type AgentInfo struct {
 }
 
 // NewGitPoller creates a new GitPoller.
-func NewGitPoller(gitStore *store.GitStore, tmuxClient *tmux.Client, interval time.Duration) *GitPoller {
+func NewGitPoller(gitStore *store.GitStore, runtime AgentRuntime, interval time.Duration) *GitPoller {
 	return &GitPoller{
 		store:    gitStore,
-		tmux:     tmuxClient,
+		runtime:  runtime,
 		interval: interval,
 		logger:   slog.Default().With("service", "git_poller"),
 	}
@@ -128,50 +127,10 @@ func (p *GitPoller) discoverAgents(ctx context.Context) ([]AgentInfo, error) {
 	if p.discoverFn != nil {
 		return p.discoverFn(ctx)
 	}
-	// Default: discover from tmux panes
-	return DiscoverAgentsFromTmux(ctx, p.tmux)
+	// Default: discover from runtime
+	return p.runtime.ListAgents(ctx)
 }
 
-// DiscoverAgentsFromTmux finds coral agents by scanning tmux sessions.
-func DiscoverAgentsFromTmux(ctx context.Context, tmuxClient *tmux.Client) ([]AgentInfo, error) {
-	panes, err := tmuxClient.ListPanes(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var agents []AgentInfo
-	seen := make(map[string]bool)
-
-	for _, pane := range panes {
-		// Parse session name: {agent_type}-{uuid}
-		parts := strings.SplitN(pane.SessionName, "-", 2)
-		if len(parts) != 2 || len(parts[1]) < 36 {
-			continue
-		}
-		// Quick UUID format check
-		sessionID := strings.ToLower(parts[1])
-		if len(sessionID) != 36 || sessionID[8] != '-' || sessionID[13] != '-' {
-			continue
-		}
-		if seen[sessionID] {
-			continue
-		}
-		seen[sessionID] = true
-
-		agentName := filepath.Base(strings.TrimRight(pane.CurrentPath, "/"))
-		if agentName == "" {
-			agentName = sessionID[:8]
-		}
-
-		agents = append(agents, AgentInfo{
-			AgentName:        agentName,
-			AgentType:        parts[0],
-			SessionID:        sessionID,
-			WorkingDirectory: pane.CurrentPath,
-		})
-	}
-	return agents, nil
-}
 
 // gitInfo holds parsed git query results.
 type gitInfo struct {

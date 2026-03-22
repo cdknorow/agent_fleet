@@ -63,7 +63,7 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("create board db directory: %w", err)
 	}
 
-	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)")
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-8000)")
 	if err != nil {
 		return nil, fmt.Errorf("open board database: %w", err)
 	}

@@ -235,11 +235,12 @@ func startWebServer(ctx context.Context, cfg *config.Config) {
 
 	// Start background services
 	tmuxClient := tmux.NewClient()
+	agentRT := background.NewTmuxRuntime(tmuxClient)
 	gitStore := store.NewGitStore(db)
 	webhookStore := store.NewWebhookStore(db)
 	taskStore := store.NewTaskStore(db)
 
-	gitPoller := background.NewGitPoller(gitStore, tmuxClient, time.Duration(cfg.GitPollerIntervalS)*time.Second)
+	gitPoller := background.NewGitPoller(gitStore, agentRT, time.Duration(cfg.GitPollerIntervalS)*time.Second)
 	go gitPoller.Run(ctx)
 
 	indexer := background.NewSessionIndexer(
@@ -260,7 +261,7 @@ func startWebServer(ctx context.Context, cfg *config.Config) {
 
 	// Wire real agent launching into the scheduler
 	sessStore := store.NewSessionStore(db)
-	launcher := background.NewAgentLauncher(tmuxClient, sessStore)
+	launcher := background.NewAgentLauncher(agentRT, sessStore)
 	scheduler.SetLaunchFn(launcher.BuildSchedulerLaunchFn(schedStore))
 
 	go scheduler.Run(ctx)
@@ -311,8 +312,34 @@ func isSSH() bool {
 }
 
 func openAgentTerminal(session, title string) {
-	if runtime.GOOS != "darwin" {
-		// Try Linux terminal emulators
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS: try iTerm2 first, then Terminal.app
+		script := fmt.Sprintf(`tell application "iTerm2"
+    create window with default profile command "tmux attach -t %s"
+end tell`, session)
+		cmd := exec.Command("osascript", "-e", script)
+		if err := cmd.Run(); err == nil {
+			return
+		}
+		script = fmt.Sprintf(`tell application "Terminal"
+    do script "tmux attach -t %s"
+    set custom title of front window to "%s"
+end tell`, session, title)
+		exec.Command("osascript", "-e", script).Run()
+
+	case "windows":
+		// Windows: try Windows Terminal first, then conhost
+		if wtPath, err := exec.LookPath("wt.exe"); err == nil {
+			exec.Command(wtPath, "--title", title, "cmd", "/k",
+				fmt.Sprintf("echo Attached to session %s", session)).Start()
+			return
+		}
+		exec.Command("cmd.exe", "/c", "start", title, "cmd", "/k",
+			fmt.Sprintf("echo Attached to session %s", session)).Start()
+
+	default:
+		// Linux: try terminal emulators
 		for _, term := range []string{"x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal"} {
 			if path, err := exec.LookPath(term); err == nil {
 				cmd := exec.Command(path, "-e", fmt.Sprintf("tmux attach -t %s", session))
@@ -321,34 +348,18 @@ func openAgentTerminal(session, title string) {
 			}
 		}
 		fmt.Printf("  [~] No supported terminal emulator found (use: tmux attach -t %s)\n", session)
-		return
 	}
-
-	// macOS: try iTerm2 first, then Terminal.app
-	script := fmt.Sprintf(`tell application "iTerm2"
-    create window with default profile command "tmux attach -t %s"
-end tell`, session)
-	cmd := exec.Command("osascript", "-e", script)
-	if err := cmd.Run(); err == nil {
-		return
-	}
-
-	script = fmt.Sprintf(`tell application "Terminal"
-    do script "tmux attach -t %s"
-    set custom title of front window to "%s"
-end tell`, session, title)
-	exec.Command("osascript", "-e", script).Run()
 }
 
 func openBrowser(url string) {
-	var cmd string
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = "open"
-	case "linux":
-		cmd = "xdg-open"
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("cmd.exe", "/c", "start", "", url)
 	default:
-		return
+		cmd = exec.Command("xdg-open", url)
 	}
-	exec.Command(cmd, url).Start()
+	cmd.Start()
 }

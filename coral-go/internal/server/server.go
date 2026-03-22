@@ -48,6 +48,7 @@ type Server struct {
 	tasksHandler   *routes.TasksHandler
 	boardHandler   *routes.BoardHandler
 	historyHandler *routes.HistoryHandler
+	systemHandler  *routes.SystemHandler
 }
 
 // templateData is passed to Go templates during rendering.
@@ -126,6 +127,13 @@ func (s *Server) SetScheduler(sched *background.JobScheduler) {
 	}
 }
 
+// SetIndexer injects the session indexer for manual refresh triggers.
+func (s *Server) SetIndexer(idx routes.Indexer) {
+	if s.systemHandler != nil {
+		s.systemHandler.SetIndexer(idx)
+	}
+}
+
 // SetSummarizeFn injects the summarize function into the history handler for sync resummarize.
 func (s *Server) SetSummarizeFn(fn func(ctx context.Context, sessionID string) error) {
 	if s.historyHandler != nil {
@@ -187,6 +195,7 @@ func (s *Server) buildRouter() chi.Router {
 	// ── API Routes ──────────────────────────────────────────────
 	sessHandler := routes.NewSessionsHandler(s.db, s.cfg, s.backend, s.boardStore)
 	sysHandler := routes.NewSystemHandler(s.db, s.cfg)
+	s.systemHandler = sysHandler
 	histHandler := routes.NewHistoryHandler(s.db, s.cfg, s.boardStore)
 	s.historyHandler = histHandler
 	schedHandler := routes.NewScheduleHandler(s.db, s.cfg)

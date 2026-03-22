@@ -114,6 +114,42 @@ export function hideLaunchModal() {
     document.getElementById("launch-modal").style.display = "none";
 }
 
+function _checkPermissionFlag(flagsStr) {
+    return new Promise((resolve) => {
+        if (flagsStr && flagsStr.includes('--dangerously-skip-permissions')) {
+            resolve('skip');
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+            <div class="modal-content" style="width:460px">
+                <h3>Permission Prompt Warning</h3>
+                <p style="color:var(--text-secondary);font-size:13px;line-height:1.5;margin:8px 0 16px">
+                    Agents may get stuck on permission prompts without <code>--dangerously-skip-permissions</code>. Would you like to enable it?
+                </p>
+                <div class="modal-actions" style="gap:8px">
+                    <button class="btn" data-action="cancel">Cancel</button>
+                    <button class="btn" data-action="skip">Launch Without</button>
+                    <button class="btn btn-primary" data-action="enable">Enable &amp; Launch</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+            const action = e.target.dataset?.action;
+            if (action) {
+                modal.remove();
+                resolve(action === 'cancel' ? null : action);
+            } else if (e.target === modal) {
+                modal.remove();
+                resolve(null);
+            }
+        });
+    });
+}
+
 export async function launchSession() {
     let dir, type, agentName, flagsStr, backend;
 
@@ -134,6 +170,17 @@ export async function launchSession() {
     if (!dir) {
         showToast("Working directory is required", true);
         return;
+    }
+
+    // Permission flag check (skip for terminals)
+    if (_launchMode !== "terminal") {
+        const permResult = await _checkPermissionFlag(flagsStr);
+        if (permResult === null) return;
+        if (permResult === 'enable') {
+            flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+            const flagsInput = document.getElementById("launch-flags");
+            if (flagsInput) flagsInput.value = flagsStr;
+        }
     }
 
     const payload = { working_dir: dir, agent_type: type };
@@ -436,6 +483,7 @@ export function showAddAgentToBoard(boardName, workDir) {
     document.getElementById("add-agent-board-agent-name").value = "";
     document.getElementById("add-agent-board-prompt").value = "";
     document.getElementById("add-agent-board-flags").value = "--dangerously-skip-permissions";
+    _syncFlagButtons("add-agent-board-flags");
 
     _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
 
@@ -473,11 +521,20 @@ export async function launchAgentToBoard() {
     const workDir = document.getElementById("add-agent-board-workdir").value;
     const agentName = document.getElementById("add-agent-board-agent-name").value.trim();
     const prompt = document.getElementById("add-agent-board-prompt").value.trim();
-    const flagsStr = document.getElementById("add-agent-board-flags").value.trim();
+    let flagsStr = document.getElementById("add-agent-board-flags").value.trim();
 
     if (!agentName) {
         showToast("Agent name is required", "error");
         return;
+    }
+
+    // Permission flag check
+    const permResult = await _checkPermissionFlag(flagsStr);
+    if (permResult === null) return;
+    if (permResult === 'enable') {
+        flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+        const flagsInput = document.getElementById("add-agent-board-flags");
+        if (flagsInput) flagsInput.value = flagsStr;
     }
 
     const flags = flagsStr ? flagsStr.split(/\s+/) : [];
@@ -519,11 +576,11 @@ const AGENT_PRESETS = [
     },
     {
         name: "QA Engineer",
-        prompt: "You are an expert QA engineer. Review the work of other agents, create test plans, write tests, and ask probing questions about complex areas.",
+        prompt: "You are an expert QA engineer. Review the work of other agents, create test plans, write tests, and ask probing questions about complex areas. Coordinate with the team via the message board.",
     },
     {
         name: "Orchestrator",
-        prompt: "You are the orchestrator. Coordinate the team, break down tasks, assign work via the message board, and track progress. Do not write code yourself — delegate to the other agents.",
+        prompt: "You are the orchestrator. Coordinate the team, break down tasks, assign work via the message board, and track progress. Do not write code yourself — delegate to the other agents. Coordinate with the team via the message board.",
     },
     {
         name: "Frontend Dev",
@@ -731,7 +788,10 @@ function _addTeamAgent(defaultName, defaultPrompt) {
                     <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior..."
                         oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-prompt-preview').textContent=this.value.substring(0,200)+(this.value.length>200?'\u2026':'')">${escapeHtml(defaultPrompt || '')}</textarea>
                 </label>
-                <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-small" onclick="browseAgentTemplates(this)" title="Browse community agent templates from aitmpl.com">Browse Templates</button>
+                    <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
+                </div>
             </div>
         </div>
     `;
@@ -831,7 +891,17 @@ async function launchTeam() {
     }
 
     const agentType = document.getElementById("team-agent-type").value;
-    const flagsStr = document.getElementById("team-flags").value.trim();
+    let flagsStr = document.getElementById("team-flags").value.trim();
+
+    // Permission flag check
+    const permResult = await _checkPermissionFlag(flagsStr);
+    if (permResult === null) return;
+    if (permResult === 'enable') {
+        flagsStr = (flagsStr ? flagsStr + ' ' : '') + '--dangerously-skip-permissions';
+        const flagsInput = document.getElementById("team-flags");
+        if (flagsInput) flagsInput.value = flagsStr;
+    }
+
     const flags = flagsStr ? flagsStr.split(/\s+/) : [];
 
     // Collect agent definitions

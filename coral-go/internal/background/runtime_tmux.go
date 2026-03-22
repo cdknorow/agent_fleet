@@ -1,0 +1,128 @@
+package background
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/cdknorow/coral/internal/tmux"
+)
+
+// TmuxRuntime implements AgentRuntime using tmux sessions.
+type TmuxRuntime struct {
+	client *tmux.Client
+}
+
+// NewTmuxRuntime creates a TmuxRuntime wrapping the given tmux client.
+func NewTmuxRuntime(client *tmux.Client) *TmuxRuntime {
+	return &TmuxRuntime{client: client}
+}
+
+// Client returns the underlying tmux client for cases that need direct access.
+func (r *TmuxRuntime) Client() *tmux.Client {
+	return r.client
+}
+
+func (r *TmuxRuntime) SpawnAgent(ctx context.Context, name, workDir, logFile, command string) error {
+	if err := r.client.NewSession(ctx, name, workDir); err != nil {
+		return fmt.Errorf("tmux new-session: %w", err)
+	}
+
+	if err := r.client.PipePane(ctx, name, logFile); err != nil {
+		return fmt.Errorf("tmux pipe-pane: %w", err)
+	}
+
+	// Set pane title
+	target := name + ".0"
+	parts := strings.SplitN(name, "-", 2)
+	agentType := name
+	if len(parts) >= 1 {
+		agentType = parts[0]
+	}
+	folderName := filepath.Base(strings.TrimRight(workDir, "/"))
+	titleCmd := fmt.Sprintf("printf '\\033]2;%s \\xe2\\x80\\x94 %s\\033\\\\'", folderName, agentType)
+	r.client.SendKeysToTarget(ctx, target, titleCmd)
+	time.Sleep(300 * time.Millisecond)
+
+	if command != "" {
+		r.client.SendKeysToTarget(ctx, target, command)
+	}
+
+	return nil
+}
+
+func (r *TmuxRuntime) SendInput(ctx context.Context, name, text string) error {
+	// Parse agent type and session ID from name format "{type}-{uuid}"
+	agentType, sessionID := parseSessionName(name)
+	agentName := name
+	return r.client.SendKeys(ctx, agentName, text, agentType, sessionID)
+}
+
+func (r *TmuxRuntime) KillAgent(ctx context.Context, name string) error {
+	_, err := r.client.DisplayMessage(ctx, name, "")
+	if err != nil {
+		// Session doesn't exist, nothing to kill
+		return nil
+	}
+	agentType, sessionID := parseSessionName(name)
+	return r.client.KillSession(ctx, name, agentType, sessionID)
+}
+
+func (r *TmuxRuntime) IsAlive(ctx context.Context, name string) bool {
+	return r.client.HasSession(ctx, name)
+}
+
+func (r *TmuxRuntime) ListAgents(ctx context.Context) ([]AgentInfo, error) {
+	return DiscoverAgentsFromTmux(ctx, r.client)
+}
+
+// parseSessionName splits a "{type}-{uuid}" session name into its parts.
+func parseSessionName(name string) (agentType, sessionID string) {
+	parts := strings.SplitN(name, "-", 2)
+	if len(parts) == 2 && len(parts[1]) >= 36 {
+		return parts[0], parts[1]
+	}
+	return "", ""
+}
+
+// DiscoverAgentsFromTmux finds coral agents by scanning tmux sessions.
+func DiscoverAgentsFromTmux(ctx context.Context, tmuxClient *tmux.Client) ([]AgentInfo, error) {
+	panes, err := tmuxClient.ListPanes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var agents []AgentInfo
+	seen := make(map[string]bool)
+
+	for _, pane := range panes {
+		// Parse session name: {agent_type}-{uuid}
+		parts := strings.SplitN(pane.SessionName, "-", 2)
+		if len(parts) != 2 || len(parts[1]) < 36 {
+			continue
+		}
+		sessionID := strings.ToLower(parts[1])
+		if len(sessionID) != 36 || sessionID[8] != '-' || sessionID[13] != '-' {
+			continue
+		}
+		if seen[sessionID] {
+			continue
+		}
+		seen[sessionID] = true
+
+		agentName := filepath.Base(strings.TrimRight(pane.CurrentPath, "/"))
+		if agentName == "" {
+			agentName = sessionID[:8]
+		}
+
+		agents = append(agents, AgentInfo{
+			AgentName:        agentName,
+			AgentType:        parts[0],
+			SessionID:        sessionID,
+			WorkingDirectory: pane.CurrentPath,
+		})
+	}
+	return agents, nil
+}

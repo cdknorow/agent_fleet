@@ -14,23 +14,22 @@ import (
 
 	"github.com/cdknorow/coral/internal/agent"
 	"github.com/cdknorow/coral/internal/store"
-	"github.com/cdknorow/coral/internal/tmux"
 	"github.com/google/uuid"
 )
 
-// AgentLauncher creates tmux sessions and launches agents.
+// AgentLauncher creates agent sessions and launches agents.
 type AgentLauncher struct {
-	tmux   *tmux.Client
-	sessDB *store.SessionStore
-	logger *slog.Logger
+	runtime AgentRuntime
+	sessDB  *store.SessionStore
+	logger  *slog.Logger
 }
 
 // NewAgentLauncher creates a new AgentLauncher.
-func NewAgentLauncher(tc *tmux.Client, sessDB *store.SessionStore) *AgentLauncher {
+func NewAgentLauncher(runtime AgentRuntime, sessDB *store.SessionStore) *AgentLauncher {
 	return &AgentLauncher{
-		tmux:   tc,
-		sessDB: sessDB,
-		logger: slog.Default().With("service", "agent_launcher"),
+		runtime: runtime,
+		sessDB:  sessDB,
+		logger:  slog.Default().With("service", "agent_launcher"),
 	}
 }
 
@@ -73,33 +72,22 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	// Clear old log
 	os.WriteFile(logFile, nil, 0644)
 
-	// Create detached tmux session
-	if err := l.tmux.NewSession(ctx, sessionName, workingDir); err != nil {
-		return nil, fmt.Errorf("tmux new-session failed: %w", err)
-	}
-
-	// Set up pipe-pane logging
-	if err := l.tmux.PipePane(ctx, sessionName, logFile); err != nil {
-		l.logger.Warn("pipe-pane setup failed", "session", sessionName, "error", err)
-	}
-
-	// Set pane title
-	target := sessionName + ".0"
-	titleCmd := fmt.Sprintf("printf '\\033]2;%s \\xe2\\x80\\x94 %s\\033\\\\'", folderName, agentType)
-	l.tmux.SendKeysToTarget(ctx, target, titleCmd)
-	time.Sleep(300 * time.Millisecond)
-
+	// Build the launch command (empty for terminal sessions)
+	var launchCmd string
 	if !isTerminal {
-		// Build and send the agent launch command
 		protocolPath := findProtocolMD()
-		launchCmd := ag.BuildLaunchCommand(agent.LaunchParams{
+		launchCmd = ag.BuildLaunchCommand(agent.LaunchParams{
 			SessionID:       sessionID,
 			ProtocolPath:    protocolPath,
 			ResumeSessionID: resumeSessionID,
 			Flags:           flags,
 			WorkingDir:      workingDir,
 		})
-		l.tmux.SendKeysToTarget(ctx, target, launchCmd)
+	}
+
+	// Spawn agent session via the runtime
+	if err := l.runtime.SpawnAgent(ctx, sessionName, workingDir, logFile, launchCmd); err != nil {
+		return nil, fmt.Errorf("spawn agent failed: %w", err)
 	}
 
 	// Register the live session in the DB
@@ -161,10 +149,7 @@ func (l *AgentLauncher) SendPrompt(ctx context.Context, sessionID, sessionName, 
 		return ctx.Err()
 	}
 
-	target := sessionName + ".0"
-
-	// Try sending via tmux send-keys
-	if err := l.tmux.SendKeysToTarget(ctx, target, prompt); err != nil {
+	if err := l.runtime.SendInput(ctx, sessionName, prompt); err != nil {
 		l.logger.Warn("prompt send failed", "session", sessionID[:8], "error", err)
 	}
 
@@ -202,7 +187,7 @@ func (l *AgentLauncher) BuildSchedulerLaunchFn(schedStore *store.ScheduleStore) 
 	}
 }
 
-// watchSession polls for tmux session existence until it exits or context is cancelled.
+// watchSession polls for session existence until it exits or context is cancelled.
 func (l *AgentLauncher) watchSession(ctx context.Context, sessionName string) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -212,7 +197,7 @@ func (l *AgentLauncher) watchSession(ctx context.Context, sessionName string) er
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if !l.tmux.HasSession(context.Background(), sessionName) {
+			if !l.runtime.IsAlive(context.Background(), sessionName) {
 				return nil // Session finished
 			}
 		}

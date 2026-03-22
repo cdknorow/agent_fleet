@@ -6,28 +6,33 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/UserExistsError/conpty"
 )
 
 // windowsPTY wraps ConPTY for Windows systems.
 type windowsPTY struct {
-	cpty *conpty.ConPty
-	done chan struct{}
+	cpty   *conpty.ConPty
+	done   chan struct{}
+	closed sync.Once
 }
 
 func startPTYProcess(name string, args []string, dir string, env []string, cols, rows uint16) (ptyProcess, error) {
 	// ConPTY takes a single command line string.
-	// Prepend a cd to set working directory since conpty.Start doesn't support WorkDir directly.
 	cmdLine := name
 	if len(args) > 0 {
 		cmdLine = name + " " + strings.Join(args, " ")
 	}
+
+	opts := []conpty.ConPtyOption{
+		conpty.ConPtyDimensions(int(cols), int(rows)),
+	}
 	if dir != "" {
-		cmdLine = fmt.Sprintf(`cd /d "%s" && %s`, dir, cmdLine)
+		opts = append(opts, conpty.ConPtyWorkDir(dir))
 	}
 
-	cpty, err := conpty.Start(cmdLine, conpty.ConPtyDimensions(int(cols), int(rows)))
+	cpty, err := conpty.Start(cmdLine, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("conpty.Start: %w", err)
 	}
@@ -54,15 +59,25 @@ func (p *windowsPTY) Resize(cols, rows uint16) error {
 }
 
 func (p *windowsPTY) Terminate() error {
-	return p.cpty.Close()
+	// Send Ctrl+C to the console to allow graceful shutdown
+	_, err := p.cpty.Write([]byte{0x03}) // Ctrl+C
+	return err
 }
 
 func (p *windowsPTY) ForceKill() error {
-	return p.cpty.Close()
+	var err error
+	p.closed.Do(func() {
+		err = p.cpty.Close()
+	})
+	return err
 }
 
 func (p *windowsPTY) Close() error {
-	return p.cpty.Close()
+	var err error
+	p.closed.Do(func() {
+		err = p.cpty.Close()
+	})
+	return err
 }
 
 // shellWrap wraps a command string for execution via the Windows shell.

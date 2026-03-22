@@ -52,6 +52,7 @@ func (e *ConcurrencyLimitError) Error() string {
 type JobScheduler struct {
 	store          *store.ScheduleStore
 	sessionStore   *store.SessionStore
+	runtime        AgentRuntime
 	maxConcurrent  int
 	interval       time.Duration
 	logger         *slog.Logger
@@ -86,6 +87,11 @@ func (s *JobScheduler) SetLaunchFn(fn func(ctx context.Context, job store.Schedu
 // SetSessionStore sets the session store used for tagging sessions.
 func (s *JobScheduler) SetSessionStore(ss *store.SessionStore) {
 	s.sessionStore = ss
+}
+
+// SetRuntime sets the agent runtime used for killing sessions.
+func (s *JobScheduler) SetRuntime(rt AgentRuntime) {
+	s.runtime = rt
 }
 
 // SetNextFireTimeFn sets the cron evaluation function.
@@ -351,8 +357,8 @@ func (s *JobScheduler) KillRun(ctx context.Context, runID int64) bool {
 		return false
 	}
 
-	// Kill the tmux session if we have a session_id
-	if run.SessionID != nil && *run.SessionID != "" {
+	// Kill the agent session if we have a session_id
+	if run.SessionID != nil && *run.SessionID != "" && s.runtime != nil {
 		sid := *run.SessionID
 		// Look up agent_type from the job record
 		agentType := "claude"
@@ -360,7 +366,7 @@ func (s *JobScheduler) KillRun(ctx context.Context, runID int64) bool {
 			agentType = job.AgentType
 		}
 		sessionName := agentType + "-" + sid
-		exec.CommandContext(ctx, "tmux", "kill-session", "-t", sessionName).Run()
+		s.runtime.KillAgent(ctx, sessionName)
 	}
 
 	now := time.Now().UTC().Format(isoFormat)

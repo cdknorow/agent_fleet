@@ -47,7 +47,7 @@ function renderMarkdown() {
     if (!_lastSaved.trim()) {
         rendered.innerHTML = '<div class="note-md-placeholder">Click to add notes...</div>';
     } else if (typeof marked !== 'undefined') {
-        rendered.innerHTML = marked.parse(_lastSaved);
+        rendered.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(marked.parse(_lastSaved)) : marked.parse(_lastSaved);
     } else {
         rendered.textContent = _lastSaved;
     }

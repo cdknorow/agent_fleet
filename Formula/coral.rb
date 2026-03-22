@@ -1,17 +1,22 @@
 class Coral < Formula
-  include Language::Python::Virtualenv
-
   desc "Multi-agent orchestration system for AI coding agents with a web dashboard"
   homepage "https://github.com/cdknorow/coral"
-  url "https://files.pythonhosted.org/packages/source/a/agent-coral/agent_coral-2.2.0.tar.gz"
-  sha256 ""  # TODO: fill after PyPI publish
+  url "https://github.com/cdknorow/coral/archive/refs/tags/v2.3.1.tar.gz"
+  sha256 ""  # TODO: fill after release is published
   license "MIT"
 
-  depends_on "python@3.12"
+  depends_on "go" => :build
   depends_on "tmux"
 
   def install
-    virtualenv_install_with_resources
+    cd "coral-go" do
+      ldflags = "-s -w"
+      system "go", "build", *std_go_args(ldflags:), "./cmd/coral/"
+
+      # Also build launch-coral and coral-board utilities
+      system "go", "build", *std_go_args(ldflags:, output: bin/"launch-coral"), "./cmd/launch-coral/"
+      system "go", "build", *std_go_args(ldflags:, output: bin/"coral-board"), "./cmd/coral-board/"
+    end
   end
 
   def caveats
@@ -24,14 +29,11 @@ class Coral < Formula
         # Launch agents in worktrees
         launch-coral /path/to/worktrees
 
-        # macOS menu bar app (optional)
-        pip install rumps && coral-tray
-
       Dashboard runs at http://localhost:8420 by default.
     EOS
   end
 
   test do
-    assert_match "Coral Dashboard", shell_output("#{bin}/coral --help")
+    assert_match "Coral", shell_output("#{bin}/coral --help 2>&1", 2)
   end
 end

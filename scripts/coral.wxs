@@ -38,6 +38,14 @@
             Action="set"
             System="yes" />
         </Component>
+
+        <Component Id="LaunchCoralExe" Guid="C3D4E5F6-A7B8-9012-CDEF-234567890123">
+          <File Id="launch_coral.exe" Source="$(var.BinDir)\launch-coral.exe" KeyPath="yes" />
+        </Component>
+
+        <Component Id="CoralBoardExe" Guid="D4E5F6A7-B8C9-0123-DEFA-345678901234">
+          <File Id="coral_board.exe" Source="$(var.BinDir)\coral-board.exe" KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -66,6 +74,8 @@
 
     <Feature Id="MainFeature" Title="Coral" Level="1">
       <ComponentRef Id="CoralExe" />
+      <ComponentRef Id="LaunchCoralExe" />
+      <ComponentRef Id="CoralBoardExe" />
       <ComponentRef Id="CoralShortcut" />
     </Feature>
 

@@ -110,6 +110,16 @@ window.browseAgentTemplatesNew = function() {
         }
     });
 };
+window.browseAgentTemplatesForModal = function() {
+    showTemplateBrowser('agents', (template) => {
+        const name = (template.name || '').replace(/-/g, ' ');
+        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+        const nameEl = document.getElementById('add-agent-board-agent-name');
+        const promptEl = document.getElementById('add-agent-board-prompt');
+        if (nameEl) nameEl.value = name;
+        if (promptEl) promptEl.value = prompt;
+    });
+};
 window.browseAgentTemplates = function(btn) {
     showTemplateBrowser('agents', (template) => {
         const row = btn.closest('.team-agent-row');
@@ -259,11 +269,24 @@ function toggleSidebarKebab(btn) {
     const wasOpen = menu.style.display !== 'none';
     closeSidebarKebabs();
     if (!wasOpen) {
+        // Show off-screen first to measure, then position
+        menu.style.visibility = 'hidden';
         menu.style.display = 'block';
-        // Position the menu to avoid overflow
         const rect = btn.getBoundingClientRect();
-        menu.style.top = rect.bottom + 2 + 'px';
-        menu.style.left = rect.left + 'px';
+        const menuHeight = menu.offsetHeight || 150;
+        const menuWidth = menu.offsetWidth || 160;
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        // If menu would overflow the bottom, position above the button
+        if (rect.bottom + menuHeight + 4 > viewportHeight) {
+            menu.style.top = Math.max(4, rect.top - menuHeight - 2) + 'px';
+        } else {
+            menu.style.top = rect.bottom + 2 + 'px';
+        }
+        // Clamp left so menu doesn't overflow right edge
+        const left = Math.min(rect.left, viewportWidth - menuWidth - 8);
+        menu.style.left = Math.max(4, left) + 'px';
+        menu.style.visibility = '';
         // Hide any visible tooltips so they don't cover the menu
         document.querySelectorAll('.session-tooltip').forEach(t => t.style.display = 'none');
     }

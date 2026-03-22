@@ -45,12 +45,19 @@ func main() {
 	}
 	defer db.Close()
 
-	// Select terminal backend
+	// Select terminal backend and agent runtime
 	var backend ptymanager.TerminalBackend
+	var agentRT background.AgentRuntime
 	if *backendFlag == "pty" {
-		backend = ptymanager.NewPTYBackend()
+		ptyBackend := ptymanager.NewPTYBackend()
+		backend = ptyBackend
+		agentRT = background.NewPTYRuntime(ptyBackend)
 		log.Println("Using native PTY terminal backend")
 	} else {
+		tmuxClient := tmux.NewClient()
+		tmuxBackend := ptymanager.NewTmuxBackend(tmuxClient, cfg.LogDir)
+		backend = tmuxBackend
+		agentRT = background.NewTmuxRuntime(tmuxClient)
 		log.Println("Using tmux terminal backend")
 	}
 
@@ -72,12 +79,11 @@ func main() {
 	defer stop()
 
 	// ── Start background services ───────────────────────────────
-	tmuxClient := tmux.NewClient()
 	gitStore := store.NewGitStore(db)
 	webhookStore := store.NewWebhookStore(db)
 	taskStore := store.NewTaskStore(db)
 
-	gitPoller := background.NewGitPoller(gitStore, tmuxClient, time.Duration(cfg.GitPollerIntervalS)*time.Second)
+	gitPoller := background.NewGitPoller(gitStore, agentRT, time.Duration(cfg.GitPollerIntervalS)*time.Second)
 	go gitPoller.Run(ctx)
 
 	indexer := background.NewSessionIndexer(
@@ -86,10 +92,11 @@ func main() {
 		time.Duration(cfg.IndexerStartupDelayS)*time.Second,
 	)
 	go indexer.Run(ctx)
+	srv.SetIndexer(indexer)
 
 	// Shared agent discovery function for background services
 	discoverFn := func(ctx context.Context) ([]background.AgentInfo, error) {
-		return background.DiscoverAgentsFromTmux(ctx, tmuxClient)
+		return agentRT.ListAgents(ctx)
 	}
 
 	idleDetector := background.NewIdleDetector(taskStore, webhookStore, time.Duration(cfg.IdleDetectorIntervalS)*time.Second)
@@ -105,9 +112,10 @@ func main() {
 
 	// Wire real agent launching into the scheduler
 	sessStore := store.NewSessionStore(db)
-	launcher := background.NewAgentLauncher(tmuxClient, sessStore)
+	launcher := background.NewAgentLauncher(agentRT, sessStore)
 	scheduler.SetLaunchFn(launcher.BuildSchedulerLaunchFn(schedStore))
 	scheduler.SetSessionStore(sessStore)
+	scheduler.SetRuntime(agentRT)
 	scheduler.SetNextFireTimeFn(nextFireTime)
 
 	go scheduler.Run(ctx)
@@ -116,7 +124,7 @@ func main() {
 	srv.SetScheduler(scheduler)
 
 	// Board notifier — nudges agents about unread board messages
-	boardNotifier := background.NewBoardNotifier(srv.BoardStore(), tmuxClient, time.Duration(cfg.BoardNotifierIntervalS)*time.Second)
+	boardNotifier := background.NewBoardNotifier(srv.BoardStore(), agentRT, time.Duration(cfg.BoardNotifierIntervalS)*time.Second)
 	boardNotifier.SetDiscoverFn(discoverFn)
 	if bh := srv.BoardHandler(); bh != nil {
 		boardNotifier.SetIsPausedFn(bh.IsPaused)
@@ -125,7 +133,7 @@ func main() {
 
 	// Remote board poller — polls remote Coral servers for unread messages
 	rbStore := store.NewRemoteBoardStore(db)
-	remotePoller := background.NewRemoteBoardPoller(rbStore, tmuxClient, 30*time.Second)
+	remotePoller := background.NewRemoteBoardPoller(rbStore, agentRT, 30*time.Second)
 	remotePoller.SetDiscoverFn(discoverFn)
 	go remotePoller.Run(ctx)
 

@@ -1014,3 +1014,43 @@
     resize: none;
     outline: none;
 }
+
+/* Agentic block headers */
+
+.agentic-block-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    flex-shrink: 0;
+}
+
+.agentic-block-header-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Activity stats details */
+
+.activity-stats-details {
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.activity-stats-summary {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.activity-stats-summary:hover {
+    color: var(--text-primary);
+}

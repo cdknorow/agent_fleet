@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,16 +17,27 @@ import (
 	"github.com/cdknorow/coral/internal/store"
 )
 
+// Indexer is the interface for triggering an index refresh.
+type Indexer interface {
+	RunOnce(ctx context.Context) error
+}
+
 // SystemHandler handles settings, tags, and filesystem endpoints.
 type SystemHandler struct {
-	db  *store.DB
-	ss  *store.SessionStore
-	cfg *config.Config
+	db      *store.DB
+	ss      *store.SessionStore
+	cfg     *config.Config
+	indexer Indexer
 }
 
 // NewSystemHandler creates a SystemHandler.
 func NewSystemHandler(db *store.DB, cfg *config.Config) *SystemHandler {
 	return &SystemHandler{db: db, ss: store.NewSessionStore(db), cfg: cfg}
+}
+
+// SetIndexer injects the session indexer for manual refresh triggers.
+func (h *SystemHandler) SetIndexer(idx Indexer) {
+	h.indexer = idx
 }
 
 // ── Settings ────────────────────────────────────────────────────────────
@@ -129,7 +141,14 @@ func (h *SystemHandler) UpdateCheck(w http.ResponseWriter, r *http.Request) {
 // RefreshIndexer triggers a manual re-index.
 // POST /api/indexer/refresh
 func (h *SystemHandler) RefreshIndexer(w http.ResponseWriter, r *http.Request) {
-	// TODO: trigger indexer
+	if h.indexer == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": "Indexer not available"})
+		return
+	}
+	if err := h.indexer.RunOnce(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
