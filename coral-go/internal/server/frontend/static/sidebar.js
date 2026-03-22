@@ -54,7 +54,7 @@ export function initTaskBarResize() {
     const saved = localStorage.getItem('coral-taskbar-width');
     if (saved) {
         const w = parseInt(saved, 10);
-        if (w >= 280 && w <= 620) taskBar.style.width = w + "px";
+        if (w >= 280 && w <= window.innerWidth * 0.5) taskBar.style.width = w + "px";
     }
 
     let dragging = false;
@@ -71,7 +71,7 @@ export function initTaskBarResize() {
         if (!dragging) return;
         const rect = liveBody.getBoundingClientRect();
         const newWidth = rect.right - e.clientX;
-        const clamped = Math.min(Math.max(newWidth, 280), 620);
+        const clamped = Math.min(Math.max(newWidth, 280), window.innerWidth * 0.5);
         taskBar.style.width = clamped + "px";
     });
 

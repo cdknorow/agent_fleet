@@ -413,6 +413,11 @@ export function switchAgenticTab(tabName, blockId) {
     const activePanel = document.getElementById(`agentic-panel-${tabName}`);
     if (activePanel) activePanel.classList.add('active');
 
+    // Persist tab choice per block
+    if (blockId) {
+        localStorage.setItem(`coral-agentic-tab-${blockId}`, tabName);
+    }
+
     // Start/stop history polling based on tab
     if (tabName === 'history') {
         startLiveHistoryPoll();
@@ -423,5 +428,19 @@ export function switchAgenticTab(tabName, blockId) {
     // Refresh changed files when switching to the files tab
     if (tabName === 'files' && state.currentSession && state.currentSession.type === 'live') {
         loadChangedFiles(state.currentSession.name, state.currentSession.session_id);
+    }
+}
+
+/** Restore persisted tab selection on page load. */
+export function restoreAgenticTabs() {
+    for (const blockId of ['top', 'bottom']) {
+        const saved = localStorage.getItem(`coral-agentic-tab-${blockId}`);
+        if (saved) {
+            const tab = document.getElementById(`agentic-tab-${saved}`);
+            // Only restore if the tab exists and is visible
+            if (tab && tab.style.display !== 'none') {
+                switchAgenticTab(saved, blockId);
+            }
+        }
     }
 }

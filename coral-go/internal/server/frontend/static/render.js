@@ -121,6 +121,127 @@ export function setBoardAccentColor(boardName) {
     input.click();
 }
 
+// ── Board Chat (right-panel tab) ──────────────────────────────────────
+
+let _boardChatTimer = null;
+let _boardChatLastId = {};
+let _activeBoardChat = null;
+
+export function showBoardChatTab(boardName) {
+    _activeBoardChat = boardName;
+    const panel = document.getElementById('agentic-panel-board');
+    if (!panel) return;
+
+    // Show the board tab
+    panel.style.display = '';
+    panel.innerHTML = `
+        <div class="board-chat-header">${escapeHtml(boardName)}</div>
+        <div class="board-chat-messages" id="board-panel-msgs"></div>
+        <div class="board-chat-input-row">
+            <input type="text" class="board-chat-input" id="board-panel-input" placeholder="Message the team..."
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._sendBoardChat('${escapeAttr(boardName)}')}">
+            <button class="board-chat-send" onclick="window._sendBoardChat('${escapeAttr(boardName)}')">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="8" x2="14" y2="8"/><polyline points="9 3 14 8 9 13"/></svg>
+            </button>
+        </div>`;
+
+    _loadBoardPanelChat(boardName);
+    // Start polling
+    if (_boardChatTimer) clearInterval(_boardChatTimer);
+    _boardChatTimer = setInterval(() => _loadBoardPanelChat(boardName), 3000);
+}
+
+export function hideBoardChatTab() {
+    _activeBoardChat = null;
+    if (_boardChatTimer) { clearInterval(_boardChatTimer); _boardChatTimer = null; }
+    const panel = document.getElementById('agentic-panel-board');
+    if (panel) panel.style.display = 'none';
+}
+
+// Agent colors for board chat (same palette as message_board.js)
+const _boardChatColors = [
+    '#81a1c1', '#a3be8c', '#b48ead', '#d08770',
+    '#bf616a', '#88c0d0', '#ebcb8b', '#8fbcbb',
+];
+const _boardChatColorMap = {};
+function _getBoardChatColor(name) {
+    if (!name) return _boardChatColors[0];
+    if (_boardChatColorMap[name]) return _boardChatColorMap[name];
+    const idx = Object.keys(_boardChatColorMap).length % _boardChatColors.length;
+    _boardChatColorMap[name] = _boardChatColors[idx];
+    return _boardChatColorMap[name];
+}
+function _renderMd(content) {
+    if (!content) return '';
+    if (typeof marked !== 'undefined') {
+        try {
+            const html = marked.parse(content);
+            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
+        } catch { /* fall through */ }
+    }
+    return escapeHtml(content);
+}
+function _formatTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function _loadBoardPanelChat(boardName) {
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (!msgsEl) return;
+    try {
+        const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/messages/all?limit=30&format=dashboard`);
+        const data = await resp.json();
+        const messages = Array.isArray(data) ? data : (data.messages || []);
+        if (messages.length === 0) {
+            msgsEl.innerHTML = '<div class="board-chat-empty">No messages yet</div>';
+            return;
+        }
+        const lastId = messages[messages.length - 1]?.id;
+        const isInitialLoad = msgsEl.children.length === 0 || !_boardChatLastId[boardName];
+        if (lastId === _boardChatLastId[boardName] && msgsEl.children.length > 0) return;
+        _boardChatLastId[boardName] = lastId;
+
+        const wasAtBottom = isInitialLoad || msgsEl.scrollTop >= msgsEl.scrollHeight - msgsEl.clientHeight - 20;
+        msgsEl.innerHTML = messages.map((m, i) => {
+            const agent = m.job_title || m.sender_name || 'Unknown';
+            const color = _getBoardChatColor(agent);
+            const prevAgent = i > 0 ? (messages[i - 1].job_title || messages[i - 1].sender_name || 'Unknown') : null;
+            const sameAsPrev = agent === prevAgent;
+            const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
+            const isLeader = /orchestrator/i.test(agent) || m.session_id === 'dashboard';
+            const indentClass = isLeader ? '' : ' mb-message-worker';
+            const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
+            return `<div class="mb-message ${spacing}${indentClass}" style="border-left:3px solid rgba(${r},${g},${b},0.55)">
+                <div class="mb-message-header">
+                    <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
+                    <span class="mb-message-time">${_formatTime(m.created_at)}</span>
+                </div>
+                <div class="mb-message-body">${_renderMd(m.content)}</div>
+            </div>`;
+        }).join('');
+        if (wasAtBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
+    } catch { /* ignore */ }
+}
+
+async function _sendBoardChat(boardName) {
+    const inputEl = document.getElementById('board-panel-input');
+    if (!inputEl) return;
+    const content = inputEl.value.trim();
+    if (!content) return;
+    inputEl.value = '';
+    try {
+        await fetch(`/api/board/${encodeURIComponent(boardName)}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: 'dashboard', content }),
+        });
+        _loadBoardPanelChat(boardName);
+    } catch { /* ignore */ }
+}
+window._sendBoardChat = _sendBoardChat;
+
 // ── Session ordering ──────────────────────────────────────────────────
 
 function _getSessionOrder() {
@@ -772,7 +893,7 @@ export function renderLiveSessions(sessions) {
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
                     ${sleepLabel}
                 </button>
-                <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); setBoardAccentColor('${escapeAttr(boardName)}')">
+                <button class="overflow-menu-item" onclick="event.stopPropagation(); setBoardAccentColor('${escapeAttr(boardName)}'); closeSidebarKebabs()">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
                     Set Color
                 </button>
@@ -964,7 +1085,7 @@ export function renderLiveSessions(sessions) {
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
                             ${sleepLabel}
                         </button>
-                        <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); setBoardAccentColor('${escapeAttr(boardName)}')">
+                        <button class="overflow-menu-item" onclick="event.stopPropagation(); setBoardAccentColor('${escapeAttr(boardName)}'); closeSidebarKebabs()">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
                             Set Color
                         </button>

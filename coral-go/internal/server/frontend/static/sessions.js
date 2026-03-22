@@ -4,7 +4,7 @@ import { state, sessionKey } from './state.js';
 import { showToast, escapeHtml, escapeAttr, dbg } from './utils.js';
 import { loadLiveSessionDetail, loadHistoryMessages } from './api.js';
 import { stopCaptureRefresh, startCaptureRefresh } from './capture.js';
-import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, renderHistoryChat } from './render.js';
+import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
 import { renderQuickActions, updateSidebarActive } from './controls.js';
 import { loadSessionNotes, switchHistoryTab } from './notes.js';
 import { loadSessionTags } from './tags.js';
@@ -12,7 +12,7 @@ import { loadSessionCommits } from './commits.js';
 import { loadAgentTasks } from './tasks.js';
 import { loadChangedFiles } from './changed_files.js';
 import { loadAgentNotes } from './agent_notes.js';
-import { loadAgentEvents } from './agentic_state.js';
+import { loadAgentEvents, switchAgenticTab } from './agentic_state.js';
 import { loadHistoryEvents, loadHistoryTasks, loadHistoryAgentNotes } from './history_tabs.js';
 import { startLiveHistoryPoll, stopLiveHistoryPoll, resetLiveHistory } from './live_chat.js';
 import { syncPaneWidth, resetSyncedCols } from './capture.js';
@@ -103,6 +103,26 @@ export async function selectLiveSession(name, agentType, sessionId) {
 
     // Highlight in sidebar
     updateSidebarActive();
+
+    // Show/hide Board chat tab based on whether agent is on a board
+    const boardTab = document.getElementById('agentic-tab-board');
+    if (agentData && agentData.board_project) {
+        if (boardTab) boardTab.style.display = '';
+        showBoardChatTab(agentData.board_project);
+        // Auto-switch to Board tab if no persisted preference
+        const savedTab = localStorage.getItem('coral-agentic-tab-top');
+        if (!savedTab || savedTab === 'board') {
+            switchAgenticTab('board', 'top');
+        }
+    } else {
+        if (boardTab) boardTab.style.display = 'none';
+        hideBoardChatTab();
+        // If persisted tab was 'board' but agent has no board, fall back to files
+        const savedTab = localStorage.getItem('coral-agentic-tab-top');
+        if (savedTab === 'board') {
+            switchAgenticTab('files', 'top');
+        }
+    }
 
     // Load tasks, notes, events, and changed files for this agent (pass session_id)
     loadAgentTasks(name, sessionId);

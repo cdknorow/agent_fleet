@@ -121,11 +121,21 @@ func (h *BoardHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		SessionID     string  `json:"session_id"`
 		Content       string  `json:"content"`
 		TargetGroupID *string `json:"target_group_id,omitempty"`
+		As            string  `json:"as,omitempty"` // display name for auto-subscribe (e.g. "Operator")
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content required"})
 		return
 	}
+
+	// Auto-subscribe the poster if 'as' is provided and they aren't subscribed yet
+	if body.As != "" && body.SessionID != "" {
+		sub, _ := h.bs.GetSubscription(r.Context(), body.SessionID)
+		if sub == nil {
+			h.bs.Subscribe(r.Context(), project, body.SessionID, body.As, nil, nil, "all")
+		}
+	}
+
 	msg, err := h.bs.PostMessage(r.Context(), project, body.SessionID, body.Content, body.TargetGroupID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

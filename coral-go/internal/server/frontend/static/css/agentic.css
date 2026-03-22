@@ -40,7 +40,7 @@
 .agentic-state {
     width: 420px;
     min-width: 280px;
-    max-width: 620px;
+    max-width: 50vw;
     display: flex;
     flex-direction: column;
     background: var(--bg-secondary);

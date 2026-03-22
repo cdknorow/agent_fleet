@@ -324,23 +324,27 @@ func (s *Store) ListMessages(ctx context.Context, project string, limit, offset 
 	var err error
 	if beforeID > 0 {
 		err = s.db.SelectContext(ctx, &messages,
-			`SELECT m.id, m.project, m.session_id, m.content, m.created_at,
-			        COALESCE(s.job_title, 'Unknown') as job_title,
-			        m.target_group_id
-			 FROM board_messages m
-			 LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
-			 WHERE m.project = ? AND m.id < ?
-			 ORDER BY m.id ASC LIMIT ? OFFSET ?`,
+			`SELECT * FROM (
+			    SELECT m.id, m.project, m.session_id, m.content, m.created_at,
+			           COALESCE(s.job_title, 'Unknown') as job_title,
+			           m.target_group_id
+			    FROM board_messages m
+			    LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
+			    WHERE m.project = ? AND m.id < ?
+			    ORDER BY m.id DESC LIMIT ? OFFSET ?
+			 ) sub ORDER BY id ASC`,
 			project, beforeID, limit, offset)
 	} else {
 		err = s.db.SelectContext(ctx, &messages,
-			`SELECT m.id, m.project, m.session_id, m.content, m.created_at,
-			        COALESCE(s.job_title, 'Unknown') as job_title,
-			        m.target_group_id
-			 FROM board_messages m
-			 LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
-			 WHERE m.project = ?
-			 ORDER BY m.id ASC LIMIT ? OFFSET ?`,
+			`SELECT * FROM (
+			    SELECT m.id, m.project, m.session_id, m.content, m.created_at,
+			           COALESCE(s.job_title, 'Unknown') as job_title,
+			           m.target_group_id
+			    FROM board_messages m
+			    LEFT JOIN board_subscribers s ON m.project = s.project AND m.session_id = s.session_id
+			    WHERE m.project = ?
+			    ORDER BY m.id DESC LIMIT ? OFFSET ?
+			 ) sub ORDER BY id ASC`,
 			project, limit, offset)
 	}
 	return messages, err

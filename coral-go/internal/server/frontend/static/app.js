@@ -23,7 +23,7 @@ import { loadChangedFiles, openFileDiff, openFilePreview, refreshChangedFiles } 
 import { initFileMention } from './file_mention.js';
 import { initCommandMention } from './command_mention.js';
 import { loadAgentNotes, initNotesMd } from './agent_notes.js';
-import { switchAgenticTab, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
+import { switchAgenticTab, restoreAgenticTabs, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
 import { copyBranchName, escapeHtml } from './utils.js';
 import { initScheduler, selectScheduledJob, toggleScheduledJob, deleteScheduledJob, editScheduledJob, showJobModal, hideJobModal, validateCronPreview, saveScheduledJob } from './scheduler.js';
@@ -717,6 +717,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initSidebarResize();
     initCommandPaneResize();
     initTaskBarResize();
+    restoreAgenticTabs();
 
     // Pause polling when tab is hidden; refresh immediately when visible again
     document.addEventListener("visibilitychange", () => {

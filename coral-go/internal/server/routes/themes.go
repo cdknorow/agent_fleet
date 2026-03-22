@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -295,12 +296,130 @@ func (h *ThemesHandler) GetThemeVariables(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"groups": themeVariableGroups})
 }
 
-// GenerateTheme uses an LLM to generate theme colors.
+// GenerateTheme uses an LLM to generate theme colors from a text description.
 // POST /api/themes/generate
 func (h *ThemesHandler) GenerateTheme(w http.ResponseWriter, r *http.Request) {
-	// TODO: call Claude CLI for AI theme generation
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "AI theme generation not yet ported"})
+	var body struct {
+		Description string `json:"description"`
+		Base        string `json:"base"`
+		AgentType   string `json:"agent_type"`
+	}
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Description) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Description is required"})
+		return
+	}
+	if body.Base == "" {
+		body.Base = "dark"
+	}
+
+	// Find an available LLM CLI — try requested type first, then fall back
+	cliPath, cliArgs := resolveThemeCLI(body.AgentType)
+	if cliPath == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "No LLM CLI found — install Claude Code (npm install -g @anthropic-ai/claude-code) or Gemini CLI"})
+		return
+	}
+
+	// Build the variable list for the prompt
+	var varList strings.Builder
+	for groupName, vars := range themeVariableGroups {
+		varList.WriteString("\n" + groupName + ":\n")
+		for cssVar, label := range vars {
+			varList.WriteString("  " + cssVar + " — " + label + "\n")
+		}
+	}
+
+	prompt := generatePrompt + varList.String() + "\n" +
+		"The theme should be based on a " + body.Base + " color scheme.\n" +
+		"User's description: " + body.Description + "\n\n" +
+		"Respond with ONLY the JSON object."
+
+	args := append(cliArgs, prompt)
+	cmd := exec.CommandContext(r.Context(), cliPath, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "Claude CLI failed: " + err.Error()})
+		return
+	}
+
+	// Strip markdown fences if present
+	raw := strings.TrimSpace(string(output))
+	if strings.HasPrefix(raw, "```") {
+		lines := strings.Split(raw, "\n")
+		var cleaned []string
+		for _, line := range lines {
+			if !strings.HasPrefix(strings.TrimSpace(line), "```") {
+				cleaned = append(cleaned, line)
+			}
+		}
+		raw = strings.TrimSpace(strings.Join(cleaned, "\n"))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": "Failed to parse LLM response as JSON", "raw": raw})
+		return
+	}
+
+	variables, _ := result["variables"].(map[string]any)
+	if variables == nil {
+		variables, _ = result["variables"].(map[string]any)
+		if variables == nil {
+			// Response might be flat (variables at root level)
+			variables = result
+		}
+	}
+
+	name, _ := result["name"].(string)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "variables": variables, "name": name})
 }
+
+// resolveThemeCLI finds an available LLM CLI for theme generation.
+// Tries the requested agent type first, then falls back to others.
+func resolveThemeCLI(agentType string) (path string, args []string) {
+	type cliOption struct {
+		binary string
+		args   []string
+	}
+	options := []cliOption{
+		{"claude", []string{"--print", "--model", "haiku", "--no-session-persistence"}},
+		{"gemini", []string{"--print"}},
+		{"codex", []string{"--print"}},
+	}
+
+	// Try requested type first
+	if agentType != "" {
+		for _, opt := range options {
+			if opt.binary == agentType {
+				if p, err := exec.LookPath(opt.binary); err == nil {
+					return p, opt.args
+				}
+			}
+		}
+	}
+
+	// Fall back to any available CLI
+	for _, opt := range options {
+		if p, err := exec.LookPath(opt.binary); err == nil {
+			return p, opt.args
+		}
+	}
+	return "", nil
+}
+
+const generatePrompt = `You are a UI theme designer. Given a description of a color theme, generate a complete set of CSS color values for a web dashboard.
+
+You MUST respond with ONLY a valid JSON object — no markdown, no explanation, no code fences. The JSON must have this exact structure:
+
+{
+  "name": "A short creative name for this theme (2-4 words)",
+  "variables": {
+    "--css-variable-name": "#hexcolor",
+    ...
+  }
+}
+
+Here are the CSS variables you must provide values for, grouped by category:
+`
 
 var themeVariableGroups = map[string]map[string]string{
 	"Surface / Background": {
