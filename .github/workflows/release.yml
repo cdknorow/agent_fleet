@@ -228,11 +228,18 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           APP="dist/Coral.app"
+          # Sign each binary individually (inner before outer)
           for bin in coral launch-coral coral-board coral-tray coral-app; do
-            codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
-              --entitlements entitlements.plist "$APP/Contents/MacOS/$bin"
+            BIN_PATH="$APP/Contents/MacOS/$bin"
+            if [ -f "$BIN_PATH" ]; then
+              echo "Signing $bin..."
+              codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
+                --entitlements entitlements.plist "$BIN_PATH"
+              codesign --verify "$BIN_PATH" && echo "  ✓ $bin signed" || echo "  ✗ $bin sign FAILED"
+            fi
           done
-          codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
+          # Sign the .app bundle itself
+          codesign --force --deep --options runtime --sign "$SIGNING_IDENTITY" \
             --entitlements entitlements.plist "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
 
