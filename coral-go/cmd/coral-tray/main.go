@@ -327,18 +327,29 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 						beeep.Notify("Coral", fmt.Sprintf("Shut down %d agent(s) and dashboard server.", killed), "")
 					}()
 				case <-mQuit.ClickedCh:
-					shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					httpServer.Shutdown(shutdownCtx)
+					func() {
+						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						httpServer.Shutdown(shutdownCtx)
+					}()
 					systray.Quit()
 				case <-ctx.Done():
+					func() {
+						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						httpServer.Shutdown(shutdownCtx)
+					}()
 					systray.Quit()
 					return
 				}
 			}
 		}()
 	}, func() {
-		// onExit — cleanup
+		// onExit — ensure server is stopped even if quit path missed it
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpServer.Shutdown(shutdownCtx)
+		log.Println("coral-tray exited")
 	})
 }
 
