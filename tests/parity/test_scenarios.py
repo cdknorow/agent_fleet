@@ -1142,6 +1142,77 @@ def scenario_sleep_wake(py_base: str, go_base: str, client: httpx.Client) -> lis
     return results
 
 
+def scenario_individual_sleep_wake(py_base: str, go_base: str, client: httpx.Client) -> list[ComparisonResult]:
+    """Test individual session sleep/wake API endpoints."""
+    results = []
+    scenario = "individual_sleep_wake"
+    fake_session_id = "nonexistent-session-id-12345"
+
+    # Sleep a non-existent session — both should return {ok: false, error: "Session not found"}
+    py_resp = client.post(f"{py_base}/api/sessions/live/{fake_session_id}/sleep")
+    go_resp = client.post(f"{go_base}/api/sessions/live/{fake_session_id}/sleep")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    passed = py_body.get("ok") == go_body.get("ok") and py_body.get("error") == go_body.get("error")
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint=f"/api/sessions/live/{fake_session_id}/sleep",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"py={py_body}, go={go_body}",
+    ))
+
+    # Wake a non-existent session — both should return {ok: false, error: "Session not found"}
+    py_resp = client.post(f"{py_base}/api/sessions/live/{fake_session_id}/wake")
+    go_resp = client.post(f"{go_base}/api/sessions/live/{fake_session_id}/wake")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    passed = py_body.get("ok") == go_body.get("ok") and py_body.get("error") == go_body.get("error")
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint=f"/api/sessions/live/{fake_session_id}/wake",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"py={py_body}, go={go_body}",
+    ))
+
+    return results
+
+
+def scenario_bulk_sleep_wake(py_base: str, go_base: str, client: httpx.Client) -> list[ComparisonResult]:
+    """Test bulk sleep-all/wake-all API endpoints."""
+    results = []
+    scenario = "bulk_sleep_wake"
+
+    # Sleep-all with no active sessions — both should return {ok: true, sessions_affected: 0}
+    py_resp = client.post(f"{py_base}/api/sessions/live/sleep-all")
+    go_resp = client.post(f"{go_base}/api/sessions/live/sleep-all")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    passed = (py_body.get("ok") == go_body.get("ok")
+              and py_body.get("sessions_affected") == go_body.get("sessions_affected"))
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint="/api/sessions/live/sleep-all",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"py={py_body}, go={go_body}",
+    ))
+
+    # Wake-all with no sleeping sessions — both should return {ok: true, sessions_relaunched: 0}
+    py_resp = client.post(f"{py_base}/api/sessions/live/wake-all")
+    go_resp = client.post(f"{go_base}/api/sessions/live/wake-all")
+    py_body = py_resp.json()
+    go_body = go_resp.json()
+    passed = (py_body.get("ok") == go_body.get("ok")
+              and py_body.get("sessions_relaunched") == go_body.get("sessions_relaunched"))
+    results.append(ComparisonResult(
+        scenario=scenario, endpoint="/api/sessions/live/wake-all",
+        method="POST", passed=passed,
+        py_status=py_resp.status_code, go_status=go_resp.status_code,
+        diff="" if passed else f"py={py_body}, go={go_body}",
+    ))
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 
 ALL_SCENARIOS = [
@@ -1163,6 +1234,8 @@ ALL_SCENARIOS = [
     ("history_endpoints", scenario_history_endpoints),
     ("default_prompts", scenario_default_prompts),
     ("sleep_wake", scenario_sleep_wake),
+    ("individual_sleep_wake", scenario_individual_sleep_wake),
+    ("bulk_sleep_wake", scenario_bulk_sleep_wake),
 ]
 
 

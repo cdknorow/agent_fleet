@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -17,12 +18,18 @@ import (
 
 // HistoryHandler handles session history / search endpoints.
 type HistoryHandler struct {
-	ss    *store.SessionStore
-	ts    *store.TaskStore
-	gs    *store.GitStore
-	bs    *board.Store
-	cfg   *config.Config
-	jsonl *jsonl.SessionReader
+	ss          *store.SessionStore
+	ts          *store.TaskStore
+	gs          *store.GitStore
+	bs          *board.Store
+	cfg         *config.Config
+	jsonl       *jsonl.SessionReader
+	summarizeFn func(ctx context.Context, sessionID string) error
+}
+
+// SetSummarizeFn sets the function used for synchronous summarization.
+func (h *HistoryHandler) SetSummarizeFn(fn func(ctx context.Context, sessionID string) error) {
+	h.summarizeFn = fn
 }
 
 func NewHistoryHandler(db *store.DB, cfg *config.Config, bs *board.Store) *HistoryHandler {
@@ -308,19 +315,27 @@ func (h *HistoryHandler) SaveSessionNotes(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// Resummarize re-queues a session for AI summarization.
+// Resummarize runs synchronous summarization for a session.
 // POST /api/sessions/history/{sessionID}/resummarize
 func (h *HistoryHandler) Resummarize(w http.ResponseWriter, r *http.Request) {
 	sid := chi.URLParam(r, "sessionID")
-	if err := h.ss.EnqueueForSummarization(r.Context(), sid); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+
+	if h.summarizeFn != nil {
+		if err := h.summarizeFn(r.Context(), sid); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"error": err.Error()})
+			return
+		}
 	}
-	// Match Python: return auto_summary alongside ok
+
+	// Return the (now-populated) auto_summary, falling back to notes_md
+	// when user has edited notes (matches Python: returns notes_md as summary)
 	meta, _ := h.ss.GetSessionNotes(r.Context(), sid)
 	autoSummary := ""
 	if meta != nil {
 		autoSummary = meta.AutoSummary
+		if autoSummary == "" && meta.NotesMD != "" {
+			autoSummary = meta.NotesMD
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auto_summary": autoSummary})
 }

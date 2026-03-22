@@ -194,6 +194,110 @@
     box-shadow: 0 1px 0 var(--border);
 }
 
+/* ── Split Send Button ─────────────────────────────────────── */
+
+.toolbar-send-split {
+    display: flex;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.btn-send-dropdown {
+    padding: 4px 5px !important;
+    border-radius: 0 6px 6px 0 !important;
+    border-left: 1px solid rgba(255,255,255,0.15);
+}
+
+.send-btn-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.3));
+    min-width: 200px;
+    z-index: 100;
+    padding: 4px;
+}
+
+.send-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.send-menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.send-menu-hint {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.send-menu-hint kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}
+
+/* ── Command /mention Dropdown ────────────────────────────── */
+
+.command-mention-dropdown {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    margin-bottom: 4px;
+}
+
+.command-mention-item {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.command-mention-item:hover,
+.command-mention-item.selected {
+    background: var(--accent);
+    color: #fff;
+}
+
+.command-mention-item strong {
+    color: inherit;
+    font-weight: 700;
+}
+
 /* ── File @mention Dropdown ───────────────────────────────── */
 
 .file-mention-dropdown {

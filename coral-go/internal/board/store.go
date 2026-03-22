@@ -63,7 +63,7 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("create board db directory: %w", err)
 	}
 
-	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open board database: %w", err)
 	}
@@ -195,6 +195,53 @@ func (s *Store) GetAllSubscriptions(ctx context.Context) (map[string]*Subscriber
 		result[subs[i].SessionID] = &subs[i]
 	}
 	return result, nil
+}
+
+// TransferSubscription transfers a subscription from one session to another,
+// preserving last_read_id. Used during session resume when the session_id
+// changes but the agent should not re-read old messages.
+func (s *Store) TransferSubscription(ctx context.Context, project, oldSessionID, newSessionID string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var old Subscriber
+	err = tx.GetContext(ctx, &old,
+		"SELECT last_read_id, job_title, webhook_url, origin_server, receive_mode FROM board_subscribers WHERE project = ? AND session_id = ?",
+		project, oldSessionID)
+	if err == sql.ErrNoRows {
+		return nil // Nothing to transfer
+	}
+	if err != nil {
+		return err
+	}
+
+	now := nowUTC()
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(project, session_id)
+		 DO UPDATE SET job_title = excluded.job_title,
+		               webhook_url = excluded.webhook_url,
+		               origin_server = excluded.origin_server,
+		               receive_mode = excluded.receive_mode,
+		               last_read_id = excluded.last_read_id`,
+		project, newSessionID, old.JobTitle, old.WebhookURL,
+		old.OriginServer, old.ReceiveMode, old.LastReadID, now)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx,
+		"DELETE FROM board_subscribers WHERE project = ? AND session_id = ?",
+		project, oldSessionID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // ── Messages ─────────────────────────────────────────────────────────

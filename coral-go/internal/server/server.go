@@ -45,8 +45,9 @@ type Server struct {
 	indexTmpl     *template.Template
 	diffTmpl      *template.Template
 	previewTmpl   *template.Template
-	tasksHandler  *routes.TasksHandler
-	boardHandler  *routes.BoardHandler
+	tasksHandler   *routes.TasksHandler
+	boardHandler   *routes.BoardHandler
+	historyHandler *routes.HistoryHandler
 }
 
 // templateData is passed to Go templates during rendering.
@@ -125,6 +126,13 @@ func (s *Server) SetScheduler(sched *background.JobScheduler) {
 	}
 }
 
+// SetSummarizeFn injects the summarize function into the history handler for sync resummarize.
+func (s *Server) SetSummarizeFn(fn func(ctx context.Context, sessionID string) error) {
+	if s.historyHandler != nil {
+		s.historyHandler.SetSummarizeFn(fn)
+	}
+}
+
 // BoardHandler returns the board handler (used by notifier and sleep/wake).
 func (s *Server) BoardHandler() *routes.BoardHandler {
 	return s.boardHandler
@@ -180,6 +188,7 @@ func (s *Server) buildRouter() chi.Router {
 	sessHandler := routes.NewSessionsHandler(s.db, s.cfg, s.backend, s.boardStore)
 	sysHandler := routes.NewSystemHandler(s.db, s.cfg)
 	histHandler := routes.NewHistoryHandler(s.db, s.cfg, s.boardStore)
+	s.historyHandler = histHandler
 	schedHandler := routes.NewScheduleHandler(s.db, s.cfg)
 	whHandler := routes.NewWebhooksHandler(s.db, s.cfg)
 	themeHandler := routes.NewThemesHandler(s.cfg)
@@ -210,10 +219,18 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/launch", sessHandler.Launch)
 	r.Post("/api/sessions/launch-team", sessHandler.LaunchTeam)
 
+	// Bulk sleep/wake all (must be registered before {name} routes to avoid conflicts)
+	r.Post("/api/sessions/live/sleep-all", sessHandler.SleepAll)
+	r.Post("/api/sessions/live/wake-all", sessHandler.WakeAll)
+
 	// Team sleep/wake
 	r.Get("/api/sessions/live/team/{boardName}/sleep-status", sessHandler.SleepStatus)
 	r.Post("/api/sessions/live/team/{boardName}/sleep", sessHandler.Sleep)
 	r.Post("/api/sessions/live/team/{boardName}/wake", sessHandler.Wake)
+
+	// Individual session sleep/wake
+	r.Post("/api/sessions/live/{sessionID}/sleep", sessHandler.SleepSession)
+	r.Post("/api/sessions/live/{sessionID}/wake", sessHandler.WakeSession)
 
 	// Agent tasks
 	r.Get("/api/sessions/live/{name}/tasks", sessHandler.ListTasks)

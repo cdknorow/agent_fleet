@@ -134,6 +134,9 @@ func main() {
 	batchSummarizer := background.NewBatchSummarizer(sessStore, summarizeFn)
 	go batchSummarizer.Run(ctx)
 
+	// Wire summarize function into history handler for sync resummarize endpoint
+	srv.SetSummarizeFn(summarizeFn)
+
 	log.Printf("Started 8 background services (git poller, indexer, idle detector, webhook dispatcher, scheduler, board notifier, remote board poller, batch summarizer)")
 
 	// ── Start HTTP server ───────────────────────────────────────

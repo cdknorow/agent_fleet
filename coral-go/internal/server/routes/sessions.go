@@ -1213,8 +1213,14 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		BoardServer:  strPtr(storedBoardServer),
 	})
 
-	// Re-subscribe to board if needed
+	// Transfer board subscription cursor and re-subscribe
 	if storedBoard != "" {
+		oldSessionName := fmt.Sprintf("%s-%s", agentType, body.CurrentSessionID)
+		if h.bs != nil && oldSessionName != newSessionName {
+			if err := h.bs.TransferSubscription(ctx, storedBoard, oldSessionName, newSessionName); err != nil {
+				log.Printf("Failed to transfer board subscription cursor from %s to %s: %v", body.CurrentSessionID[:8], newSessionID[:8], err)
+			}
+		}
 		go h.setupBoardAndPrompt(newSessionID, newSessionName, agentType, storedBoard, storedDisplayName)
 	}
 
@@ -2074,50 +2080,44 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 		if ls.IsSleeping != 1 || ls.BoardName == nil || *ls.BoardName != boardName {
 			continue
 		}
-		// Clear sleeping flag
-		h.ss.SetSessionSleeping(ctx, ls.SessionID, false)
 
 		// Relaunch the session
 		flags := store.ParseFlags(ls.Flags)
-		prompt := ""
-		if ls.Prompt != nil {
-			prompt = *ls.Prompt
-		}
-		bn := ""
-		if ls.BoardName != nil {
-			bn = *ls.BoardName
-		}
-		bs := ""
-		if ls.BoardServer != nil {
-			bs = *ls.BoardServer
-		}
+		prompt := derefStrPtr(ls.Prompt)
+		bn := derefStrPtr(ls.BoardName)
+		bs := derefStrPtr(ls.BoardServer)
 		bk := "tmux"
 		if ls.Backend != nil {
 			bk = *ls.Backend
 		}
-		dn := ""
-		if ls.DisplayName != nil {
-			dn = *ls.DisplayName
-		}
+		dn := derefStrPtr(ls.DisplayName)
 		result, err := h.launchSession(ctx, ls.WorkingDir, ls.AgentType, dn,
 			"", flags, prompt, bn, bs, bk)
 		if err != nil {
+			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
 			continue
 		}
-		// Setup board subscription
-		if bn != "" {
-			go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
-				ls.AgentType, bn, dn)
-		}
 		relaunched++
+		// Only clear sleeping on successful relaunch
+		h.ss.SetSessionSleeping(ctx, ls.SessionID, false)
+
+		// Transfer board subscription cursor and re-subscribe
+		if bn != "" {
+			newSessionID := result["session_id"].(string)
+			newSessionName := result["session_name"].(string)
+			oldSessionName := fmt.Sprintf("%s-%s", ls.AgentType, ls.SessionID)
+			if h.bs != nil && oldSessionName != newSessionName {
+				if err := h.bs.TransferSubscription(ctx, bn, oldSessionName, newSessionName); err != nil {
+					log.Printf("Failed to transfer board subscription cursor from %s to %s: %v", ls.SessionID[:8], newSessionID[:8], err)
+				}
+			}
+			go h.setupBoardAndPrompt(newSessionID, newSessionName, ls.AgentType, bn, dn)
+		}
 	}
 
-	// Clear board sleeping state
-	h.ss.SetBoardSleeping(ctx, boardName, false)
-
-	// Unpause the message board
+	// Unpause board if at least one agent was woken
 	boardPaused := true
-	if h.boardHandler != nil {
+	if relaunched > 0 && h.boardHandler != nil {
 		h.boardHandler.SetPaused(boardName, false)
 		boardPaused = false
 	}
@@ -2128,4 +2128,211 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 		"sessions_relaunched": relaunched,
 		"board_paused":        boardPaused,
 	})
+}
+
+// ── Individual Session Sleep/Wake ────────────────────────────────────────
+
+// SleepSession puts a single agent to sleep.
+// POST /api/sessions/live/{sessionID}/sleep
+func (h *SessionsHandler) SleepSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	ctx := r.Context()
+
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	var sess *store.LiveSession
+	for i := range allLive {
+		if allLive[i].SessionID == sessionID {
+			sess = &allLive[i]
+			break
+		}
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session not found"})
+		return
+	}
+
+	h.ss.SetSessionSleeping(ctx, sessionID, true)
+
+	// Kill tmux session to free resources
+	err := h.tmux.KillSessionOnly(ctx, sess.AgentName, sess.AgentType, sessionID)
+	if err != nil {
+		log.Printf("Failed to kill tmux for session %s during sleep: %v", sessionID[:8], err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sleeping": true})
+}
+
+// WakeSession wakes a single sleeping agent.
+// POST /api/sessions/live/{sessionID}/wake
+func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	ctx := r.Context()
+
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+	var sess *store.LiveSession
+	for i := range allLive {
+		if allLive[i].SessionID == sessionID {
+			sess = &allLive[i]
+			break
+		}
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session not found"})
+		return
+	}
+	if sess.IsSleeping != 1 {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session is not sleeping"})
+		return
+	}
+
+	flags := store.ParseFlags(sess.Flags)
+	prompt := derefStrPtr(sess.Prompt)
+	bn := derefStrPtr(sess.BoardName)
+	bs := derefStrPtr(sess.BoardServer)
+	bk := "tmux"
+	if sess.Backend != nil {
+		bk = *sess.Backend
+	}
+	dn := derefStrPtr(sess.DisplayName)
+
+	result, err := h.launchSession(ctx, sess.WorkingDir, sess.AgentType, dn,
+		"", flags, prompt, bn, bs, bk)
+	if err != nil {
+		log.Printf("Failed to wake session %s: %v", sessionID[:8], err)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Failed to relaunch session"})
+		return
+	}
+
+	h.ss.SetSessionSleeping(ctx, sessionID, false)
+
+	// Transfer board subscription cursor and re-subscribe
+	if bn != "" {
+		newSessionID := result["session_id"].(string)
+		newSessionName := result["session_name"].(string)
+		oldSessionName := fmt.Sprintf("%s-%s", sess.AgentType, sessionID)
+		if h.bs != nil && oldSessionName != newSessionName {
+			if err := h.bs.TransferSubscription(ctx, bn, oldSessionName, newSessionName); err != nil {
+				log.Printf("Failed to transfer board subscription cursor: %v", err)
+			}
+		}
+		go h.setupBoardAndPrompt(newSessionID, newSessionName, sess.AgentType, bn, dn)
+
+		// Unpause the board if this agent was on one
+		if h.boardHandler != nil {
+			h.boardHandler.SetPaused(bn, false)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sleeping": false})
+}
+
+// ── Bulk Sleep/Wake All ─────────────────────────────────────────────────
+
+// SleepAll puts all active agents to sleep.
+// POST /api/sessions/live/sleep-all
+func (h *SessionsHandler) SleepAll(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+
+	var active []store.LiveSession
+	for _, ls := range allLive {
+		if ls.IsSleeping != 1 {
+			active = append(active, ls)
+		}
+	}
+	if len(active) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sessions_affected": 0})
+		return
+	}
+
+	boards := map[string]bool{}
+	killed := 0
+	for _, ls := range active {
+		h.ss.SetSessionSleeping(ctx, ls.SessionID, true)
+		if ls.BoardName != nil && *ls.BoardName != "" {
+			boards[*ls.BoardName] = true
+		}
+		err := h.tmux.KillSessionOnly(ctx, ls.AgentName, ls.AgentType, ls.SessionID)
+		if err == nil {
+			killed++
+		} else {
+			log.Printf("Failed to kill tmux for session %s during sleep-all: %v", ls.SessionID[:8], err)
+		}
+	}
+
+	// Pause all affected boards
+	if h.boardHandler != nil {
+		for b := range boards {
+			h.boardHandler.SetPaused(b, true)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                true,
+		"sessions_affected": len(active),
+		"sessions_killed":   killed,
+	})
+}
+
+// WakeAll wakes all sleeping agents.
+// POST /api/sessions/live/wake-all
+func (h *SessionsHandler) WakeAll(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+
+	var sleeping []store.LiveSession
+	for _, ls := range allLive {
+		if ls.IsSleeping == 1 {
+			sleeping = append(sleeping, ls)
+		}
+	}
+	if len(sleeping) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sessions_relaunched": 0})
+		return
+	}
+
+	boards := map[string]bool{}
+	relaunched := 0
+	for _, ls := range sleeping {
+		flags := store.ParseFlags(ls.Flags)
+		prompt := derefStrPtr(ls.Prompt)
+		bn := derefStrPtr(ls.BoardName)
+		bs := derefStrPtr(ls.BoardServer)
+		bk := "tmux"
+		if ls.Backend != nil {
+			bk = *ls.Backend
+		}
+		dn := derefStrPtr(ls.DisplayName)
+
+		result, err := h.launchSession(ctx, ls.WorkingDir, ls.AgentType, dn,
+			"", flags, prompt, bn, bs, bk)
+		if err != nil {
+			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
+			continue
+		}
+		relaunched++
+		h.ss.SetSessionSleeping(ctx, ls.SessionID, false)
+
+		if bn != "" {
+			newSessionID := result["session_id"].(string)
+			newSessionName := result["session_name"].(string)
+			oldSessionName := fmt.Sprintf("%s-%s", ls.AgentType, ls.SessionID)
+			if h.bs != nil && oldSessionName != newSessionName {
+				if err := h.bs.TransferSubscription(ctx, bn, oldSessionName, newSessionName); err != nil {
+					log.Printf("Failed to transfer board subscription cursor: %v", err)
+				}
+			}
+			go h.setupBoardAndPrompt(newSessionID, newSessionName, ls.AgentType, bn, dn)
+			boards[bn] = true
+		}
+	}
+
+	// Unpause affected boards
+	if h.boardHandler != nil {
+		for b := range boards {
+			h.boardHandler.SetPaused(b, false)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sessions_relaunched": relaunched})
 }
