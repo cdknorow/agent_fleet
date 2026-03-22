@@ -963,8 +963,27 @@ function _attachDragListeners(list) {
             ids.splice(fromIdx, 1);
             ids.splice(toIdx, 0, _draggedSid);
 
+            // Save all session IDs in current DOM order (preserves other groups)
+            const allItems = [...list.querySelectorAll(".session-group-item")];
+            const allIds = allItems.map(el => el.dataset.sessionId);
+            // Replace the current group's IDs with the reordered ones
+            const groupSet = new Set(ids);
+            const merged = [];
+            let groupInserted = false;
+            for (const sid of allIds) {
+                if (groupSet.has(sid)) {
+                    if (!groupInserted) {
+                        merged.push(...ids);
+                        groupInserted = true;
+                    }
+                } else {
+                    merged.push(sid);
+                }
+            }
+            if (!groupInserted) merged.push(...ids);
+
             // Save and re-render
-            _saveSessionOrder(ids);
+            _saveSessionOrder(merged);
             renderLiveSessions(state.liveSessions);
         });
     }
