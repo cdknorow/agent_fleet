@@ -145,10 +145,9 @@
     margin-left: 40px;
 }
 
-/* Sleeping agent in sidebar — dim content but keep kebab menu at full opacity */
-.session-group-item.sleeping .session-dot,
+/* Sleeping agent in sidebar — muted text, no opacity (preserves kebab menu) */
 .session-group-item.sleeping .session-info {
-    opacity: 0.5;
+    color: var(--text-muted);
 }
 
 /* Message board — container spacing and max-width */
