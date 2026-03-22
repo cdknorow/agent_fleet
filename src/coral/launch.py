@@ -7,6 +7,21 @@ from pathlib import Path
 
 
 def main():
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Usage: launch-coral [TARGET_DIR] [AGENT_TYPE] [--data-dir DIR]")
+        print()
+        print("Launch Claude/Gemini agents and the Coral web dashboard for all")
+        print("git worktrees found under TARGET_DIR.")
+        print()
+        print("Arguments:")
+        print("  TARGET_DIR   Root directory containing git worktrees (default: .)")
+        print("  AGENT_TYPE   Agent type to launch: claude or gemini (default: claude)")
+        print()
+        print("Options:")
+        print("  --data-dir DIR   Directory for Coral data (default: ~/.coral)")
+        print("  -h, --help       Show this help message")
+        sys.exit(0)
+
     if not shutil.which("tmux"):
         print("Error: tmux is not installed. Coral requires tmux for agent management.", file=sys.stderr)
         print("", file=sys.stderr)

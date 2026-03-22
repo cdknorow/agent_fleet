@@ -23,11 +23,11 @@ WEB_PORT="${CORAL_PORT:-8420}"
 
 # Launch the web server in a dedicated tmux session
 launch_web_server() {
-    local cmd="python3 $WEB_SERVER_PATH --port $WEB_PORT"
+    local cmd="python3 $WEB_SERVER_PATH --host 127.0.0.1 --port $WEB_PORT"
 
     # Prefer the installed entry point
     if command -v coral &>/dev/null; then
-        cmd="coral --no-browser --port $WEB_PORT"
+        cmd="coral --no-browser --host 127.0.0.1 --port $WEB_PORT"
     elif [ ! -f "$WEB_SERVER_PATH" ]; then
         echo "  [!] Web server skip: web_server.py not found and coral not in PATH."
         return 1

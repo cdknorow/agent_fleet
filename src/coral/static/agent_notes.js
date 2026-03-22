@@ -47,7 +47,8 @@ function renderMarkdown() {
     if (!_lastSaved.trim()) {
         rendered.innerHTML = '<div class="note-md-placeholder">Click to add notes...</div>';
     } else if (typeof marked !== 'undefined') {
-        rendered.innerHTML = marked.parse(_lastSaved);
+        const html = marked.parse(_lastSaved);
+        rendered.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
     } else {
         rendered.textContent = _lastSaved;
     }

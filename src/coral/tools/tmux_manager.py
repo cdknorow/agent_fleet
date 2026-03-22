@@ -414,32 +414,40 @@ async def open_terminal_attached(
         return f"Pane '{agent_name}' not found in any tmux session"
 
     session_name = pane["session_name"]
-    attach_cmd = f"tmux attach -t {session_name}"
+    # Sanitize session_name to prevent injection — allow only alphanumeric, dash, underscore
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9_-]+", session_name):
+        return f"Invalid session name: {session_name!r}"
 
     try:
         if platform.system() == "Darwin":
             # macOS: use osascript to open Terminal.app
+            # Pass session name as a separate argument to avoid AppleScript injection
             script = (
-                f'tell application "Terminal"\n'
-                f'    activate\n'
-                f'    do script "{attach_cmd}"\n'
-                f'end tell'
+                'on run argv\n'
+                '    set sessName to item 1 of argv\n'
+                '    tell application "Terminal"\n'
+                '        activate\n'
+                '        do script "tmux attach -t " & quoted form of sessName\n'
+                '    end tell\n'
+                'end run'
             )
             rc, _, stderr = await run_cmd(
-                "osascript", "-e", script
+                "osascript", "-e", script, session_name
             )
             if rc != 0:
                 return f"osascript failed: {stderr}"
         else:
             # Linux: try common terminal emulators
+            # Use exec to avoid bash -c injection — tmux attach takes -t as a flag
             for term in ("gnome-terminal", "xfce4-terminal", "konsole", "xterm"):
                 if shutil.which(term):
                     if term == "gnome-terminal":
-                        args = [term, "--", "bash", "-c", attach_cmd]
+                        args = [term, "--", "tmux", "attach", "-t", session_name]
                     elif term == "konsole":
-                        args = [term, "-e", "bash", "-c", attach_cmd]
+                        args = [term, "-e", "tmux", "attach", "-t", session_name]
                     else:
-                        args = [term, "-e", attach_cmd]
+                        args = [term, "-e", "tmux", "attach", "-t", session_name]
                     asyncio.create_task(run_cmd(*args))
                     # Don't wait — terminal runs independently
                     return None

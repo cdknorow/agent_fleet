@@ -38,6 +38,12 @@ class DatabaseManager:
                 return self._conn
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = await aiosqlite.connect(str(self._db_path))
+            # Restrict database file permissions to owner-only
+            try:
+                import os as _os
+                _os.chmod(self._db_path, 0o600)
+            except OSError:
+                pass
             conn.row_factory = aiosqlite.Row
             await conn.execute("PRAGMA journal_mode=WAL")
             await conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")

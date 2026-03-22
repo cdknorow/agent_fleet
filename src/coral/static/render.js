@@ -1036,7 +1036,8 @@ export function renderHistoryChat(messages) {
             messageHtml = escapeHtml(content);
         } else {
             const cleaned = stripPulseLines(content);
-            messageHtml = marked.parse(cleaned);
+            const rawHtml = marked.parse(cleaned);
+            messageHtml = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
         }
 
         bubble.innerHTML = `

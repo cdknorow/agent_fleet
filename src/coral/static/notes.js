@@ -103,7 +103,8 @@ function renderNotes(data) {
     }
 
     try {
-        container.innerHTML = label + marked.parse(content);
+        const html = marked.parse(content);
+        container.innerHTML = label + (typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html);
     } catch (e) {
         // Fallback if marked.js didn't load
         container.innerHTML = label + '<pre>' + content.replace(/</g, '&lt;') + '</pre>';

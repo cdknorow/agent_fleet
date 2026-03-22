@@ -84,16 +84,21 @@ class GeminiAgent(BaseAgent):
         if protocol_path and protocol_path.exists():
             if board_prompt:
                 import tempfile
+                import os
                 combined = protocol_path.read_text() + "\n\n" + board_prompt
                 tmp = Path(tempfile.gettempdir()) / f"coral_gemini_system_{session_id}.md"
-                tmp.write_text(combined)
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(combined)
                 cmd = f'GEMINI_SYSTEM_MD="{tmp}" gemini'
             else:
                 cmd = f'GEMINI_SYSTEM_MD="{protocol_path}" gemini'
         elif board_prompt:
-            import tempfile
+            import tempfile, os
             tmp = Path(tempfile.gettempdir()) / f"coral_gemini_system_{session_id}.md"
-            tmp.write_text(board_prompt)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(board_prompt)
             cmd = f'GEMINI_SYSTEM_MD="{tmp}" gemini'
         else:
             cmd = "gemini"

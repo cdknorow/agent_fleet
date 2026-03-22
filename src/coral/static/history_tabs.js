@@ -326,7 +326,8 @@ function renderHistoryAgentNotes() {
 
     const md = historyAgentNotes.map(n => n.content).join('\n\n');
     if (typeof marked !== 'undefined') {
-        container.innerHTML = marked.parse(md);
+        const html = marked.parse(md);
+        container.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
     } else {
         container.textContent = md;
     }

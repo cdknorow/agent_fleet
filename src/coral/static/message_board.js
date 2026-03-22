@@ -218,7 +218,8 @@ function _renderMarkdown(content) {
     if (!content) return '';
     if (typeof marked !== 'undefined') {
         try {
-            return marked.parse(content);
+            const html = marked.parse(content);
+            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
         } catch (e) {
             console.warn('marked.parse() failed, falling back to escapeHtml:', e);
         }
