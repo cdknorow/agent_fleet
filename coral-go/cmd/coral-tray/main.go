@@ -50,6 +50,9 @@ const (
 var version = "dev"
 
 func main() {
+	// macOS requires Cocoa calls on the main thread
+	runtime.LockOSThread()
+
 	host := flag.String("host", "0.0.0.0", "Host to bind to")
 	port := flag.Int("port", 8420, "Port to bind to")
 	homeDir := flag.String("home", "", "Home directory for Coral")
@@ -138,6 +141,14 @@ func main() {
 }
 
 func runForeground(host string, port int, noBrowser, devMode bool, backendType, dataDir string) {
+	// Setup log file FIRST — when launched from .app there's no terminal,
+	// so log.Fatalf messages would disappear silently without this.
+	logFile := filepath.Join(dataDir, "tray.log")
+	if lf, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		log.SetOutput(lf)
+	}
+	log.Println("coral-tray starting in foreground mode")
+
 	// Write PID
 	writePID(dataDir)
 	defer removePID(dataDir)
