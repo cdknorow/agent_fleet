@@ -132,6 +132,39 @@ export function initCommandPaneResize() {
     });
 }
 
+/* Board chat input pane resize */
+
+export function initBoardChatResize() {
+    // Use event delegation since the board chat is dynamically created
+    document.addEventListener("mousedown", (e) => {
+        if (!e.target.classList.contains("board-chat-resize-handle")) return;
+        e.preventDefault();
+        const pane = e.target.closest(".board-chat-input-pane");
+        if (!pane) return;
+        const handle = e.target;
+        handle.style.background = "var(--accent)";
+        document.body.style.cursor = "row-resize";
+        document.body.style.userSelect = "none";
+
+        const onMove = (ev) => {
+            const rect = pane.parentElement.getBoundingClientRect();
+            const newHeight = rect.bottom - ev.clientY;
+            const clamped = Math.min(Math.max(newHeight, 80), rect.height * 0.6);
+            pane.style.height = clamped + "px";
+        };
+        const onUp = () => {
+            handle.style.background = "";
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+            localStorage.setItem('coral-boardchat-height', pane.offsetHeight);
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    });
+}
+
 /* Collapsible sidebar sections */
 
 const STORAGE_KEY = 'coral-sidebar-collapsed';

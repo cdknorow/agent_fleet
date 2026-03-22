@@ -39,6 +39,15 @@
     flex-direction: row;
 }
 
+/* Layout swap disabled for now — may revisit later
+.live-body.layout-team .live-left-column {
+    order: 2;
+}
+.live-body.layout-team .agentic-state {
+    order: 1;
+}
+*/
+
 .live-left-column {
     flex: 1;
     display: flex;

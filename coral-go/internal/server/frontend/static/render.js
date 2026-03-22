@@ -96,29 +96,75 @@ function _setBoardColor(boardName, color) {
     } catch { /* ignore */ }
 }
 
+const _colorSwatches = [
+    '#81a1c1', '#a3be8c', '#b48ead', '#d08770', '#bf616a',
+    '#88c0d0', '#ebcb8b', '#8fbcbb', '#58a6ff', '#f778ba',
+    '#7ee787', '#ffa657', '#ff7b72', '#d2a8ff', '#79c0ff',
+    '#e6edf3', '#8b949e', '#484f58',
+];
+
 export function setBoardAccentColor(boardName) {
-    console.log('[coral] setBoardAccentColor called for:', boardName);
+    // Remove any existing picker
+    const existing = document.getElementById('board-color-picker');
+    if (existing) { existing.remove(); return; }
+
     const current = _getBoardColor(boardName) || '#58a6ff';
-    const input = document.createElement('input');
-    input.type = 'color';
-    input.value = current;
-    // Append to DOM — some browsers (WebKit webview) won't open the picker
-    // for detached elements.
-    input.style.position = 'fixed';
-    input.style.top = '-100px';
-    input.style.opacity = '0';
-    document.body.appendChild(input);
-    const apply = () => {
-        console.log('[coral] color picked:', input.value, 'for:', boardName);
-        _setBoardColor(boardName, input.value);
+    const picker = document.createElement('div');
+    picker.id = 'board-color-picker';
+    picker.className = 'color-picker-popover';
+    picker.innerHTML = `
+        <div class="color-picker-swatches">
+            ${_colorSwatches.map(c =>
+                `<button class="color-swatch${c === current ? ' active' : ''}" style="background:${c}" data-color="${c}" title="${c}"></button>`
+            ).join('')}
+        </div>
+        <div class="color-picker-custom">
+            <input type="text" class="color-picker-hex" value="${current}" placeholder="#hex" maxlength="7">
+            <button class="btn btn-small color-picker-apply">Apply</button>
+            <button class="btn btn-small color-picker-reset">Reset</button>
+        </div>
+    `;
+    document.body.appendChild(picker);
+
+    // Position near the clicked element
+    const rect = event?.target?.getBoundingClientRect();
+    if (rect) {
+        picker.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+        picker.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+    }
+
+    const apply = (color) => {
+        _setBoardColor(boardName, color);
         renderLiveSessions(state.liveSessions);
+        picker.remove();
     };
-    const cleanup = () => {
-        input.remove();
-    };
-    input.addEventListener('input', apply);
-    input.addEventListener('change', () => { apply(); cleanup(); });
-    input.click();
+
+    // Swatch clicks
+    picker.querySelectorAll('.color-swatch').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); apply(btn.dataset.color); });
+    });
+
+    // Custom hex apply
+    picker.querySelector('.color-picker-apply').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hex = picker.querySelector('.color-picker-hex').value.trim();
+        if (/^#[0-9a-fA-F]{6}$/.test(hex)) apply(hex);
+    });
+
+    // Reset
+    picker.querySelector('.color-picker-reset').addEventListener('click', (e) => {
+        e.stopPropagation();
+        _setBoardColor(boardName, null);
+        renderLiveSessions(state.liveSessions);
+        picker.remove();
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', function handler(e) {
+            if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', handler); }
+        });
+    }, 0);
 }
 
 // ── Board Chat (right-panel tab) ──────────────────────────────────────
@@ -132,20 +178,52 @@ export function showBoardChatTab(boardName) {
     const panel = document.getElementById('agentic-panel-board');
     if (!panel) return;
 
-    // Show the board tab
-    panel.style.display = '';
+    // Populate the board tab content (visibility managed by switchAgenticTab)
     panel.innerHTML = `
-        <div class="board-chat-header">${escapeHtml(boardName)}</div>
+        <div class="board-chat-header">
+            <span class="board-chat-title">${escapeHtml(boardName)}</span>
+            <span class="board-chat-actions">
+                <button class="board-chat-action-btn" id="board-pause-btn" onclick="window._toggleBoardPause('${escapeAttr(boardName)}')" title="Pause/Resume board">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
+                </button>
+                <button class="board-chat-action-btn board-chat-danger" onclick="window._clearBoardMessages('${escapeAttr(boardName)}')" title="Clear all messages">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                </button>
+            </span>
+        </div>
         <div class="board-chat-messages" id="board-panel-msgs"></div>
-        <div class="board-chat-input-row">
-            <input type="text" class="board-chat-input" id="board-panel-input" placeholder="Message the team..."
-                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._sendBoardChat('${escapeAttr(boardName)}')}">
-            <button class="board-chat-send" onclick="window._sendBoardChat('${escapeAttr(boardName)}')">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="8" x2="14" y2="8"/><polyline points="9 3 14 8 9 13"/></svg>
-            </button>
+        <div class="board-chat-input-pane" id="board-chat-input-pane">
+            <div class="board-chat-resize-handle" id="board-chat-resize-handle"></div>
+            <div class="command-pane-toolbar board-chat-toolbar">
+                <div class="toolbar-group">
+                    <button class="btn-nav" onclick="const i=document.getElementById('board-panel-input');if(i){i.value='@all '+i.value;i.focus()}" title="Notify all agents">@all</button>
+                </div>
+                <span class="toolbar-spacer"></span>
+                <div class="toolbar-group">
+                    <span class="board-chat-hint">Ctrl+Enter to send</span>
+                    <button class="btn-nav" onclick="window._sendBoardChat('${escapeAttr(boardName)}')" title="Send message">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="8" x2="14" y2="8"/><polyline points="9 3 14 8 9 13"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="board-chat-editor-wrap">
+                <textarea class="board-chat-textarea" id="board-panel-input" placeholder="Message the team... (@ to mention)"
+                    onkeydown="if(event.key==='Enter'&&event.ctrlKey){event.preventDefault();window._sendBoardChat('${escapeAttr(boardName)}')}"
+                    oninput="window._boardMentionInput(event, '${escapeAttr(boardName)}')"></textarea>
+                <div class="board-mention-dropdown" id="board-mention-dropdown" style="display:none"></div>
+            </div>
         </div>`;
 
+    // Restore saved input pane height
+    const savedH = localStorage.getItem('coral-boardchat-height');
+    if (savedH) {
+        const pane = document.getElementById('board-chat-input-pane');
+        const h = parseInt(savedH, 10);
+        if (pane && h >= 80) pane.style.height = h + 'px';
+    }
+
     _loadBoardPanelChat(boardName);
+    _checkBoardPauseState(boardName);
     // Start polling
     if (_boardChatTimer) clearInterval(_boardChatTimer);
     _boardChatTimer = setInterval(() => _loadBoardPanelChat(boardName), 3000);
@@ -155,7 +233,7 @@ export function hideBoardChatTab() {
     _activeBoardChat = null;
     if (_boardChatTimer) { clearInterval(_boardChatTimer); _boardChatTimer = null; }
     const panel = document.getElementById('agentic-panel-board');
-    if (panel) panel.style.display = 'none';
+    if (panel) panel.innerHTML = '';
 }
 
 // Agent colors for board chat (same palette as message_board.js)
@@ -241,6 +319,91 @@ async function _sendBoardChat(boardName) {
     } catch { /* ignore */ }
 }
 window._sendBoardChat = _sendBoardChat;
+
+async function _toggleBoardPause(boardName) {
+    const btn = document.getElementById('board-pause-btn');
+    const isPaused = btn?.classList.contains('paused');
+    const endpoint = isPaused ? 'resume' : 'pause';
+    try {
+        await fetch(`/api/board/${encodeURIComponent(boardName)}/${endpoint}`, { method: 'POST' });
+        if (btn) btn.classList.toggle('paused');
+        showToast(isPaused ? `Board "${boardName}" resumed` : `Board "${boardName}" paused`);
+    } catch { /* ignore */ }
+}
+window._toggleBoardPause = _toggleBoardPause;
+
+async function _checkBoardPauseState(boardName) {
+    try {
+        const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/paused`);
+        const data = await resp.json();
+        const btn = document.getElementById('board-pause-btn');
+        if (btn && data.paused) btn.classList.add('paused');
+    } catch { /* ignore */ }
+}
+
+async function _clearBoardMessages(boardName) {
+    if (!confirm(`Clear all messages from "${boardName}"? This cannot be undone.`)) return;
+    try {
+        await fetch(`/api/board/${encodeURIComponent(boardName)}`, { method: 'DELETE' });
+        _boardChatLastId[boardName] = null;
+        _loadBoardPanelChat(boardName);
+        showToast(`Cleared messages from "${boardName}"`);
+    } catch { /* ignore */ }
+}
+window._clearBoardMessages = _clearBoardMessages;
+
+// Board chat @mention autocomplete
+let _boardSubscribers = {};
+async function _boardMentionInput(event, boardName) {
+    const input = event.target;
+    const text = input.value;
+    const cursor = input.selectionStart;
+    const beforeCursor = text.slice(0, cursor);
+    const dropdown = document.getElementById('board-mention-dropdown');
+    if (!dropdown) return;
+
+    // Find @ trigger
+    const atMatch = beforeCursor.match(/@(\w*)$/);
+    if (!atMatch) { dropdown.style.display = 'none'; return; }
+    const query = atMatch[1].toLowerCase();
+
+    // Fetch subscribers if not cached
+    if (!_boardSubscribers[boardName]) {
+        try {
+            const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/subscribers`);
+            _boardSubscribers[boardName] = await resp.json();
+        } catch { _boardSubscribers[boardName] = []; }
+    }
+
+    const subs = (_boardSubscribers[boardName] || [])
+        .map(s => s.job_title || s.session_id || 'unknown')
+        .filter(name => name.toLowerCase().includes(query));
+
+    if (subs.length === 0) { dropdown.style.display = 'none'; return; }
+
+    dropdown.innerHTML = subs.map(name =>
+        `<div class="board-mention-item" onmousedown="event.preventDefault(); window._insertBoardMention('${escapeAttr(name)}')">${escapeHtml(name)}</div>`
+    ).join('');
+    dropdown.style.display = 'block';
+}
+window._boardMentionInput = _boardMentionInput;
+
+function _insertBoardMention(name) {
+    const input = document.getElementById('board-panel-input');
+    const dropdown = document.getElementById('board-mention-dropdown');
+    if (!input) return;
+    const text = input.value;
+    const cursor = input.selectionStart;
+    const beforeCursor = text.slice(0, cursor);
+    const atIdx = beforeCursor.lastIndexOf('@');
+    if (atIdx === -1) return;
+    const after = text.slice(cursor);
+    input.value = beforeCursor.slice(0, atIdx) + '@' + name + ' ' + after;
+    input.selectionStart = input.selectionEnd = atIdx + name.length + 2;
+    input.focus();
+    if (dropdown) dropdown.style.display = 'none';
+}
+window._insertBoardMention = _insertBoardMention;
 
 // ── Session ordering ──────────────────────────────────────────────────
 
@@ -791,6 +954,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
             </div>
             <span class="session-goal${isCompact ? ' session-goal-compact' : ''}">${goal}</span>
             ${branchTag}
+            ${isActive && s.status ? `<span class="session-inline-status">${escapeHtml(s.status)}</span>` : ''}
         </div>
         <div class="session-tooltip">${tooltip}</div>
     </li>`;

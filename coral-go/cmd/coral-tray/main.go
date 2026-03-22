@@ -345,7 +345,11 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 			}
 		}()
 	}, func() {
-		// onExit — ensure server is stopped even if quit path missed it
+		// onExit — kill coral-app subprocess and stop server
+		if coralAppProcess != nil {
+			coralAppProcess.Signal(syscall.SIGTERM)
+			coralAppProcess = nil
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		httpServer.Shutdown(shutdownCtx)

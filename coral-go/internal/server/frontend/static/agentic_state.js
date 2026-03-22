@@ -433,14 +433,14 @@ export function switchAgenticTab(tabName, blockId) {
 
 /** Restore persisted tab selection on page load. */
 export function restoreAgenticTabs() {
-    for (const blockId of ['top', 'bottom']) {
-        const saved = localStorage.getItem(`coral-agentic-tab-${blockId}`);
-        if (saved) {
-            const tab = document.getElementById(`agentic-tab-${saved}`);
-            // Only restore if the tab exists and is visible
-            if (tab && tab.style.display !== 'none') {
-                switchAgenticTab(saved, blockId);
-            }
+    // Only restore for the single unified top block
+    const saved = localStorage.getItem('coral-agentic-tab-top');
+    if (saved) {
+        const tab = document.getElementById(`agentic-tab-${saved}`);
+        if (tab && tab.style.display !== 'none') {
+            switchAgenticTab(saved, 'top');
         }
     }
+    // Clean up stale bottom block preference
+    localStorage.removeItem('coral-agentic-tab-bottom');
 }

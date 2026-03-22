@@ -127,12 +127,12 @@
                                     <span class="material-icons">checklist</span>
                                     <span class="agentic-tab-count" id="task-bar-count"></span>
                                 </button>
-                                <button class="agentic-tab" onclick="switchAgenticTab('stats', 'top')" id="agentic-tab-stats" title="Stats" aria-label="Stats">
-                                    <span class="material-icons">bar_chart</span>
-                                </button>
                                 <button class="agentic-tab" onclick="switchAgenticTab('notes', 'top')" id="agentic-tab-notes" title="Notes" aria-label="Notes">
                                     <span class="material-icons">edit_note</span>
                                     <span class="agentic-tab-count" id="note-bar-count"></span>
+                                </button>
+                                <button class="agentic-tab" onclick="switchAgenticTab('activity', 'top')" id="agentic-tab-activity" title="Activity" aria-label="Activity">
+                                    <span class="material-icons">timeline</span>
                                 </button>
                             </div>
                             <!-- Files tab -->
@@ -151,10 +151,6 @@
                                     <div class="task-empty">No tasks yet</div>
                                 </div>
                             </div>
-                            <!-- Stats tab -->
-                            <div id="agentic-panel-stats" class="agentic-panel">
-                                <div id="live-activity-chart" class="activity-chart"></div>
-                            </div>
                             <!-- History/Chat tab -->
                             <div id="agentic-panel-history" class="agentic-panel">
                                 <div id="live-history-messages" class="chat-messages live-history-panel"></div>
@@ -167,15 +163,11 @@
                                 <textarea id="note-md-editor" class="note-md-editor" placeholder="Write notes in markdown..." style="display:none"></textarea>
                             </div>
                             <!-- Board chat panel -->
-                            <div id="agentic-panel-board" class="agentic-panel" style="display:none"></div>
-                        </div>
-                        <div class="agentic-block-resize-handle" id="agentic-block-resize-handle"></div>
-                        <!-- Bottom block: Activity (always visible, no tabs) -->
-                        <div class="agentic-block" id="agentic-block-bottom">
-                            <div class="agentic-block-header">
+                            <div id="agentic-panel-board" class="agentic-panel"></div>
+                            <!-- Activity panel (includes stats chart + event log) -->
+                            <div id="agentic-panel-activity" class="agentic-panel">
+                                <div id="live-activity-chart" class="activity-chart" style="flex-shrink:0;max-height:100px"></div>
                                 <div class="event-filter-bar" id="event-filters"></div>
-                            </div>
-                            <div id="agentic-panel-activity" class="agentic-panel active">
                                 <div class="agentic-events-body">
                                     <div id="agentic-state-events">
                                         <div class="event-empty">No activity yet</div>
