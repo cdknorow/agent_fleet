@@ -165,7 +165,16 @@ func runForeground(host string, port int, noBrowser, devMode bool, backendType, 
 
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Printf("Failed to open database: %v", err)
+		beeep.Notify("Coral", "Failed to open database: "+err.Error(), "")
+		// Still launch tray so user sees the error
+		systray.Run(func() {
+			systray.SetTemplateIcon(iconData, iconData)
+			systray.SetTooltip("Coral — Error")
+			mQuit := systray.AddMenuItem("Quit", "Exit Coral")
+			go func() { <-mQuit.ClickedCh; systray.Quit() }()
+		}, func() {})
+		return
 	}
 	defer db.Close()
 
@@ -257,7 +266,8 @@ func runForeground(host string, port int, noBrowser, devMode bool, backendType, 
 	go func() {
 		log.Printf("Coral dashboard: http://localhost:%d", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			log.Printf("Server error: %v", err)
+			beeep.Notify("Coral", "Server failed to start: "+err.Error(), "")
 		}
 	}()
 
