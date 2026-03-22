@@ -2,6 +2,7 @@
 
 import { state } from './state.js';
 import { sendRawKeys } from './controls.js';
+import { dbg } from './utils.js';
 
 let terminal = null;
 let fitAddon = null;
@@ -145,6 +146,7 @@ function _flushPending() {
 }
 
 export function createTerminal(containerEl) {
+    dbg('createTerminal called, existing terminal:', !!terminal);
     if (terminal) {
         disposeTerminal();
     }
@@ -307,12 +309,14 @@ export function createTerminal(containerEl) {
 }
 
 export function connectTerminalWs(name, agentType, sessionId) {
+    dbg('connectTerminalWs', { name, agentType, sessionId, currentConnected: _connectedSessionId });
     // Always reset scroll-pause state when switching to a session so the
     // terminal renders immediately instead of buffering into the void.
     resumeScroll();
 
     // Skip if already connected to this exact session
     if (_connectedSessionId === sessionId && terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+        dbg('connectTerminalWs: already connected, skipping');
         return;
     }
 
@@ -335,6 +339,7 @@ export function connectTerminalWs(name, agentType, sessionId) {
     );
 
     terminalWs.onopen = () => {
+        dbg('terminalWs OPEN', { sessionId, url: terminalWs.url });
         _setDisconnectedBadge(false);
         // Flush any input queued while disconnected
         if (_inputQueue.length > 0) {
@@ -391,7 +396,8 @@ export function connectTerminalWs(name, agentType, sessionId) {
         }
     };
 
-    terminalWs.onclose = () => {
+    terminalWs.onclose = (ev) => {
+        dbg('terminalWs CLOSE', { code: ev.code, reason: ev.reason, sessionId, generation: myGeneration, current: _wsGeneration, paneClosed: _paneClosed });
         // Don't reconnect if the server told us the pane is gone.
         if (_paneClosed) return;
 
@@ -421,6 +427,7 @@ export function connectTerminalWs(name, agentType, sessionId) {
 }
 
 export function disconnectTerminalWs() {
+    dbg('disconnectTerminalWs', { hadWs: !!terminalWs, connectedSession: _connectedSessionId });
     // Bump generation BEFORE closing so the old onclose handler is suppressed
     _wsGeneration++;
     _connectedSessionId = null;
@@ -433,6 +440,7 @@ export function disconnectTerminalWs() {
 }
 
 export function disposeTerminal() {
+    dbg('disposeTerminal', { hadTerminal: !!terminal });
     disconnectTerminalWs();
     if (_selectionDisposable) {
         _selectionDisposable.dispose();
