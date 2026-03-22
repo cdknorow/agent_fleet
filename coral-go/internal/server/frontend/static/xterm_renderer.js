@@ -146,15 +146,27 @@ function _flushPending() {
     }
 }
 
+/** Reuse the existing terminal if possible — just disconnect WS and clear buffer.
+ *  Destroying and recreating the xterm canvas causes blank renders in macOS
+ *  WebKit webview (webview_go). Only create a new Terminal when none exists. */
 export function createTerminal(containerEl) {
     dbg('createTerminal called, existing terminal:', !!terminal);
-    if (terminal) {
-        disposeTerminal();
-    }
 
     if (typeof Terminal === 'undefined') {
         console.warn('xterm.js not loaded, falling back to semantic renderer');
         return null;
+    }
+
+    // Reuse existing terminal — just disconnect WS and clear the buffer
+    if (terminal) {
+        disconnectTerminalWs();
+        terminal.clear();
+        terminal.reset();
+        dbg('createTerminal: reusing existing terminal, cleared buffer');
+        if (fitAddon) {
+            requestAnimationFrame(() => { if (fitAddon) fitAddon.fit(); });
+        }
+        return terminal;
     }
 
     const scrollback = parseInt((state.settings || {}).terminal_scrollback, 10) || 1000;
@@ -280,6 +292,8 @@ export function createTerminal(containerEl) {
     });
 
     terminal.open(containerEl);
+    dbg('terminal.open() done, container:', containerEl.offsetWidth, 'x', containerEl.offsetHeight,
+        'display:', containerEl.style.display, 'cols:', terminal.cols, 'rows:', terminal.rows);
 
     // Defer fit() to allow the layout engine to settle. In macOS WebKit
     // webview (used by coral-app), synchronous fit() right after open()
@@ -287,7 +301,11 @@ export function createTerminal(containerEl) {
     // Using rAF + a small fallback timeout ensures the terminal gets sized
     // correctly in both browsers and embedded webviews.
     requestAnimationFrame(() => {
-        if (fitAddon) fitAddon.fit();
+        if (fitAddon) {
+            fitAddon.fit();
+            dbg('rAF fit() done, cols:', terminal?.cols, 'rows:', terminal?.rows,
+                'container:', containerEl.offsetWidth, 'x', containerEl.offsetHeight);
+        }
     });
 
     // ResizeObserver catches layout changes that rAF misses (e.g. when the
@@ -373,8 +391,15 @@ export function connectTerminalWs(name, agentType, sessionId) {
         }
     };
 
+    let _msgCount = 0;
     terminalWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        _msgCount++;
+        if (_msgCount <= 3 || _msgCount % 50 === 0) {
+            dbg('terminalWs msg #' + _msgCount, { type: data.type, hasTerminal: !!terminal,
+                dataLen: (data.data || data.content || '').length,
+                cols: terminal?.cols, rows: terminal?.rows });
+        }
         if (data.type === "terminal_closed") {
             // Server reports the tmux pane is gone (agent killed/done).
             // Show a session-ended overlay with restart button.

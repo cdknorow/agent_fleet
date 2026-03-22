@@ -122,14 +122,12 @@ export async function selectLiveSession(name, agentType, sessionId) {
         document.getElementById("pane-capture").style.display = "none";
         const container = document.getElementById("xterm-container");
         container.style.display = "flex";
-        container.innerHTML = "";
+        // Don't clear innerHTML — createTerminal reuses the existing xterm
+        // instance to avoid canvas recreation issues in WebKit webview
         createTerminal(container);
         const tmuxName = agentData ? (agentData.tmux_session || name) : name;
         dbg('terminal WS using tmux_session:', tmuxName, '(agent name:', name, ')');
         connectTerminalWs(tmuxName, agentType, sessionId);
-        // Extra deferred fit for WebKit webview where layout settles late
-        setTimeout(fitTerminal, 50);
-        setTimeout(fitTerminal, 200);
     } else {
         dbg('switching to capture mode, disposing terminal');
         document.getElementById("xterm-container").style.display = "none";
