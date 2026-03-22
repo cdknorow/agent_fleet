@@ -892,7 +892,7 @@ function _loadTeamTemplate(name) {
     document.getElementById("team-agents-list").innerHTML = "";
 
     for (const agent of tmpl.agents) {
-        _addTeamAgent(agent.name, agent.prompt);
+        _addTeamAgent(agent.name, agent.prompt, agent.capabilities);
     }
     if (tmpl.flags) {
         document.getElementById("team-flags").value = tmpl.flags;
@@ -911,7 +911,15 @@ async function _saveTeamTemplate() {
     for (const row of rows) {
         const name = row.querySelector(".team-agent-name").value.trim();
         const prompt = row.querySelector(".team-agent-prompt").value.trim();
-        if (name) agents.push({ name, prompt });
+        if (name) {
+            const entry = { name, prompt };
+            const permsEditor = row.querySelector('.permissions-editor');
+            if (permsEditor) {
+                const caps = _getPermissions(permsEditor.id);
+                if (caps) entry.capabilities = caps;
+            }
+            agents.push(entry);
+        }
     }
     if (agents.length === 0) { showToast("At least one agent needs a name", "error"); return; }
 
@@ -942,7 +950,7 @@ function _truncatePrompt(text, maxLen) {
     return text.substring(0, maxLen) + "\u2026";
 }
 
-function _addTeamAgent(defaultName, defaultPrompt) {
+function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities) {
     _teamAgentCounter++;
     const idx = _teamAgentCounter;
     const list = document.getElementById("team-agents-list");
@@ -990,6 +998,26 @@ function _addTeamAgent(defaultName, defaultPrompt) {
                     <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior..."
                         oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-prompt-preview').textContent=this.value.substring(0,200)+(this.value.length>200?'\u2026':'')">${escapeHtml(defaultPrompt || '')}</textarea>
                 </label>
+                <div class="permissions-section">
+                    <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('team-perms-${idx}')">
+                        <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                        Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
+                    </button>
+                    <div id="team-perms-${idx}" class="permissions-editor" style="display:none">
+                        <div class="perms-group">
+                            <label class="perms-label">Allow:</label>
+                            <div id="team-perms-${idx}-allow" class="perms-chips"></div>
+                        </div>
+                        <div class="perms-group">
+                            <label class="perms-label">Deny:</label>
+                            <div id="team-perms-${idx}-deny" class="perms-chips"></div>
+                        </div>
+                        <div class="perms-shell-patterns" style="display:none">
+                            <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
+                            <input type="text" class="perms-shell-input team-perms-shell" placeholder="e.g. git *, npm *, npx *">
+                        </div>
+                    </div>
+                </div>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-small" onclick="browseAgentTemplates(this)" title="Browse community agent templates from aitmpl.com">Browse Templates</button>
                     <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
@@ -998,6 +1026,10 @@ function _addTeamAgent(defaultName, defaultPrompt) {
         </div>
     `;
     list.appendChild(row);
+
+    // Initialize permissions chips from preset defaults
+    const caps = defaultCapabilities || _findPersona(defaultName)?.capabilities || null;
+    _setPermissions(`team-perms-${idx}`, caps);
 
     // Drag-and-drop reorder handlers
     row.addEventListener('dragstart', (e) => {
@@ -1172,6 +1204,12 @@ async function launchTeam() {
         }
         const agent = { name, prompt };
         if (icon) agent.icon = icon;
+        // Collect per-agent permissions
+        const permsEditor = row.querySelector('.permissions-editor');
+        if (permsEditor) {
+            const caps = _getPermissions(permsEditor.id);
+            if (caps) agent.capabilities = caps;
+        }
         agents.push(agent);
     }
 

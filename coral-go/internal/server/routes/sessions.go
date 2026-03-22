@@ -1333,9 +1333,10 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		BoardServer string   `json:"board_server"`
 		Backend     string   `json:"backend"`
 		BoardType   string   `json:"board_type"`
-		Agents      []struct {
-			Name   string `json:"name"`
-			Prompt string `json:"prompt"`
+		Agents []struct {
+			Name         string              `json:"name"`
+			Prompt       string              `json:"prompt"`
+			Capabilities *agent.Capabilities `json:"capabilities"`
 		} `json:"agents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1355,7 +1356,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		result, err := h.launchSession(ctx, body.WorkingDir, body.AgentType, agentDef.Name,
-			"", body.Flags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, nil)
+			"", body.Flags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, agentDef.Capabilities)
 		if err != nil {
 			launched = append(launched, map[string]any{"name": agentDef.Name, "error": err.Error()})
 			continue
