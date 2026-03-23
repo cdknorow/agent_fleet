@@ -425,6 +425,11 @@ export function switchAgenticTab(tabName, blockId) {
         stopLiveHistoryPoll();
     }
 
+    // Close inline preview when switching away from files tab
+    if (tabName !== 'files') {
+        if (window._closeInlinePreview) window._closeInlinePreview();
+    }
+
     // Refresh changed files when switching to the files tab
     if (tabName === 'files' && state.currentSession && state.currentSession.type === 'live') {
         loadChangedFiles(state.currentSession.name, state.currentSession.session_id);

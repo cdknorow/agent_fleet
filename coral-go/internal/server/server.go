@@ -44,8 +44,6 @@ type Server struct {
 	licenseMgr    *license.Manager
 	router        chi.Router
 	indexTmpl     *template.Template
-	diffTmpl      *template.Template
-	previewTmpl   *template.Template
 	tasksHandler   *routes.TasksHandler
 	boardHandler   *routes.BoardHandler
 	historyHandler *routes.HistoryHandler
@@ -95,18 +93,6 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		log.Printf("Warning: failed to parse index template: %v (serving placeholder)", err)
 	}
 	s.indexTmpl = indexTmpl
-
-	diffTmpl, err := template.ParseFS(templateFS, "frontend/templates/diff.html")
-	if err != nil {
-		log.Printf("Warning: failed to parse diff template: %v (serving placeholder)", err)
-	}
-	s.diffTmpl = diffTmpl
-
-	previewTmpl, err := template.ParseFS(templateFS, "frontend/templates/preview.html")
-	if err != nil {
-		log.Printf("Warning: failed to parse preview template: %v (serving placeholder)", err)
-	}
-	s.previewTmpl = previewTmpl
 
 	s.router = s.buildRouter()
 
@@ -397,9 +383,6 @@ func (s *Server) buildRouter() chi.Router {
 
 	// ── Dashboard SPA ───────────────────────────────────────────
 	r.Get("/", s.serveIndex)
-	r.Get("/diff", s.serveDiff)
-	r.Get("/preview", s.servePreview)
-
 	return r
 }
 
@@ -564,30 +547,6 @@ const activationPage = `<!DOCTYPE html>
 </script>
 </body>
 </html>`
-
-func (s *Server) serveDiff(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if s.diffTmpl == nil {
-		w.Write([]byte(`<!DOCTYPE html><html><body>Template not loaded</body></html>`))
-		return
-	}
-	if err := s.diffTmpl.Execute(w, nil); err != nil {
-		log.Printf("Error rendering diff template: %v", err)
-		http.Error(w, "Template render error", http.StatusInternalServerError)
-	}
-}
-
-func (s *Server) servePreview(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if s.previewTmpl == nil {
-		w.Write([]byte(`<!DOCTYPE html><html><body>Template not loaded</body></html>`))
-		return
-	}
-	if err := s.previewTmpl.Execute(w, nil); err != nil {
-		log.Printf("Error rendering preview template: %v", err)
-		http.Error(w, "Template render error", http.StatusInternalServerError)
-	}
-}
 
 func isLocalhostOrigin(origin string) bool {
 	// Match http(s)://localhost:PORT or http(s)://127.0.0.1:PORT

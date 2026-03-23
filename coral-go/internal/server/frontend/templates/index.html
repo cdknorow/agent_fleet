@@ -20,6 +20,16 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons&display=swap">
+    <!-- CodeMirror 6 — single self-contained bundle (built with esbuild) -->
+    <script type="importmap">
+    { "imports": { "codemirror-bundle": "/static/vendor/codemirror/codemirror-bundle.js" } }
+    </script>
+    <!-- diff2html for inline diff rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
+    <!-- highlight.js for syntax highlighting in file preview -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
     <!-- xterm.js terminal emulator -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js"></script>

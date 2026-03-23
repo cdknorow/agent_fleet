@@ -55,109 +55,335 @@ function splitPath(filepath) {
     return { dir: filepath.substring(0, lastSlash + 1), name: filepath.substring(lastSlash + 1) };
 }
 
-export function openFilePreview(filepath) {
-    if (!state.currentSession || state.currentSession.type !== 'live') return;
-    const agentName = state.currentSession.name;
+/* ── Helper: build API query string for the current session ── */
 
-    const qs = new URLSearchParams({
-        agent: agentName,
-        file: filepath,
+function _apiQs(filepath) {
+    const qs = new URLSearchParams({ filepath });
+    const sid = state.currentSession && state.currentSession.session_id;
+    if (sid) qs.set('session_id', sid);
+    return qs;
+}
+
+function _agentName() {
+    return state.currentSession && state.currentSession.name;
+}
+
+/* ── CodeMirror 6 (lazy-loaded) ─────────────────────────────── */
+
+let _cmModules = null; // cached CodeMirror imports
+let _cmView = null;    // active EditorView instance
+
+async function _loadCmModules() {
+    if (_cmModules) return _cmModules;
+    const cm = await import('codemirror-bundle');
+    _cmModules = cm;
+    return _cmModules;
+}
+
+function _getLangExtension(cm, langName) {
+    const loaders = {
+        javascript: () => cm.javascript(),
+        typescript: () => cm.javascript({ typescript: true }),
+        jsx:        () => cm.javascript({ jsx: true }),
+        tsx:        () => cm.javascript({ jsx: true, typescript: true }),
+        python: () => cm.python(), html: () => cm.html(), css: () => cm.css(),
+        json: () => cm.json(), markdown: () => cm.markdown(), sql: () => cm.sql(),
+        rust: () => cm.rust(), cpp: () => cm.cpp(), c: () => cm.cpp(),
+        java: () => cm.java(), go: () => cm.go(), xml: () => cm.xml(), yaml: () => cm.yaml(),
+    };
+    const loader = loaders[langName];
+    if (!loader) return null;
+    try { return loader(); } catch { return null; }
+}
+
+async function _createCmEditor(container, content, langName) {
+    const cm = await _loadCmModules();
+
+    const extensions = [
+        cm.basicSetup,
+        cm.oneDark,
+        cm.search(),
+        cm.EditorView.lineWrapping,
+        cm.EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' } }),
+    ];
+
+    // Load language extension
+    const langExt = _getLangExtension(cm, langName);
+    if (langExt) extensions.push(langExt);
+
+    _cmView = new cm.EditorView({
+        state: cm.EditorState.create({ doc: content, extensions }),
+        parent: container,
     });
-
-    _showInlinePreview(`/preview?${qs}`, filepath);
 }
 
-// Basic markdown to HTML renderer (no dependencies)
-function _renderMarkdownBasic(md) {
-    let html = md
-        // Code blocks (``` ... ```)
-        .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-            `<pre><code class="language-${lang}">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`)
-        // Headings
-        .replace(/^######\s+(.*)$/gm, '<h6>$1</h6>')
-        .replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>')
-        .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
-        .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
-        .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
-        .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
-        // Horizontal rules
-        .replace(/^---+$/gm, '<hr>')
-        // Bold + italic
-        .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Links
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-        // Images
-        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">')
-        // Blockquotes
-        .replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>')
-        // Task lists
-        .replace(/^- \[x\]\s+(.*)$/gm, '<li class="task-list-item"><input type="checkbox" checked disabled> $1</li>')
-        .replace(/^- \[ \]\s+(.*)$/gm, '<li class="task-list-item"><input type="checkbox" disabled> $1</li>')
-        // Unordered lists
-        .replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>')
-        // Paragraphs (double newline)
-        .replace(/\n\n/g, '</p><p>')
-        // Single newlines to <br>
-        .replace(/\n/g, '<br>');
-
-    // Wrap loose <li> in <ul>
-    html = html.replace(/(<li.*?<\/li>(?:<br>)?)+/g, '<ul>$&</ul>');
-    // Clean up <br> inside <ul>
-    html = html.replace(/<ul>(.*?)<\/ul>/gs, (_, inner) => '<ul>' + inner.replace(/<br>/g, '') + '</ul>');
-
-    return '<p>' + html + '</p>';
+function _destroyCmEditor() {
+    if (_cmView) {
+        _cmView.destroy();
+        _cmView = null;
+    }
 }
 
-// Expose for the preview window to use
-window._renderMarkdownBasic = _renderMarkdownBasic;
+function _getCmContent() {
+    return _cmView ? _cmView.state.doc.toString() : null;
+}
 
+/* ── Inline Preview Pane ───────────────────────────────────── */
+
+let _previewState = null; // { filepath, mode, content, hasDiff, diffText, gen }
+let _previewGen = 0;      // generation counter to guard against stale async writes
+
+/** Show inline diff for a file (clicking a file row). */
 export function openFileDiff(filepath) {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
-    const agentName = state.currentSession.name;
-    const sessionId = state.currentSession.session_id;
-
-    const fileList = _currentFiles.map(f => f.filepath);
-
-    const qs = new URLSearchParams({
-        agent: agentName,
-        file: filepath,
-        files: fileList.join('\n'),
-    });
-    if (sessionId) qs.set('session_id', sessionId);
-
-    _showInlinePreview(`/diff?${qs}`, filepath);
+    _openInlinePane(filepath, 'diff');
 }
 
-/** Show a file preview/diff inline in the right panel */
-function _showInlinePreview(url, filepath) {
-    // Switch to the files tab
-    const { switchAgenticTab } = window;
-    if (switchAgenticTab) switchAgenticTab('files', 'top');
+/** Show inline preview/edit for a file (clicking the edit icon). */
+export function openFilePreview(filepath) {
+    if (!state.currentSession || state.currentSession.type !== 'live') return;
+    _openInlinePane(filepath, 'preview');
+}
 
+async function _openInlinePane(filepath, initialView) {
     const panel = document.getElementById('agentic-panel-files');
     if (!panel) return;
 
-    const filename = filepath.split('/').pop();
+    // Switch to files tab if not active
+    if (window.switchAgenticTab) window.switchAgenticTab('files', 'top');
 
+    const { name } = splitPath(filepath);
+    const gen = ++_previewGen;
+
+    _previewState = { filepath, mode: 'preview', content: '', hasDiff: false, diffText: '', gen };
+
+    // Render the pane shell
     panel.innerHTML = `
         <div class="inline-preview-header">
-            <button class="btn btn-small" onclick="window._closeInlinePreview()">← Back</button>
-            <span class="inline-preview-filename">${filename}</span>
+            <button class="inline-preview-back" onclick="window._closeInlinePreview()" title="Back to file list">
+                <span class="material-icons">arrow_back</span>
+            </button>
+            <span class="inline-preview-filepath" title="${escapeHtml(filepath)}">${escapeHtml(name)}</span>
+            <div class="inline-preview-actions">
+                <button class="inline-preview-toggle" id="preview-toggle-btn" onclick="window._togglePreviewEdit()">Edit</button>
+                <button class="inline-preview-save" id="preview-save-btn" onclick="window._savePreviewFile()" style="display:none">Save</button>
+            </div>
         </div>
-        <iframe class="inline-preview-frame" src="${url}&embedded=1" frameborder="0"></iframe>
+        <div class="inline-preview-body" id="inline-preview-body">
+            <div class="inline-preview-loading">Loading...</div>
+        </div>
+        <div class="inline-preview-cm" id="inline-preview-cm" style="display:none"></div>
     `;
+
+    // Load content based on initial view
+    if (initialView === 'diff') {
+        await _loadDiffView(filepath, gen);
+    } else {
+        await _loadContentView(filepath, gen);
+    }
 }
 
-/** Close inline preview and restore the files list */
+/** Check if this async operation is still for the current pane. */
+function _isStale(gen) {
+    return !_previewState || _previewState.gen !== gen;
+}
+
+async function _loadDiffView(filepath, gen) {
+    const body = document.getElementById('inline-preview-body');
+    if (!body) return;
+
+    const agentName = _agentName();
+    if (!agentName) return;
+
+    try {
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/diff?${_apiQs(filepath)}`);
+        const data = await resp.json();
+
+        if (_isStale(gen)) return;
+
+        if (data.error) {
+            body.innerHTML = `<div class="inline-preview-error">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+
+        const diffText = data.diff || '';
+        if (!diffText) {
+            // No diff — fall back to content view
+            await _loadContentView(filepath, gen);
+            return;
+        }
+
+        _previewState.hasDiff = true;
+        _previewState.diffText = diffText;
+
+        _renderDiff2Html(body, diffText);
+    } catch (e) {
+        if (_isStale(gen)) return;
+        body.innerHTML = '<div class="inline-preview-error">Failed to load diff</div>';
+    }
+
+    // Also pre-fetch file content for edit mode
+    _prefetchContent(filepath, gen);
+}
+
+/** Render diff text into the given container using diff2html. */
+function _renderDiff2Html(container, diffText) {
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const html = window.Diff2Html.html(diffText, {
+        drawFileList: false,
+        matching: 'lines',
+        outputFormat: 'line-by-line',
+        colorScheme: theme === 'light' ? 'light' : 'dark',
+    });
+    container.innerHTML = html;
+}
+
+/** Render file content with syntax highlighting into the given container. */
+function _renderContentView(container, content, filepath) {
+    const escaped = escapeHtml(content);
+    const lang = _getLangFromPath(filepath);
+    container.innerHTML = `<pre class="inline-preview-code"><code class="language-${lang}">${escaped}</code></pre>`;
+    // Apply highlight.js if available
+    if (window.hljs) {
+        const block = container.querySelector('pre code');
+        if (block) window.hljs.highlightElement(block);
+    }
+}
+
+function _getLangFromPath(fp) {
+    const ext = (fp.match(/\.(\w+)$/) || [])[1] || '';
+    const map = {
+        js: 'javascript', ts: 'typescript', tsx: 'typescript', jsx: 'javascript',
+        py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java',
+        sh: 'bash', zsh: 'bash', bash: 'bash', yml: 'yaml', yaml: 'yaml',
+        json: 'json', toml: 'toml', css: 'css', scss: 'scss',
+        html: 'html', xml: 'xml', sql: 'sql', c: 'c', cpp: 'cpp',
+        h: 'c', hpp: 'cpp', cs: 'csharp', swift: 'swift', kt: 'kotlin',
+        md: 'markdown',
+    };
+    return map[ext.toLowerCase()] || ext.toLowerCase() || 'plaintext';
+}
+
+async function _loadContentView(filepath, gen) {
+    const body = document.getElementById('inline-preview-body');
+    if (!body) return;
+
+    const agentName = _agentName();
+    if (!agentName) return;
+
+    try {
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/file-content?${_apiQs(filepath)}`);
+        const data = await resp.json();
+
+        if (_isStale(gen)) return;
+
+        if (data.error) {
+            body.innerHTML = `<div class="inline-preview-error">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+
+        const content = data.content || '';
+        _previewState.content = content;
+
+        _renderContentView(body, content, filepath);
+    } catch (e) {
+        if (_isStale(gen)) return;
+        body.innerHTML = '<div class="inline-preview-error">Failed to load file</div>';
+    }
+}
+
+async function _prefetchContent(filepath, gen) {
+    const agentName = _agentName();
+    if (!agentName) return;
+
+    try {
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/file-content?${_apiQs(filepath)}`);
+        const data = await resp.json();
+        if (!_isStale(gen) && !data.error) _previewState.content = data.content || '';
+    } catch (e) { /* best effort */ }
+}
+
+/** Toggle between Preview and Edit modes. */
+window._togglePreviewEdit = async function() {
+    if (!_previewState) return;
+
+    const body = document.getElementById('inline-preview-body');
+    const cmContainer = document.getElementById('inline-preview-cm');
+    const toggleBtn = document.getElementById('preview-toggle-btn');
+    const saveBtn = document.getElementById('preview-save-btn');
+    if (!body || !cmContainer || !toggleBtn) return;
+
+    if (_previewState.mode === 'preview') {
+        // Switch to edit — create CodeMirror editor
+        _previewState.mode = 'edit';
+        body.style.display = 'none';
+        cmContainer.style.display = 'block';
+        toggleBtn.textContent = 'Preview';
+        if (saveBtn) saveBtn.style.display = '';
+
+        const langName = _getLangFromPath(_previewState.filepath);
+        await _createCmEditor(cmContainer, _previewState.content, langName);
+    } else {
+        // Switch back to preview — read content and destroy editor
+        _previewState.mode = 'preview';
+        const cmContent = _getCmContent();
+        if (cmContent != null) _previewState.content = cmContent;
+        _destroyCmEditor();
+        cmContainer.style.display = 'none';
+        body.style.display = '';
+        toggleBtn.textContent = 'Edit';
+        if (saveBtn) saveBtn.style.display = 'none';
+
+        // Re-render: show diff if we originally had one, otherwise show content
+        if (_previewState.hasDiff && _previewState.diffText) {
+            _renderDiff2Html(body, _previewState.diffText);
+        } else {
+            _renderContentView(body, _previewState.content, _previewState.filepath);
+        }
+    }
+};
+
+/** Save the file from the editor. */
+window._savePreviewFile = async function() {
+    if (!_previewState) return;
+
+    const agentName = _agentName();
+    if (!agentName) return;
+
+    const saveBtn = document.getElementById('preview-save-btn');
+    const content = _getCmContent() ?? _previewState.content;
+
+    if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
+
+    try {
+        const resp = await fetch(
+            `/api/sessions/live/${encodeURIComponent(agentName)}/file-content?${_apiQs(_previewState.filepath)}`,
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            }
+        );
+        const data = await resp.json();
+        if (data.error) {
+            alert('Error saving: ' + data.error);
+        } else {
+            _previewState.content = content;
+            if (saveBtn) { saveBtn.textContent = 'Saved!'; setTimeout(() => { saveBtn.textContent = 'Save'; }, 1500); }
+        }
+    } catch (e) {
+        alert('Failed to save: ' + e.message);
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+};
+
+/** Close inline preview and restore the files list. */
 window._closeInlinePreview = function() {
-    console.log('[coral] _closeInlinePreview called');
+    _destroyCmEditor();
+    _previewState = null;
     const panel = document.getElementById('agentic-panel-files');
     if (panel) {
-        // Restore the files panel structure
         panel.innerHTML = `
             <div class="changed-files-header" id="changed-files-header">
                 <span class="changed-files-title" id="changed-files-title">Loading...</span>
@@ -172,6 +398,8 @@ window._closeInlinePreview = function() {
         loadChangedFiles(state.currentSession.name, state.currentSession.session_id);
     }
 };
+
+/* ── Refresh & Render ──────────────────────────────────────── */
 
 export async function refreshChangedFiles() {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
@@ -198,7 +426,6 @@ export async function refreshChangedFiles() {
             _currentFiles = data.files || [];
             renderChangedFiles();
         } else {
-            // Fall back to cached data
             await loadChangedFiles(agentName, sessionId);
         }
     } catch (e) {
@@ -228,7 +455,7 @@ export function renderChangedFiles() {
         return;
     }
 
-    list.innerHTML = files.map((f, idx) => {
+    list.innerHTML = files.map((f) => {
         const { dir, name } = splitPath(f.filepath);
         const statusCls = getStatusClass(f.status);
         const statusLabel = getStatusLabel(f.status);
@@ -237,7 +464,7 @@ export function renderChangedFiles() {
         const stats = (adds || dels) ? `<span class="file-stats">${adds}${dels}</span>` : '';
         const statusIcon = f.status === '??' ? '?' : f.status === 'A' || f.status === 'AM' ? '+' : f.status === 'D' ? '-' : '~';
         const escapedPath = escapeHtml(f.filepath).replace(/'/g, "\\'");
-        const previewBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file"><span class="material-icons">edit</span></button>`;
+        const editBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Edit file"><span class="material-icons">edit</span></button>`;
 
         return `<div class="file-item ${statusCls}" title="${escapeHtml(f.filepath)} (${statusLabel})"
                      onclick="openFileDiff('${escapedPath}')">
@@ -247,7 +474,7 @@ export function renderChangedFiles() {
                 ${dir ? `<span class="file-dir">${escapeHtml(dir)}</span>` : ''}
             </div>
             ${stats}
-            ${previewBtn}
+            ${editBtn}
         </div>`;
     }).join('');
 }
