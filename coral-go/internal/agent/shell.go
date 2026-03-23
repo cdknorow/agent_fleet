@@ -113,6 +113,69 @@ func WrapWithBundlePath(cmd string) string {
 	return cmd
 }
 
+// FindCLIInCommonPaths searches common install locations for a CLI binary.
+// Returns the full path if found, empty string if not.
+func FindCLIInCommonPaths(binary string) string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+
+	var candidates []string
+
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = []string{
+			"/usr/local/bin/" + binary,
+			"/opt/homebrew/bin/" + binary,
+			filepath.Join(home, ".local", "bin", binary),
+		}
+		// nvm installs
+		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
+		if entries, err := filepath.Glob(filepath.Join(nvmDir, "*", "bin", binary)); err == nil {
+			candidates = append(candidates, entries...)
+		}
+		// fnm installs
+		fnmDir := filepath.Join(home, "Library", "Application Support", "fnm", "node-versions")
+		if entries, err := filepath.Glob(filepath.Join(fnmDir, "*", "installation", "bin", binary)); err == nil {
+			candidates = append(candidates, entries...)
+		}
+	case "linux":
+		candidates = []string{
+			"/usr/local/bin/" + binary,
+			filepath.Join(home, ".local", "bin", binary),
+			"/snap/bin/" + binary,
+		}
+		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
+		if entries, err := filepath.Glob(filepath.Join(nvmDir, "*", "bin", binary)); err == nil {
+			candidates = append(candidates, entries...)
+		}
+	case "windows":
+		exts := []string{"", ".exe", ".cmd", ".bat"}
+		basePaths := []string{
+			filepath.Join(os.Getenv("APPDATA"), "npm"),
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "npm"),
+		}
+		for _, base := range basePaths {
+			for _, ext := range exts {
+				candidates = append(candidates, filepath.Join(base, binary+ext))
+			}
+		}
+	}
+
+	// Also check app bundle directory
+	if binDir := AppBundleBinDir(); binDir != "" {
+		candidates = append(candidates, filepath.Join(binDir, binary))
+	}
+
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 // FormatPromptFileArg returns shell-appropriate syntax for reading a prompt
 // file and passing its content as a CLI argument.
 func FormatPromptFileArg(promptFile string) string {

@@ -1410,6 +1410,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		result, err := h.launchSession(ctx, body.WorkingDir, body.AgentType, agentDef.Name,
 			"", body.Flags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, agentDef.Capabilities)
 		if err != nil {
+			log.Printf("[launch-team] failed to launch agent %s: %v", agentDef.Name, err)
 			launched = append(launched, map[string]any{"name": agentDef.Name, "error": err.Error()})
 			continue
 		}
@@ -1760,13 +1761,21 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 			}
 		}
 		if checkBin != "" {
-			if _, err := exec.LookPath(checkBin); err != nil {
-				info := agent.GetCLIInfo(agentType)
-				installCmd := ""
-				if info != nil {
-					installCmd = info.InstallCommand
+			if resolved, err := exec.LookPath(checkBin); err != nil {
+				// LookPath failed — try common install locations
+				if found := agent.FindCLIInCommonPaths(checkBin); found != "" {
+					cliPath = found
+					log.Printf("[launch] %s not on PATH, found at %s", checkBin, found)
+				} else {
+					info := agent.GetCLIInfo(agentType)
+					installCmd := ""
+					if info != nil {
+						installCmd = info.InstallCommand
+					}
+					return nil, fmt.Errorf("%s CLI not found. Install it: %s", checkBin, installCmd)
 				}
-				return nil, fmt.Errorf("%s CLI not found. Install it: %s", checkBin, installCmd)
+			} else if cliPath == "" {
+				cliPath = resolved
 			}
 		}
 	}
