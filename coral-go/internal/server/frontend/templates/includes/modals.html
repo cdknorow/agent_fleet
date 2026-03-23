@@ -105,10 +105,11 @@
                             <select id="launch-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value)">
                                 <option value="claude">Claude</option>
                                 <option value="gemini">Gemini</option>
+                                <option value="codex">Codex</option>
                             </select>
                             <span id="cli-check-warning" class="cli-check-warning" style="display:none"></span>
                         </label>
-                        <label>Backend:
+                        <label style="display:none">Backend:
                             <select id="launch-backend">
                                 <option value="tmux">tmux</option>
                                 <option value="pty">PTY</option>
@@ -244,9 +245,10 @@
                             <select id="team-agent-type">
                                 <option value="claude">Claude</option>
                                 <option value="gemini">Gemini</option>
+                                <option value="codex">Codex</option>
                             </select>
                         </label>
-                        <label>Backend:
+                        <label style="display:none">Backend:
                             <select id="team-backend">
                                 <option value="tmux">tmux</option>
                                 <option value="pty">PTY</option>
@@ -397,6 +399,7 @@
                     <select id="settings-agent-type" class="settings-select">
                         <option value="claude">Claude</option>
                         <option value="gemini">Gemini</option>
+                        <option value="codex">Codex</option>
                     </select>
                 </dd>
                 <dt>Default Working Directory</dt>
@@ -531,6 +534,7 @@
                     <select id="job-modal-agent">
                         <option value="claude">Claude</option>
                         <option value="gemini">Gemini</option>
+                        <option value="codex">Codex</option>
                     </select>
                 </label>
             </div>
@@ -655,13 +659,20 @@
             <label>Behavior Prompt:
                 <textarea id="add-agent-board-prompt" rows="5" placeholder="Describe the agent's role and behavior..."></textarea>
             </label>
+            <label>Agent Type:
+                <select id="add-agent-board-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value)">
+                    <option value="claude">Claude</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="codex">Codex</option>
+                </select>
+            </label>
             <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
                 <input type="text" id="add-agent-board-flags" placeholder="e.g. --verbose">
             </label>
             <div class="flag-shortcuts">
                 <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('add-agent-board-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
             </div>
-            <label>Backend:
+            <label style="display:none">Backend:
                 <select id="add-agent-board-backend">
                     <option value="tmux">tmux</option>
                     <option value="pty">PTY</option>

@@ -407,6 +407,7 @@
 
 .badge.claude { background: var(--badge-claude); color: #fff; }
 .badge.gemini { background: var(--badge-gemini); color: #fff; }
+.badge.codex { background: var(--badge-codex); color: #fff; }
 .badge.board-badge { background: #2ea043; color: #fff; }
 
 .badge.waiting-badge {

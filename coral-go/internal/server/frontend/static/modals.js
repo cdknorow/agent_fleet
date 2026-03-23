@@ -634,7 +634,7 @@ export async function launchAgentToBoard() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 working_dir: workDir,
-                agent_type: "claude",
+                agent_type: document.getElementById("add-agent-board-type")?.value || "claude",
                 display_name: agentName,
                 flags,
                 prompt,

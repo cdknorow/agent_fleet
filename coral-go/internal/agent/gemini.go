@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// GeminiAgent implements the Agent interface for Gemini.
+// GeminiAgent implements the Agent interface for Gemini CLI.
 type GeminiAgent struct{}
 
 func (a *GeminiAgent) AgentType() string    { return "gemini" }
@@ -24,20 +24,40 @@ func (a *GeminiAgent) HistoryBasePath() string {
 func (a *GeminiAgent) HistoryGlobPattern() string { return "session-*.json" }
 
 func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
-	var cmd string
+	var parts []string
+
+	// Inject system prompt: combine protocol file + board system prompt
+	// Gemini uses GEMINI_SYSTEM_MD env var pointing to a markdown file
+	var sysParts []string
 	if params.ProtocolPath != "" {
-		if _, err := os.Stat(params.ProtocolPath); err == nil {
-			cmd = fmt.Sprintf(`GEMINI_SYSTEM_MD="%s" gemini`, params.ProtocolPath)
-		} else {
-			cmd = "gemini"
+		if content, err := os.ReadFile(params.ProtocolPath); err == nil {
+			sysParts = append(sysParts, string(content))
 		}
-	} else {
-		cmd = "gemini"
 	}
+	boardSysPrompt := BuildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
+	if boardSysPrompt != "" {
+		sysParts = append(sysParts, boardSysPrompt)
+	}
+
+	if len(sysParts) > 0 {
+		sysFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_gemini_sys_%s.md", params.SessionID))
+		os.WriteFile(sysFile, []byte(strings.Join(sysParts, "\n\n")), 0600)
+		parts = append(parts, fmt.Sprintf(`GEMINI_SYSTEM_MD="%s"`, sysFile))
+	}
+
+	parts = append(parts, "gemini")
+
 	if len(params.Flags) > 0 {
-		cmd += " " + strings.Join(params.Flags, " ")
+		parts = append(parts, params.Flags...)
 	}
-	return cmd
+
+	// Build action prompt using shared helper
+	cliPrompt := BuildBoardActionPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
+	if cliPrompt != "" {
+		parts = append(parts, fmt.Sprintf(`"%s"`, strings.ReplaceAll(cliPrompt, `"`, `\"`)))
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func (a *GeminiAgent) PrepareResume(sessionID, workingDir string) {
