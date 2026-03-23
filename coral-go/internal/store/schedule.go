@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	at "github.com/cdknorow/coral/internal/agenttypes"
 )
 
 // ScheduledJob represents a cron job definition.
@@ -88,7 +90,7 @@ func (s *ScheduleStore) CreateScheduledJob(ctx context.Context, job *ScheduledJo
 		job.Timezone = "UTC"
 	}
 	if job.AgentType == "" {
-		job.AgentType = "claude"
+		job.AgentType = at.Claude
 	}
 	if job.BaseBranch == "" {
 		job.BaseBranch = "main"

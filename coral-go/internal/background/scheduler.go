@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/cdknorow/coral/internal/executil"
 	"github.com/cdknorow/coral/internal/store"
 )
@@ -318,7 +319,7 @@ func (s *JobScheduler) FireOneshot(ctx context.Context, config map[string]interf
 	prompt, _ := config["prompt"].(string)
 	agentType, _ := config["agent_type"].(string)
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 	flags, _ := config["flags"].(string)
 	dn := fmt.Sprintf("Task #%d", runID)
@@ -361,7 +362,7 @@ func (s *JobScheduler) KillRun(ctx context.Context, runID int64) bool {
 	if run.SessionID != nil && *run.SessionID != "" && s.runtime != nil {
 		sid := *run.SessionID
 		// Look up agent_type from the job record
-		agentType := "claude"
+		agentType := at.Claude
 		if job, err := s.store.GetScheduledJob(ctx, run.JobID); err == nil && job != nil {
 			agentType = job.AgentType
 		}

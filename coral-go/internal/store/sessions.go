@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -786,7 +787,7 @@ func (s *SessionStore) GetAgentTypeForSession(ctx context.Context, sessionID str
 	err := s.db.GetContext(ctx, &agentType,
 		"SELECT agent_type FROM live_sessions WHERE session_id = ?", sessionID)
 	if err != nil {
-		return "claude"
+		return at.Claude
 	}
 	return agentType
 }

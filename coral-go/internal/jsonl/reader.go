@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	at "github.com/cdknorow/coral/internal/agenttypes"
 )
 
 // SessionReader incrementally reads JSONL session files for live chat display.
@@ -114,8 +116,10 @@ func (r *SessionReader) ClearSession(sessionID string) {
 // resolveTranscriptPath finds the transcript file for a session.
 func resolveTranscriptPath(sessionID, workingDirectory, agentType string) string {
 	switch agentType {
-	case "gemini":
+	case at.Gemini:
 		return resolveGeminiTranscript(sessionID)
+	case at.Codex:
+		return resolveCodexTranscript(sessionID)
 	default:
 		return resolveClaudeTranscript(sessionID, workingDirectory)
 	}
@@ -173,11 +177,45 @@ func resolveGeminiTranscript(sessionID string) string {
 	return ""
 }
 
+func resolveCodexTranscript(sessionID string) string {
+	home, _ := os.UserHomeDir()
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	basePath := filepath.Join(codexHome, "sessions")
+
+	// Codex stores transcripts in YYYY/MM/DD/rollout-{timestamp}-{id}.jsonl
+	// Walk the date-based directory structure to find the session
+	matches, err := filepath.Glob(filepath.Join(basePath, "*", "*", "*", "rollout-*"+sessionID+"*.jsonl"))
+	if err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+
+	// Fallback: search all rollout files for a matching session ID
+	err = filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.Contains(filepath.Base(path), sessionID) && strings.HasSuffix(path, ".jsonl") {
+			matches = append(matches, path)
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
 // parseTranscriptEntry converts a raw JSONL entry into normalized frontend messages.
 func parseTranscriptEntry(entry map[string]any, toolUseNames map[string]string, agentType string) []map[string]any {
 	switch agentType {
-	case "gemini":
+	case at.Gemini:
 		return parseGeminiEntry(entry)
+	case at.Codex:
+		return parseCodexEntry(entry, toolUseNames)
 	default:
 		return parseClaudeEntry(entry, toolUseNames)
 	}
@@ -507,6 +545,161 @@ func parseGeminiEntry(entry map[string]any) []map[string]any {
 	if msgType == "assistant" {
 		result["text"] = text
 		result["tool_uses"] = []map[string]any{}
+	}
+	return []map[string]any{result}
+}
+
+// parseCodexEntry handles Codex CLI JSONL transcript format.
+// Codex JSONL entries have a "role" field ("user", "assistant", "system")
+// and a "content" field that can be a string or array of content blocks.
+// Tool calls appear as content blocks with type "function_call".
+func parseCodexEntry(entry map[string]any, toolUseNames map[string]string) []map[string]any {
+	role, _ := entry["role"].(string)
+	timestamp, _ := entry["timestamp"].(string)
+
+	if role == "system" {
+		return nil
+	}
+
+	content := entry["content"]
+
+	switch role {
+	case "user":
+		return parseCodexUserEntry(content, timestamp, toolUseNames)
+	case "assistant":
+		return parseCodexAssistantEntry(content, timestamp, toolUseNames)
+	}
+	return nil
+}
+
+func parseCodexUserEntry(content any, timestamp string, toolUseNames map[string]string) []map[string]any {
+	switch c := content.(type) {
+	case string:
+		if strings.TrimSpace(c) == "" || isSystemInjected(c) {
+			return nil
+		}
+		return []map[string]any{{"type": "user", "timestamp": timestamp, "content": c}}
+	case []any:
+		var textParts []string
+		var results []map[string]any
+		for _, block := range c {
+			b, ok := block.(map[string]any)
+			if !ok {
+				continue
+			}
+			bt, _ := b["type"].(string)
+			if bt == "text" {
+				if text, _ := b["text"].(string); text != "" {
+					textParts = append(textParts, text)
+				}
+			} else if bt == "function_call_output" || bt == "tool_result" {
+				callID, _ := b["call_id"].(string)
+				if callID == "" {
+					callID, _ = b["tool_use_id"].(string)
+				}
+				output, _ := b["output"].(string)
+				if output == "" {
+					output = extractToolResultContent(b["content"])
+				}
+				if output == "" {
+					continue
+				}
+				if len(output) > 10000 {
+					output = output[:10000] + "\n... (truncated)"
+				}
+				toolName := ""
+				if callID != "" {
+					toolName = toolUseNames[callID]
+				}
+				results = append(results, map[string]any{
+					"type":        "tool_result",
+					"timestamp":   timestamp,
+					"content":     output,
+					"tool_name":   toolName,
+					"tool_use_id": callID,
+				})
+			}
+		}
+		if len(results) > 0 {
+			return results
+		}
+		if len(textParts) == 0 {
+			return nil
+		}
+		text := strings.Join(textParts, "\n")
+		if strings.TrimSpace(text) == "" || isSystemInjected(text) {
+			return nil
+		}
+		return []map[string]any{{"type": "user", "timestamp": timestamp, "content": text}}
+	}
+	return nil
+}
+
+func parseCodexAssistantEntry(content any, timestamp string, toolUseNames map[string]string) []map[string]any {
+	var text string
+	var toolUses []map[string]any
+
+	switch c := content.(type) {
+	case string:
+		text = c
+	case []any:
+		var textParts []string
+		for _, block := range c {
+			b, ok := block.(map[string]any)
+			if !ok {
+				continue
+			}
+			bt, _ := b["type"].(string)
+			if bt == "text" {
+				if t, _ := b["text"].(string); t != "" {
+					textParts = append(textParts, t)
+				}
+			} else if bt == "function_call" {
+				fnName, _ := b["name"].(string)
+				callID, _ := b["call_id"].(string)
+				args, _ := b["arguments"].(string)
+				toolEntry := map[string]any{
+					"name":          fnName,
+					"tool_use_id":   callID,
+					"input_summary": truncate(fnName+": "+args, 200),
+				}
+				// Parse arguments JSON for common tool fields
+				if args != "" {
+					var argMap map[string]any
+					if json.Unmarshal([]byte(args), &argMap) == nil {
+						if cmd, _ := argMap["command"].(string); cmd != "" {
+							toolEntry["command"] = cmd
+						}
+						if fp, _ := argMap["file_path"].(string); fp != "" {
+							toolEntry["input_summary"] = fnName + ": " + fp
+						}
+					}
+				}
+				toolUses = append(toolUses, toolEntry)
+				if callID != "" {
+					toolUseNames[callID] = fnName
+				}
+			}
+		}
+		text = strings.Join(textParts, "\n")
+	default:
+		return nil
+	}
+
+	// Strip PULSE markers
+	text = pulseRE.ReplaceAllString(text, "")
+	text = strings.TrimSpace(text)
+
+	if text == "" && len(toolUses) == 0 {
+		return nil
+	}
+
+	result := map[string]any{
+		"type":      "assistant",
+		"timestamp": timestamp,
+		"content":   text,
+		"text":      text,
+		"tool_uses": toolUses,
 	}
 	return []map[string]any{result}
 }

@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	at "github.com/cdknorow/coral/internal/agenttypes"
+)
 
 // Capability represents a Coral-level permission capability.
 // These are agent-agnostic; each agent adapter translates them
@@ -87,6 +91,58 @@ func mapCapToClaudeTools(cap string) []string {
 		// Pass through unknown capabilities as-is (future-proof)
 		return []string{cap}
 	}
+}
+
+// TranslatePermissions dispatches capability translation to the appropriate
+// agent-specific translator. Returns nil if no translation is needed.
+func TranslatePermissions(agentType string, caps *Capabilities) any {
+	switch agentType {
+	case at.Claude:
+		return TranslateToClaudePermissions(caps)
+	case at.Codex:
+		return TranslateToCodexPermissions(caps)
+	case at.Gemini:
+		return TranslateToGeminiPermissions(caps)
+	default:
+		return TranslateToClaudePermissions(caps)
+	}
+}
+
+// CodexPermissions represents codex-cli sandbox/permission settings.
+type CodexPermissions struct {
+	FullAuto bool     `json:"full_auto,omitempty"`
+	Allow    []string `json:"allow,omitempty"`
+}
+
+// TranslateToCodexPermissions converts Coral capabilities to Codex CLI flags.
+func TranslateToCodexPermissions(caps *Capabilities) *CodexPermissions {
+	if caps.IsEmpty() {
+		return nil
+	}
+	// Codex uses --full-auto for unrestricted access
+	for _, cap := range caps.Allow {
+		if cap == CapShell && len(caps.Deny) == 0 {
+			return &CodexPermissions{FullAuto: true}
+		}
+	}
+	// Otherwise pass through as allow list
+	return &CodexPermissions{Allow: caps.Allow}
+}
+
+// GeminiPermissions is a stub for Gemini CLI permissions.
+type GeminiPermissions struct {
+	// Gemini CLI does not currently have a permission model.
+	// This is a placeholder for future support.
+	Allow []string `json:"allow,omitempty"`
+}
+
+// TranslateToGeminiPermissions converts Coral capabilities to Gemini settings.
+func TranslateToGeminiPermissions(caps *Capabilities) *GeminiPermissions {
+	if caps.IsEmpty() {
+		return nil
+	}
+	// Gemini has no native permission system; pass through for informational purposes
+	return &GeminiPermissions{Allow: caps.Allow}
 }
 
 // Preset permission profiles for built-in agent roles.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/agent"
+	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/cdknorow/coral/internal/store"
 	"github.com/google/uuid"
 )
@@ -61,7 +62,7 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	sessionName := fmt.Sprintf("%s-%s", agentType, sessionID)
 	logFile := filepath.Join(logDir, fmt.Sprintf("%s_coral_%s.log", agentType, sessionID))
 
-	isTerminal := agentType == "terminal"
+	isTerminal := agentType == at.Terminal
 	ag := agent.GetAgent(agentType)
 
 	// If resuming, let the agent prepare (e.g. copy session files)

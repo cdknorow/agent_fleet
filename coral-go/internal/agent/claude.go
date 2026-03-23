@@ -24,61 +24,6 @@ func (a *ClaudeAgent) HistoryBasePath() string {
 
 func (a *ClaudeAgent) HistoryGlobPattern() string { return "*.jsonl" }
 
-// Default board system-prompt fragments (injected into settings systemPrompt).
-const DefaultOrchestratorSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
-	"then discuss your proposed plan with the operator (the human user) before posting assignments to the team."
-
-const DefaultWorkerSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
-	"then wait for instructions from the Orchestrator."
-
-// Default action prompts (appended to user prompt as CLI positional arg).
-const DefaultOrchestratorActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Post a message with coral-board post "<your introduction>" that introduces yourself, then discuss your proposed plan with the operator (the human user) before posting assignments. Periodically check for new messages.`
-
-const DefaultWorkerActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Do not start any actions until you receive instructions from the Orchestrator on the message board. Post a message with coral-board post "<your introduction>" that introduces yourself, then periodically check for new messages.`
-
-func (a *ClaudeAgent) buildBoardSystemPrompt(boardName, role, prompt string, promptOverrides map[string]string, boardType string) string {
-	cli := GetCLIName(boardType)
-	var parts []string
-	if prompt != "" {
-		parts = append(parts, prompt)
-	}
-	if boardName != "" {
-		roleLabel := ""
-		if role != "" {
-			roleLabel = fmt.Sprintf(" Your role is: %s.", role)
-		}
-		boardIntro := fmt.Sprintf(
-			"You were automatically joined to message board \"%s\".%s "+
-				"Do NOT run %s join — you are already subscribed.\n\n"+
-				"Use the %s CLI to communicate with your teammates:\n"+
-				"  %s read          — read new messages from teammates\n"+
-				"  %s post \"msg\"    — post a message to the board\n"+
-				"  %s read --last 5 — see the 5 most recent messages\n"+
-				"  %s subscribers   — see who is on the board\n"+
-				"Check the board periodically for updates from your teammates.\n\n",
-			boardName, roleLabel, cli, cli, cli, cli, cli, cli)
-
-		isOrchestrator := role != "" && strings.Contains(strings.ToLower(role), "orchestrator")
-		var tail string
-		if isOrchestrator {
-			if v, ok := promptOverrides["default_prompt_orchestrator"]; ok && v != "" {
-				tail = v
-			} else {
-				tail = DefaultOrchestratorSystemPrompt
-			}
-		} else {
-			if v, ok := promptOverrides["default_prompt_worker"]; ok && v != "" {
-				tail = v
-			} else {
-				tail = DefaultWorkerSystemPrompt
-			}
-		}
-		boardIntro += tail
-		parts = append(parts, boardIntro)
-	}
-	return strings.Join(parts, "\n\n")
-}
-
 func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	parts := []string{"claude"}
 
@@ -101,7 +46,7 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 			sysParts = append(sysParts, string(content))
 		}
 	}
-	boardSysPrompt := a.buildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
+	boardSysPrompt := BuildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
 	if boardSysPrompt != "" {
 		sysParts = append(sysParts, boardSysPrompt)
 	}
@@ -133,36 +78,7 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 
 	// Pass the prompt as a CLI positional argument so the agent starts immediately
 	// without relying on fragile tmux send-keys delivery.
-	cliPrompt := params.Prompt
-	if params.BoardName != "" {
-		cli := GetCLIName(params.BoardType)
-		isOrchestrator := params.Role != "" && strings.Contains(strings.ToLower(params.Role), "orchestrator")
-		overrides := params.PromptOverrides
-		if overrides == nil {
-			overrides = map[string]string{}
-		}
-		var template string
-		if isOrchestrator {
-			if v, ok := overrides["default_prompt_orchestrator"]; ok && v != "" {
-				template = v
-			} else {
-				template = DefaultOrchestratorActionPrompt
-			}
-		} else {
-			if v, ok := overrides["default_prompt_worker"]; ok && v != "" {
-				template = v
-			} else {
-				template = DefaultWorkerActionPrompt
-			}
-		}
-		actionText := strings.ReplaceAll(template, "{board_name}", params.BoardName)
-		actionText = strings.ReplaceAll(actionText, "coral-board", cli)
-		if cliPrompt != "" {
-			cliPrompt = cliPrompt + "\n\n" + actionText
-		} else {
-			cliPrompt = actionText
-		}
-	}
+	cliPrompt := BuildBoardActionPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
 	if cliPrompt != "" {
 		promptFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_prompt_%s.txt", effectiveID))
 		os.WriteFile(promptFile, []byte(cliPrompt), 0600)

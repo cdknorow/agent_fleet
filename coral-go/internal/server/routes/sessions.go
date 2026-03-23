@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/cdknorow/coral/internal/agent"
+	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/cdknorow/coral/internal/board"
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/gitutil"
@@ -539,7 +540,7 @@ func (h *SessionsHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	workingDir := r.URL.Query().Get("working_directory")
 
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 
 	// Use session_id if provided, otherwise use name as session_id
@@ -1059,7 +1060,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	agentType := body.AgentType
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 
 	// Skip sleeping sessions — they should be woken via the wake endpoint, not restarted
@@ -1187,7 +1188,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 
 	agentType := body.AgentType
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 	agentImpl := agent.GetAgent(agentType)
 	if !agentImpl.SupportsResume() {
@@ -1672,7 +1673,7 @@ func (h *SessionsHandler) findLogPath(agentType, sessionID string) string {
 		return ""
 	}
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 	return filepath.Join(h.cfg.LogDir, fmt.Sprintf("%s_coral_%s.log", agentType, sessionID))
 }
@@ -1742,11 +1743,11 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 	}
 
 	if agentType == "" {
-		agentType = "claude"
+		agentType = at.Claude
 	}
 
 	// Check CLI availability before launching (skip for terminal type)
-	if agentType != "terminal" {
+	if agentType != at.Terminal {
 		if info := agent.GetCLIInfo(agentType); info != nil {
 			if _, err := exec.LookPath(info.Binary); err != nil {
 				return nil, fmt.Errorf("%s CLI not found. Install it: %s", info.Binary, info.InstallCommand)
@@ -1767,7 +1768,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 	sessionName := fmt.Sprintf("%s-%s", agentType, sessionID)
 	logFile := filepath.Join(h.cfg.LogDir, fmt.Sprintf("%s_coral_%s.log", agentType, sessionID))
 
-	isTerminal := agentType == "terminal"
+	isTerminal := agentType == at.Terminal
 	agentImpl := agent.GetAgent(agentType)
 	if resumeSessionID != "" && !isTerminal {
 		agentImpl.PrepareResume(resumeSessionID, absDir)
