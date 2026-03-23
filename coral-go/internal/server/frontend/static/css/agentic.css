@@ -931,6 +931,25 @@
     background: var(--bg-hover);
 }
 
+.file-preview-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 2px;
+    line-height: 1;
+    opacity: 0.6;
+}
+
+.file-preview-btn:hover {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.file-preview-btn .material-icons {
+    font-size: 16px;
+}
+
 .file-status-icon {
     width: 16px;
     height: 16px;

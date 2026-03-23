@@ -216,7 +216,7 @@ export function renderChangedFiles() {
         const stats = (adds || dels) ? `<span class="file-stats">${adds}${dels}</span>` : '';
         const statusIcon = f.status === '??' ? '?' : f.status === 'A' || f.status === 'AM' ? '+' : f.status === 'D' ? '-' : '~';
         const escapedPath = escapeHtml(f.filepath).replace(/'/g, "\\'");
-        const previewBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file">&#x1F4C4;</button>`;
+        const previewBtn = `<button class="file-preview-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview file"><span class="material-icons">edit</span></button>`;
 
         return `<div class="file-item ${statusCls}" title="${escapeHtml(f.filepath)} (${statusLabel})"
                      onclick="openFileDiff('${escapedPath}')">
