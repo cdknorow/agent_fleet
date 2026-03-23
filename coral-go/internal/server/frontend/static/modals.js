@@ -233,6 +233,7 @@ function _showCLINotFoundModal(agentType) {
                 <button class="btn btn-small" onclick="navigator.clipboard.writeText('${info.cmd.replace(/'/g, "\\'")}'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
             </div>
             <div class="modal-actions" style="margin-top:16px">
+                <button class="btn" data-action="settings">Set CLI Path</button>
                 <button class="btn btn-primary" data-action="close">OK</button>
             </div>
         </div>
@@ -240,6 +241,7 @@ function _showCLINotFoundModal(agentType) {
     document.body.appendChild(modal);
     modal.addEventListener('click', (e) => {
         if (e.target.dataset?.action === 'close' || e.target === modal) modal.remove();
+        if (e.target.dataset?.action === 'settings') { modal.remove(); showSettingsModal(); }
     });
 }
 
@@ -703,7 +705,11 @@ export async function launchAgentToBoard() {
         });
         const result = await resp.json();
         if (result.error) {
-            showToast(result.error, "error");
+            if (result.error.includes('not found') && result.error.includes('CLI')) {
+                _showCLINotFoundModal(boardAgentType);
+            } else {
+                showToast(result.error, "error");
+            }
         } else {
             showToast(`Launched ${agentName} on board ${boardName}`);
             hideAddAgentBoardModal();
@@ -1294,7 +1300,35 @@ async function launchTeam() {
         if (result.error) {
             showToast(result.error, true);
         } else {
-            showToast(`Launched team: ${agents.length} agents on "${boardName}"`);
+            // Check for per-agent errors in the launched array
+            const launched = result.launched || [];
+            const failed = launched.filter(a => a.error);
+            if (failed.length > 0) {
+                const successCount = launched.length - failed.length;
+                const failList = failed.map(a => `<li><strong>${escapeHtml(a.name)}</strong>: ${escapeHtml(a.error)}</li>`).join('');
+                const modal = document.createElement('div');
+                modal.className = 'modal';
+                modal.style.display = 'flex';
+                modal.innerHTML = `
+                    <div class="modal-content" style="width:500px">
+                        <h3>Team Launch — ${failed.length} agent${failed.length > 1 ? 's' : ''} failed</h3>
+                        <p style="color:var(--text-secondary);font-size:13px;margin:8px 0">${successCount} launched successfully, ${failed.length} failed:</p>
+                        <ul style="color:var(--error);font-size:13px;line-height:1.6;margin:8px 0 16px;padding-left:20px">${failList}</ul>
+                        <div class="modal-actions">
+                            <button class="btn" data-action="settings">Set CLI Paths</button>
+                            <button class="btn btn-primary" data-action="close">OK</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                modal.addEventListener('click', (e) => {
+                    if (e.target.dataset?.action === 'close' || e.target === modal) modal.remove();
+                    if (e.target.dataset?.action === 'settings') { modal.remove(); showSettingsModal(); }
+                });
+            }
+            if (launched.length - failed.length > 0) {
+                showToast(`Launched team: ${launched.length - failed.length} agents on "${boardName}"`);
+            }
             hideLaunchModal();
             setTimeout(loadLiveSessions, 2000);
             setTimeout(loadBoardProjects, 4000);
