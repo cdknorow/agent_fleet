@@ -84,6 +84,8 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 			Flags:           flags,
 			WorkingDir:      workingDir,
 		})
+		// Ensure coral-hook-* binaries are reachable from app bundles
+		launchCmd = agent.WrapWithBundlePath(launchCmd)
 	}
 
 	// Spawn agent session via the runtime

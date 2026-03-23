@@ -55,6 +55,64 @@ func classifyShell(shell string) ShellType {
 	}
 }
 
+// AppBundleBinDir returns the directory containing hook binaries if the
+// current executable is running from a macOS .app bundle or a similar
+// packaged install. Returns empty string if not in a bundle.
+func AppBundleBinDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+
+	// macOS .app bundle: .../Coral.app/Contents/MacOS/coral
+	if strings.Contains(dir, ".app"+string(os.PathSeparator)+"Contents"+string(os.PathSeparator)+"MacOS") ||
+		strings.HasSuffix(dir, ".app/Contents/MacOS") {
+		return dir
+	}
+
+	// Windows/Linux installed: check if hook binaries exist alongside the executable
+	hookPath := filepath.Join(dir, "coral-hook-agentic-state")
+	if runtime.GOOS == "windows" {
+		hookPath += ".exe"
+	}
+	if _, err := os.Stat(hookPath); err == nil {
+		return dir
+	}
+
+	return ""
+}
+
+// PrefixWithPathEnv returns a shell command prefix that prepends the given
+// directory to PATH. Returns empty string if binDir is empty.
+func PrefixWithPathEnv(binDir string) string {
+	if binDir == "" {
+		return ""
+	}
+	shell := DetectShell()
+	switch shell {
+	case ShellPowerShell:
+		return fmt.Sprintf(`$env:PATH="%s;$env:PATH"; `, binDir)
+	case ShellCmd:
+		return fmt.Sprintf(`set "PATH=%s;%%PATH%%" && `, binDir)
+	default:
+		return fmt.Sprintf(`PATH="%s:$PATH" `, binDir)
+	}
+}
+
+// WrapWithBundlePath prepends the app bundle bin directory to PATH in the
+// given command string, if running from a packaged install. No-op otherwise.
+func WrapWithBundlePath(cmd string) string {
+	if prefix := PrefixWithPathEnv(AppBundleBinDir()); prefix != "" {
+		return prefix + cmd
+	}
+	return cmd
+}
+
 // FormatPromptFileArg returns shell-appropriate syntax for reading a prompt
 // file and passing its content as a CLI argument.
 func FormatPromptFileArg(promptFile string) string {

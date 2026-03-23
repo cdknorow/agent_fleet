@@ -194,11 +194,11 @@ func launchAgentSessions(ctx context.Context, tc *tmux.Client, targetDir, agentT
 		time.Sleep(200 * time.Millisecond)
 
 		// Build and send the launch command
-		launchCmd := ag.BuildLaunchCommand(agent.LaunchParams{
+		launchCmd := agent.WrapWithBundlePath(ag.BuildLaunchCommand(agent.LaunchParams{
 			SessionID:    sessionID,
 			ProtocolPath: protocolPath,
 			WorkingDir:   dir,
-		})
+		}))
 		tc.SendKeysToTarget(ctx, sessionName+".0", launchCmd)
 
 		// Open a terminal window attached to this session

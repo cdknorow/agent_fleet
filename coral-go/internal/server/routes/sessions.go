@@ -1135,7 +1135,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		"default_prompt_worker":       userSettings["default_prompt_worker"],
 	}
 
-	cmd := agentImpl.BuildLaunchCommand(agent.LaunchParams{
+	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
 		ProtocolPath:    h.protocolPath(),
 		Flags:           allFlags,
@@ -1145,7 +1145,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		Prompt:          storedPrompt,
 		PromptOverrides: promptOverrides,
 		BoardType:       storedBoardType,
-	})
+	}))
 	h.terminal.SendToTarget(ctx, target, cmd)
 
 	// Replace live session in DB (carry forward stored fields)
@@ -1244,7 +1244,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	os.WriteFile(newLogPath, []byte{}, 0644)
 	h.terminal.StartLogging(ctx, target, newLogPath)
 
-	cmd := agentImpl.BuildLaunchCommand(agent.LaunchParams{
+	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
 		ProtocolPath:    h.protocolPath(),
 		ResumeSessionID: body.SessionID,
@@ -1254,7 +1254,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		Prompt:          storedPrompt,
 		PromptOverrides: promptOverrides,
 		BoardType:       storedBoardType,
-	})
+	}))
 	h.terminal.SendToTarget(ctx, target, cmd)
 
 	h.ss.ReplaceLiveSession(ctx, body.CurrentSessionID, &store.LiveSession{
@@ -1804,7 +1804,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		// PTY backend: spawn the agent process directly
 		var cmd string
 		if !isTerminal {
-			cmd = agentImpl.BuildLaunchCommand(launchParams)
+			cmd = agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(launchParams))
 		}
 		// Spawn a shell first (empty command), then send the agent command as input.
 		// This matches the tmux pattern and works cross-platform — the shell
@@ -1841,7 +1841,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 
 		// Launch the agent (unless terminal)
 		if !isTerminal {
-			cmd := agentImpl.BuildLaunchCommand(launchParams)
+			cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(launchParams))
 			h.terminal.SendToTarget(ctx, sessionName+".0", cmd)
 		}
 	}

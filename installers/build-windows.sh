@@ -29,10 +29,15 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR
 echo "==> Compiling coral-board.exe"
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/coral-board.exe" ./cmd/coral-board/
 
+for hook in coral-hook-agentic-state coral-hook-task-sync coral-hook-message-check; do
+    echo "==> Compiling $hook.exe"
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/$hook.exe" "./cmd/$hook/"
+done
+
 echo "==> Creating ZIP"
 cd "$DIST_DIR"
 rm -f "coral-windows-amd64-${VERSION}.zip"
-zip -j "coral-windows-amd64-${VERSION}.zip" coral-windows/coral.exe coral-windows/launch-coral.exe coral-windows/coral-board.exe
+zip -j "coral-windows-amd64-${VERSION}.zip" coral-windows/*.exe
 
 echo "==> Cleaning up build dir"
 rm -rf "$BUILD_DIR"
