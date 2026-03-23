@@ -64,7 +64,11 @@ func deleteState() {
 }
 
 func resolveSessionName() string {
-	// Try tmux session name
+	// Check explicit session name (set by both PTY and tmux backends)
+	if name := os.Getenv("CORAL_SESSION_NAME"); name != "" {
+		return name
+	}
+	// Fallback: try tmux session name
 	if os.Getenv("TMUX") != "" {
 		out, err := exec.Command("tmux", "display-message", "-p", "#S").Output()
 		if err == nil {

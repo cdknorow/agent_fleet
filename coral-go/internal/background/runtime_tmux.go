@@ -30,6 +30,9 @@ func (r *TmuxRuntime) SpawnAgent(ctx context.Context, name, workDir, logFile, co
 		return fmt.Errorf("tmux new-session: %w", err)
 	}
 
+	// Set CORAL_SESSION_NAME so coral-board CLI can identify this session
+	r.client.SetEnvironment(ctx, name, "CORAL_SESSION_NAME", name)
+
 	if err := r.client.PipePane(ctx, name, logFile); err != nil {
 		return fmt.Errorf("tmux pipe-pane: %w", err)
 	}

@@ -297,6 +297,12 @@ func (c *Client) NewSession(ctx context.Context, name, workDir string) error {
 	return err
 }
 
+// SetEnvironment sets an environment variable for a tmux session.
+func (c *Client) SetEnvironment(ctx context.Context, session, key, value string) error {
+	_, err := c.run(ctx, "set-environment", "-t", session, key, value)
+	return err
+}
+
 // PipePane sets up pipe-pane logging for a tmux session.
 func (c *Client) PipePane(ctx context.Context, target, logFile string) error {
 	_, err := c.run(ctx, "pipe-pane", "-t", target, "-o", fmt.Sprintf("cat >> '%s'", logFile))

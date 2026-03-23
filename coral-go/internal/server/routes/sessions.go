@@ -1919,6 +1919,35 @@ func (h *SessionsHandler) setupBoardAndPrompt(sessionID, sessionName, agentType,
 			log.Printf("Failed to subscribe session %s to board %s: %v", sessionID[:8], boardName, err)
 		}
 	}
+
+	// Write local board state file so coral-board CLI can find its subscription
+	writeBoardStateFile(sessionName, boardName, role, h.cfg)
+}
+
+// writeBoardStateFile writes the local board state file that coral-board CLI
+// reads to determine which board a session is subscribed to.
+func writeBoardStateFile(sessionName, boardName, role string, cfg *config.Config) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	stateDir := filepath.Join(home, ".coral")
+	os.MkdirAll(stateDir, 0755)
+
+	state := map[string]string{
+		"project":   boardName,
+		"job_title": role,
+	}
+	// Include server_url if not on default port
+	if cfg != nil && cfg.Port != 8420 {
+		state["server_url"] = fmt.Sprintf("http://localhost:%d", cfg.Port)
+	}
+
+	data, _ := json.Marshal(state)
+	statePath := filepath.Join(stateDir, fmt.Sprintf("board_state_%s.json", sessionName))
+	if err := os.WriteFile(statePath, data, 0644); err != nil {
+		log.Printf("Failed to write board state file for %s: %v", sessionName, err)
+	}
 }
 
 func (h *SessionsHandler) protocolPath() string {

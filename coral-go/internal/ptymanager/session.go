@@ -45,6 +45,7 @@ func newSession(name, agentType, workDir, sessionID, command string, cols, rows 
 	env := append(os.Environ(),
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
+		fmt.Sprintf("CORAL_SESSION_NAME=%s", name),
 	)
 
 	proc, err := startPTYProcess(parts[0], parts[1:], workDir, env, cols, rows)
