@@ -8,6 +8,7 @@ site/
 .venv/*
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+coral-go/*
 coral-go/coral
 coral-go/coral.exe
 coral-go/launch-coral.exe
