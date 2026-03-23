@@ -3,6 +3,7 @@ package background
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ func (r *TmuxRuntime) SpawnAgent(ctx context.Context, name, workDir, logFile, co
 	time.Sleep(300 * time.Millisecond)
 
 	if command != "" {
+		log.Printf("[launch] session=%s agent=%s cmd=%s", name, agentType, command)
 		r.client.SendKeysToTarget(ctx, target, command)
 	}
 

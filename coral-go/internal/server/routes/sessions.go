@@ -1146,6 +1146,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		PromptOverrides: promptOverrides,
 		BoardType:       storedBoardType,
 	}))
+	log.Printf("[launch] restart session=%s cmd=%s", target, cmd)
 	h.terminal.SendToTarget(ctx, target, cmd)
 
 	// Replace live session in DB (carry forward stored fields)
@@ -1831,6 +1832,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 
 		// Wait for shell to initialize, then send the launch command
 		if !isTerminal && cmd != "" {
+			log.Printf("[launch] pty session=%s agent=%s cmd=%s", sessionName, agentType, cmd)
 			time.Sleep(300 * time.Millisecond)
 			h.backend.SendInput(sessionName, []byte(cmd+"\n"))
 		}
@@ -1856,6 +1858,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		// Launch the agent (unless terminal)
 		if !isTerminal {
 			cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(launchParams))
+			log.Printf("[launch] tmux session=%s agent=%s cmd=%s", sessionName, agentType, cmd)
 			h.terminal.SendToTarget(ctx, sessionName+".0", cmd)
 		}
 	}
@@ -2266,7 +2269,7 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 		dn := derefStrPtr(ls.DisplayName)
 		bt := derefStrPtr(ls.BoardType)
 		result, err := h.launchSession(ctx, ls.WorkingDir, ls.AgentType, dn,
-			"", flags, prompt, bn, bs, bk, bt, nil)
+			ls.SessionID, flags, prompt, bn, bs, bk, bt, nil)
 		if err != nil {
 			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
 			continue
@@ -2371,7 +2374,7 @@ func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
 	bt := derefStrPtr(sess.BoardType)
 
 	result, err := h.launchSession(ctx, sess.WorkingDir, sess.AgentType, dn,
-		"", flags, prompt, bn, bs, bk, bt, nil)
+		sess.SessionID, flags, prompt, bn, bs, bk, bt, nil)
 	if err != nil {
 		log.Printf("Failed to wake session %s: %v", sessionID[:8], err)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Failed to relaunch session"})
@@ -2481,7 +2484,7 @@ func (h *SessionsHandler) WakeAll(w http.ResponseWriter, r *http.Request) {
 		bt := derefStrPtr(ls.BoardType)
 
 		result, err := h.launchSession(ctx, ls.WorkingDir, ls.AgentType, dn,
-			"", flags, prompt, bn, bs, bk, bt, nil)
+			ls.SessionID, flags, prompt, bn, bs, bk, bt, nil)
 		if err != nil {
 			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
 			continue
