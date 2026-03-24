@@ -23,11 +23,25 @@ type Pane struct {
 type Client struct {
 	// TmuxBin is the path to the tmux binary. Defaults to "tmux".
 	TmuxBin string
+	// SocketPath is an explicit tmux socket path (-S flag).
+	// If set, all commands use this socket for consistent session visibility
+	// across different launch contexts (terminal vs app bundle).
+	SocketPath string
 }
 
 // NewClient creates a new tmux Client.
+// If CORAL_TMUX_SOCKET is set or ~/.coral/tmux.sock exists, uses a fixed socket.
 func NewClient() *Client {
-	return &Client{TmuxBin: "tmux"}
+	c := &Client{TmuxBin: "tmux"}
+	if sp := os.Getenv("CORAL_TMUX_SOCKET"); sp != "" {
+		c.SocketPath = sp
+	} else {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			c.SocketPath = filepath.Join(home, ".coral", "tmux.sock")
+		}
+	}
+	return c
 }
 
 // ListPanes returns all tmux panes with their titles, session names, and targets.
@@ -415,6 +429,9 @@ func (c *Client) ResizePaneTarget(ctx context.Context, target string, columns in
 
 // run executes a tmux command and returns stdout.
 func (c *Client) run(ctx context.Context, args ...string) (string, error) {
+	if c.SocketPath != "" {
+		args = append([]string{"-S", c.SocketPath}, args...)
+	}
 	cmd := exec.CommandContext(ctx, c.TmuxBin, args...)
 	out, err := cmd.Output()
 	if err != nil {
