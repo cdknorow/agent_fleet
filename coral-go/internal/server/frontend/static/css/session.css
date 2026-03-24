@@ -953,6 +953,9 @@
 
 .board-chat-messages .mb-message {
     margin-bottom: 8px;
+    background: var(--board-msg-bg, transparent);
+    border-radius: 6px;
+    padding: 8px 10px;
 }
 
 .board-chat-messages .mb-message-grouped {
@@ -971,6 +974,7 @@
 
 .board-chat-msg {
     padding: 2px 0;
+    background: var(--board-msg-bg, transparent);
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 

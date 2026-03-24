@@ -82,8 +82,10 @@
     --modal-backdrop: rgba(0, 0, 0, 0.6);
 
     /* Chat */
-    --chat-human-bg:    var(--accent-dim);
-    --chat-human-color: var(--text-primary);
+    --chat-human-bg:      color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary));
+    --chat-human-color:   var(--text-primary);
+    --chat-assistant-bg:  var(--bg-tertiary);
+    --board-msg-bg:       transparent;
 
     /* Chat / markdown specifics */
     --code-inline-bg:  rgba(255, 255, 255, 0.07);
@@ -130,6 +132,7 @@
     --mb-text-bright: #f0f0f0;
     --mb-heading:     #88c0d0;
     --mb-code-bg:     #0a0e27;
+    --board-msg-bg:   transparent;
 }
 
 /* ── Light Theme ───────────────────────────────────────────── */
@@ -203,8 +206,10 @@
     --modal-backdrop: rgba(31, 35, 40, 0.4);
 
     /* Chat */
-    --chat-human-bg:    #d4e4f7;
-    --chat-human-color: #1f2328;
+    --chat-human-bg:      #d4e4f7;
+    --chat-human-color:   #1f2328;
+    --chat-assistant-bg:  #f0f1f3;
+    --board-msg-bg:       transparent;
 
     /* Chat / markdown specifics */
     --code-inline-bg:  rgba(31, 35, 40, 0.07);
@@ -251,4 +256,5 @@
     --mb-text-bright: #1a1a1a;
     --mb-heading:     #2e7d9c;
     --mb-code-bg:     #e8e8e8;
+    --board-msg-bg:   transparent;
 }

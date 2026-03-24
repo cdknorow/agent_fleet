@@ -1047,12 +1047,10 @@ func (h *SessionsHandler) Kill(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 
-	if err := h.terminal.KillSession(r.Context(), name, body.AgentType, body.SessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
+	// Kill tmux/pty session (may fail if sleeping — that's expected)
+	h.terminal.KillSession(r.Context(), name, body.AgentType, body.SessionID)
 
-	// Unregister from live sessions DB
+	// Always unregister from DB regardless of kill result
 	if body.SessionID != "" {
 		h.ss.UnregisterLiveSession(r.Context(), body.SessionID)
 	}

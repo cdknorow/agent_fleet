@@ -83,6 +83,7 @@ var bundledThemes = map[string]string{
     "--color-tool-stop": "#f87171",
     "--chat-human-bg": "#1a1f3a",
     "--chat-human-color": "#d0d4e8",
+    "--chat-assistant-bg": "#161b22",
     "--xterm-background": "#0a0e27",
     "--xterm-foreground": "#d0d4e8",
     "--xterm-cursor": "#7dd3fc",
@@ -107,7 +108,8 @@ var bundledThemes = map[string]string{
     "--mb-text": "#e0e0e0",
     "--mb-text-bright": "#f0f0f0",
     "--mb-heading": "#88c0d0",
-    "--mb-code-bg": "#0a0e27"
+    "--mb-code-bg": "#0a0e27",
+    "--board-msg-bg": "#1e2233"
   }
 }`,
 }
@@ -441,6 +443,7 @@ var themeVariableGroups = map[string]map[string]string{
 	},
 	"Chat": {
 		"--chat-human-bg": "Human message background", "--chat-human-color": "Human message text",
+		"--chat-assistant-bg": "Assistant message background",
 	},
 	"Terminal (xterm)": {
 		"--xterm-background": "Background", "--xterm-foreground": "Foreground",
@@ -457,5 +460,6 @@ var themeVariableGroups = map[string]map[string]string{
 		"--mb-bg": "Message background", "--mb-text": "Body text",
 		"--mb-text-bright": "Bold/emphasis text", "--mb-heading": "Heading color",
 		"--mb-code-bg": "Code block background",
+		"--board-msg-bg": "Board panel message background",
 	},
 }

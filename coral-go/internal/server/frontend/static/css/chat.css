@@ -21,7 +21,7 @@
 }
 
 .chat-bubble.human {
-    background: color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary, #2d333b));
+    background: var(--chat-human-bg, color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary)));
     color: var(--text-primary);
     margin-left: auto;
     border-radius: 18px;
@@ -36,7 +36,7 @@
 }
 
 .chat-bubble.assistant {
-    background: var(--bg-tertiary);
+    background: var(--chat-assistant-bg, var(--bg-tertiary));
     color: var(--text-primary);
     border-bottom-left-radius: 2px;
 }

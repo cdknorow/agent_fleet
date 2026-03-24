@@ -142,8 +142,14 @@
     margin-left: 40px;
 }
 
-/* Sleeping agent in sidebar */
-.session-group-item.sleeping {
+/* Sleeping agent in sidebar — grey out text but keep controls visible */
+.session-group-item.sleeping .session-label,
+.session-group-item.sleeping .session-goal,
+.session-group-item.sleeping .badge {
+    color: var(--text-muted);
+}
+
+.session-group-item.sleeping .session-dot {
     opacity: 0.5;
 }
 
