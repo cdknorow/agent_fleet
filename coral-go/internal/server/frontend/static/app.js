@@ -487,6 +487,26 @@ function pollStartupStatus() {
     check();
 }
 
+// ── Home Navigation ──────────────────────────────────────────────────────
+window._goHome = function() {
+    window.location.hash = '';
+    // Show welcome screen
+    const welcome = document.getElementById('welcome-screen');
+    if (welcome) welcome.style.display = '';
+    // Hide all session views
+    ['live-session-view', 'history-session-view', 'messageboard-view'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    // Deselect sidebar items
+    document.querySelectorAll('.sidebar .session-item.active, .sidebar .session-item.selected').forEach(el => {
+        el.classList.remove('active', 'selected');
+    });
+    // On mobile, show agent list
+    const agentList = document.querySelector('.mobile-agent-list');
+    if (agentList) agentList.style.display = '';
+};
+
 // ── Initialization ────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
     // Detect native webview app (coral-app sets window.__CORAL_APP__)
