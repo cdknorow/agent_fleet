@@ -494,6 +494,16 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.classList.add('native-app');
     }
 
+    // Intercept 401 responses — redirect to auth page
+    const _origFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const resp = await _origFetch.apply(this, args);
+        if (resp.status === 401 && !window.location.pathname.startsWith('/auth')) {
+            window.location.href = '/auth';
+        }
+        return resp;
+    };
+
     loadSettings();
 
     // Restore filter state from URL query params before first load

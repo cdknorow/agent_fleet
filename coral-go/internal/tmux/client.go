@@ -58,10 +58,19 @@ func NewClient() *Client {
 func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
 	panes := c.listPanesOnSocket(ctx, c.SocketPath)
 
-	// Fallback: check default tmux socket for sessions created before fixed socket
-	if len(panes) == 0 && c.FallbackToDefault && c.SocketPath != "" {
+	// Always merge sessions from the default socket for backward compatibility
+	if c.FallbackToDefault && c.SocketPath != "" {
 		fallbackPanes := c.listPanesOnSocket(ctx, "")
-		panes = append(panes, fallbackPanes...)
+		// Deduplicate by session name (prefer primary socket)
+		seen := make(map[string]bool)
+		for _, p := range panes {
+			seen[p.SessionName] = true
+		}
+		for _, p := range fallbackPanes {
+			if !seen[p.SessionName] {
+				panes = append(panes, p)
+			}
+		}
 	}
 
 	// Cache which socket each session lives on

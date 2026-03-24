@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/cdknorow/coral/internal/auth"
 	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/board"
 	"github.com/cdknorow/coral/internal/config"
@@ -42,6 +43,7 @@ type Server struct {
 	backend       ptymanager.TerminalBackend
 	terminal      ptymanager.SessionTerminal
 	licenseMgr    *license.Manager
+	keyStore      *auth.KeyStore
 	router        chi.Router
 	indexTmpl     *template.Template
 	tasksHandler   *routes.TasksHandler
@@ -71,6 +73,10 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		licenseMgr.Revalidate()
 	}
 
+	// Initialize API key auth
+	keyStore := auth.NewKeyStore(cfg.CoralDir())
+	log.Printf("API Key: %s...", keyStore.Key()[:8])
+
 	s := &Server{
 		cfg:        cfg,
 		db:         db,
@@ -78,6 +84,7 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		backend:    backend,
 		terminal:   terminal,
 		licenseMgr: licenseMgr,
+		keyStore:   keyStore,
 	}
 
 	// Parse Go templates from embedded FS
@@ -174,6 +181,12 @@ func (s *Server) buildRouter() chi.Router {
 		AllowCredentials: true,
 	}))
 
+	// API key auth — gates remote access behind an auto-generated key.
+	// Localhost connections bypass auth entirely.
+	if s.keyStore != nil {
+		r.Use(auth.Middleware(s.keyStore))
+	}
+
 	// License gate — gates all API access behind a valid license key.
 	// Activation and static asset paths are always accessible.
 	// In dev mode, skip the license check entirely.
@@ -188,6 +201,14 @@ func (s *Server) buildRouter() chi.Router {
 	licRoutes := license.NewRoutes(s.licenseMgr)
 	r.Post("/api/license/activate", licRoutes.Activate)
 	r.Get("/api/license/status", licRoutes.Status)
+
+	// Auth endpoints
+	authRoutes := auth.NewRoutes(s.keyStore)
+	r.Get("/auth", authRoutes.AuthPage)
+	r.Post("/auth/key", authRoutes.ValidateKey)
+	r.Get("/api/system/api-key", authRoutes.GetAPIKey)
+	r.Post("/api/system/api-key/regenerate", authRoutes.RegenerateKey)
+	r.Get("/api/system/auth-status", authRoutes.AuthStatus)
 
 	// ── API Routes ──────────────────────────────────────────────
 	sessHandler := routes.NewSessionsHandler(s.db, s.cfg, s.backend, s.terminal, s.boardStore)

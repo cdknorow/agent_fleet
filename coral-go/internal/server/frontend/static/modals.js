@@ -1828,6 +1828,15 @@ export async function showSettingsModal() {
         dirInput.placeholder = dirInput.dataset.coralRoot || "/path/to/project";
     }
 
+    // API Key
+    const apiKeyInput = document.getElementById("settings-api-key");
+    if (apiKeyInput) {
+        fetch('/api/system/api-key').then(r => r.ok ? r.json() : null).then(data => {
+            if (data && data.key) apiKeyInput.value = data.key;
+            else apiKeyInput.value = 'Not configured';
+        }).catch(() => { apiKeyInput.value = 'Not available'; });
+    }
+
     // CLI Paths
     const cliClaude = document.getElementById("settings-cli-path-claude");
     const cliCodex = document.getElementById("settings-cli-path-codex");
@@ -2113,18 +2122,31 @@ document.addEventListener("keydown", (e) => {
 
 // ── Mobile Connect Modal ─────────────────────────────────────────────────
 
-window._showMobileConnectModal = function() {
+window._showMobileConnectModal = async function() {
     const modal = document.getElementById('mobile-connect-modal');
     if (!modal) return;
 
     // Build the server URL from the current page
-    const url = window.location.origin;
-    document.getElementById('mobile-connect-url').textContent = url;
+    const baseUrl = window.location.origin;
 
-    // Try to generate QR code via server endpoint
+    // Try to fetch the API key to include in the QR URL
+    let connectUrl = baseUrl;
+    try {
+        const resp = await fetch('/api/system/api-key');
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.key) {
+                connectUrl = `${baseUrl}/auth?key=${data.key}`;
+            }
+        }
+    } catch { /* no auth configured — just use base URL */ }
+
+    document.getElementById('mobile-connect-url').textContent = connectUrl;
+
+    // Generate QR code via server endpoint
     const qrContainer = document.getElementById('mobile-connect-qr');
     if (qrContainer) {
-        qrContainer.innerHTML = `<img src="/api/system/qr?url=${encodeURIComponent(url)}" alt="QR Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px" onerror="this.style.display='none'">`;
+        qrContainer.innerHTML = `<img src="/api/system/qr?url=${encodeURIComponent(connectUrl)}" alt="QR Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px" onerror="this.style.display='none'">`;
     }
 
     modal.style.display = 'flex';

@@ -818,9 +818,23 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	fp := r.URL.Query().Get("filepath")
 	sessionID := r.URL.Query().Get("session_id")
 
+	if fp == "" || strings.HasPrefix(fp, "-") || strings.ContainsAny(fp, "\x00") {
+		writeJSON(w, http.StatusOK, map[string]any{"error": "invalid filepath"})
+		return
+	}
+
 	workdir := h.resolveGitRoot(r.Context(), name, "", sessionID)
 	if workdir == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"error": "Could not determine working directory"})
+		return
+	}
+
+	// Path traversal protection
+	fullPath, _ := filepath.Abs(filepath.Join(workdir, fp))
+	realWorkdir, _ := filepath.EvalSymlinks(workdir)
+	realPath, _ := filepath.EvalSymlinks(fullPath)
+	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+		writeJSON(w, http.StatusOK, map[string]any{"error": "path traversal not allowed"})
 		return
 	}
 
@@ -2067,7 +2081,7 @@ func (h *SessionsHandler) GetFileOriginal(w http.ResponseWriter, r *http.Request
 	fp := r.URL.Query().Get("filepath")
 	sessionID := r.URL.Query().Get("session_id")
 
-	if fp == "" {
+	if fp == "" || strings.HasPrefix(fp, "-") || strings.ContainsAny(fp, "\x00:") {
 		writeJSON(w, http.StatusOK, map[string]string{"error": "filepath is required"})
 		return
 	}
@@ -2075,6 +2089,19 @@ func (h *SessionsHandler) GetFileOriginal(w http.ResponseWriter, r *http.Request
 	workdir := h.resolveGitRoot(r.Context(), name, "", sessionID)
 	if workdir == "" {
 		writeJSON(w, http.StatusOK, map[string]string{"error": "Could not determine working directory"})
+		return
+	}
+
+	// Path traversal protection
+	fullPath, err := filepath.Abs(filepath.Join(workdir, fp))
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "invalid path"})
+		return
+	}
+	realWorkdir, _ := filepath.EvalSymlinks(workdir)
+	realPath, _ := filepath.EvalSymlinks(fullPath)
+	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "path traversal not allowed"})
 		return
 	}
 

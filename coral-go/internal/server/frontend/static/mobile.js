@@ -27,9 +27,7 @@ window.toggleTabletSidebar = toggleTabletSidebar;
 function switchMobileTab(tab) {
     _currentMobileTab = tab;
 
-    // Restore tab bar visibility when switching tabs
-    const tabBar = document.querySelector('.mobile-tab-bar');
-    if (tabBar) tabBar.style.display = 'flex';
+    // Tab bar is hidden on mobile via CSS — don't override with inline styles
 
     // Update tab active states
     document.querySelectorAll('.mobile-tab').forEach(t => {
@@ -214,15 +212,10 @@ export function wrapSelectLiveSession() {
         // Call original
         orig(name, agentType, sessionId);
 
-        // On mobile, hide agent list and tab bar to show full session view
+        // On mobile, hide agent list to show full session view
         if (isMobile()) {
             const agentList = document.getElementById('mobile-agent-list');
             if (agentList) agentList.style.display = 'none';
-            const tabBar = document.querySelector('.mobile-tab-bar');
-            if (tabBar) tabBar.style.display = 'none';
-            // Show the Panel tab now that a session is selected
-            const panelTab = document.getElementById('mobile-tab-panel');
-            if (panelTab) panelTab.style.display = '';
         }
 
         // On tablet, close the sidebar overlay
@@ -393,10 +386,9 @@ export function initMobile() {
         const tabBar = document.querySelector('.mobile-tab-bar');
         if (!tabBar) return;
 
-        if (isMobile()) {
-            tabBar.style.display = 'flex';
-        } else {
-            tabBar.style.display = 'none';
+        if (!isMobile()) {
+            // Ensure tab bar stays hidden on desktop (CSS handles mobile)
+            tabBar.style.display = '';
             // Restore sidebar visibility
             const sidebar = document.querySelector('.sidebar');
             const handle = document.querySelector('.sidebar-resize-handle');

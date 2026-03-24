@@ -441,6 +441,14 @@
                 <dd>
                     <input type="text" id="settings-working-dir" class="settings-input" data-coral-root="{{ .CoralRoot }}" placeholder="{{ .CoralRoot }}">
                 </dd>
+                <dt>API Key</dt>
+                <dd>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <input type="text" id="settings-api-key" class="settings-input" readonly style="font-family:var(--font-mono);font-size:12px" placeholder="Loading...">
+                        <button class="btn btn-small" onclick="navigator.clipboard.writeText(document.getElementById('settings-api-key').value); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+                    </div>
+                    <span class="settings-hint">Used for remote/mobile access. Keep secret.</span>
+                </dd>
                 <dt>CLI Paths</dt>
                 <dd class="settings-cli-paths">
                     <label>Claude: <input type="text" id="settings-cli-path-claude" class="settings-input" placeholder="claude"><span id="cli-result-claude" class="cli-verify-result"></span></label>

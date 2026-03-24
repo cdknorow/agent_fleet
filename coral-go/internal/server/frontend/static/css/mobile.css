@@ -128,7 +128,7 @@
 }
 
 .mobile-agent-list .session-list {
-    padding-bottom: 60px; /* space for bottom tab bar */
+    padding-bottom: 16px;
 }
 
 /* ── Mobile Back Button ───────────────────────────────────── */
@@ -232,9 +232,9 @@
         width: 3px;
     }
 
-    /* Show bottom tab bar */
+    /* Bottom tab bar hidden — navigation via agent cards */
     .mobile-tab-bar {
-        display: flex;
+        display: none;
     }
 
     /* Hide desktop/tablet elements */
@@ -265,9 +265,9 @@
         max-width: calc(100vw - 24px);
     }
 
-    /* Adjust layout for bottom bar */
+    /* Adjust layout — no bottom tab bar */
     .layout {
-        height: calc(100vh - 49px - 56px); /* subtract top bar + bottom tab bar */
+        height: calc(100vh - 49px); /* subtract top bar only */
     }
 
     .main-content {
@@ -290,9 +290,9 @@
         z-index: 5;
     }
 
-    /* Live session view: account for bottom tab bar */
+    /* Live session view */
     .session-view {
-        padding-bottom: 60px;
+        padding-bottom: 0;
     }
 
     /* Live session view adjustments */
@@ -925,7 +925,7 @@
         top: 49px;
         left: 0;
         right: 0;
-        bottom: 56px; /* above mobile tab bar */
+        bottom: 0;
         width: 100% !important;
         max-width: none !important;
         min-width: 0 !important;
@@ -986,6 +986,7 @@
     }
 }
 
+@media (max-width: 767px) {
     /* Welcome team cards: stack vertically on mobile */
     .welcome-team-presets {
         flex-direction: column;
@@ -997,6 +998,7 @@
         width: 100%;
         max-width: 300px;
     }
+}
 
     /* Team modal: single column on mobile */
     .team-columns {
