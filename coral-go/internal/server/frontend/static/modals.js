@@ -28,6 +28,15 @@ export function toggleFlag(inputId, flag) {
 let _launchMode = null;
 let _existingTeamBoardNames = new Set();
 
+function _syncMobileLaunchSections(step) {
+    const isMobile = window.innerWidth <= 767;
+    const root = step ? document.getElementById(`launch-step-${step}`) : document.getElementById("launch-modal");
+    if (!root) return;
+    root.querySelectorAll(".mobile-launch-section").forEach(section => {
+        section.open = !isMobile;
+    });
+}
+
 function _showLaunchStep(step) {
     document.getElementById("launch-step-chooser").style.display = step === "chooser" ? "flex" : "none";
     document.getElementById("launch-step-agent").style.display = step === "agent" ? "flex" : "none";
@@ -40,6 +49,7 @@ function _showLaunchStep(step) {
         content.classList.toggle("modal-content-extra-wide", step === "team");
         content.classList.toggle("modal-content-wide", step !== "team" && step !== "agent");
     }
+    _syncMobileLaunchSections(step);
 }
 
 function _selectLaunchType(type) {
@@ -114,6 +124,8 @@ export function showLaunchModal() {
     if (s.default_agent_type && typeSelect) {
         typeSelect.value = s.default_agent_type;
     }
+
+    _syncMobileLaunchSections();
 }
 
 export function hideLaunchModal() {

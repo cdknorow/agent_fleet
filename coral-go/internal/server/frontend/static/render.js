@@ -42,6 +42,13 @@ function getStateLabel(s) {
     return "Idle";
 }
 
+function getMobileStatusChip(s) {
+    if (s.waiting_for_input) return { label: "Needs Input", className: "needs-input" };
+    if (s.stuck) return { label: "Error", className: "error" };
+    if (s.working) return { label: "Running", className: "running" };
+    return { label: "Idle", className: "idle" };
+}
+
 function buildSessionTooltip(s) {
     const stateLabel = getStateLabel(s);
     const lastAction = formatStaleness(s.staleness_seconds);
@@ -862,6 +869,16 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const goalText = s.summary ? escapeHtml(s.summary) : null;
     const goal = goalText || (isTerminal ? "" : `<a href="#" class="generate-goal-link" onclick="event.preventDefault(); event.stopPropagation(); requestGoal('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')" title="Ask agent to set a goal">Generate Goal</a>`);
     const displayLabel = s.display_name || (isCompact && s.board_job_title) || (isTerminal ? "Terminal" : "Agent");
+    const mobileStatus = getMobileStatusChip(s);
+    const lastActivity = formatStaleness(s.staleness_seconds);
+    const needsAttention = !!(s.waiting_for_input || s.stuck);
+    const unreadBoardBadge = s.board_unread > 0
+        ? `<span class="session-mobile-meta-pill">${s.board_unread} unread</span>`
+        : '';
+    const activityLabel = s.waiting_for_input ? "Waiting since" : "Last activity";
+    const mobileAttentionBanner = s.waiting_for_input
+        ? '<div class="session-mobile-banner">Waiting for your input</div>'
+        : (s.stuck ? '<div class="session-mobile-banner error">Session needs attention</div>' : '');
     const isOrchestrator = (s.display_name || s.board_job_title || '').toLowerCase().includes('orchestrator');
     const sleepIcon = s.sleeping ? '<span class="agent-icon">🌙</span> ' : '';
     const agentIcon = !s.sleeping && s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
@@ -945,7 +962,8 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
     const compactClass = isCompact ? ' session-compact' : '';
     const collapsedClass = collapsed ? ' group-collapsed' : '';
     const sleepingClass = s.sleeping ? ' sleeping' : '';
-    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}"
+    const attentionClass = needsAttention ? ' needs-attention' : '';
+    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}${attentionClass}"
         draggable="true"
         data-session-id="${sid}"
         data-group="${escapeAttr(groupName)}"
@@ -958,6 +976,14 @@ function _renderSessionItem(s, groupName, isCompact, collapsed) {
                 <span class="session-name-spacer"></span>
                 ${waitingBadge}
                 ${kebabMenu}
+            </div>
+            <div class="session-mobile-banner-row">
+                ${mobileAttentionBanner}
+            </div>
+            <div class="session-mobile-meta">
+                <span class="session-status-chip ${escapeAttr(mobileStatus.className)}">${escapeHtml(mobileStatus.label)}</span>
+                <span class="session-activity-text">${escapeHtml(activityLabel)} ${escapeHtml(lastActivity)}</span>
+                ${unreadBoardBadge}
             </div>
             <span class="session-goal${isCompact ? ' session-goal-compact' : ''}">${goal}</span>
             ${branchTag}

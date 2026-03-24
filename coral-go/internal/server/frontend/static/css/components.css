@@ -1747,6 +1747,18 @@
     margin-top: 8px;
 }
 
+.mobile-launch-section {
+    min-width: 0;
+}
+
+.mobile-launch-section summary {
+    display: none;
+}
+
+.mobile-launch-section-body {
+    min-width: 0;
+}
+
 .agent-picker-browse {
     color: var(--accent) !important;
     font-style: italic;

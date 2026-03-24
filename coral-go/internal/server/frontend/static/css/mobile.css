@@ -594,6 +594,70 @@
         padding: 14px 4px 20px 0;
     }
 
+    .launch-type-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-three-columns {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .agent-col-config {
+        order: 0;
+    }
+
+    .agent-col-fields {
+        order: 1;
+    }
+
+    .agent-col-presets {
+        order: 2;
+    }
+
+    .mobile-launch-section {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-tertiary);
+        overflow: hidden;
+    }
+
+    .mobile-launch-section summary {
+        display: block;
+        cursor: pointer;
+        padding: 12px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        list-style: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-launch-section summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .mobile-launch-section summary::after {
+        content: "+";
+        float: right;
+        color: var(--text-muted);
+    }
+
+    .mobile-launch-section[open] summary::after {
+        content: "-";
+    }
+
+    .mobile-launch-section-body {
+        padding: 0 14px 14px;
+    }
+
+    .mobile-launch-section .team-agents-container {
+        border: none;
+        background: transparent;
+        padding: 0;
+    }
+
     /* Team columns stack vertically on mobile */
     .team-columns {
         flex-direction: column !important;
@@ -645,6 +709,164 @@
     /* Board cards: disable drag on mobile, hide grip */
     .session-group-item {
         cursor: pointer;
+    }
+
+    #mobile-session-list {
+        padding: 0 12px 72px;
+    }
+
+    #mobile-session-list .session-group-header {
+        padding: 10px 12px !important;
+        margin: 8px 0 4px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    #mobile-session-list .session-board-card {
+        margin: 10px 0 !important;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    #mobile-session-list .board-card-agents {
+        padding: 6px 8px 10px;
+    }
+
+    #mobile-session-list .session-group-item {
+        min-height: 0;
+        padding: 12px 12px 12px 14px !important;
+        margin: 8px 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+        align-items: flex-start;
+        gap: 10px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    }
+
+    #mobile-session-list .session-group-item.active {
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        border-color: rgba(88, 166, 255, 0.45);
+        box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.18), 0 14px 28px rgba(0, 0, 0, 0.2);
+    }
+
+    #mobile-session-list .session-group-item.needs-attention {
+        border-color: rgba(255, 193, 7, 0.45);
+        box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.12), 0 14px 28px rgba(0, 0, 0, 0.22);
+    }
+
+    #mobile-session-list .session-group-item.needs-attention .session-dot.waiting,
+    #mobile-session-list .session-group-item.needs-attention .session-dot.stuck {
+        box-shadow: 0 0 0 6px rgba(255, 193, 7, 0.12);
+    }
+
+    #mobile-session-list .session-dot {
+        width: 10px;
+        height: 10px;
+        margin-top: 7px;
+    }
+
+    #mobile-session-list .session-name-row {
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    #mobile-session-list .session-label {
+        white-space: normal;
+        line-height: 1.35;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    #mobile-session-list .waiting-badge {
+        display: none;
+    }
+
+    #mobile-session-list .session-mobile-banner-row:empty {
+        display: none;
+    }
+
+    #mobile-session-list .session-mobile-banner {
+        display: inline-flex;
+        align-items: center;
+        margin: 8px 0 0;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(255, 193, 7, 0.14);
+        border: 1px solid rgba(255, 193, 7, 0.3);
+        color: var(--warning);
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    #mobile-session-list .session-mobile-banner.error {
+        background: rgba(248, 81, 73, 0.14);
+        border-color: rgba(248, 81, 73, 0.3);
+        color: var(--error);
+    }
+
+    #mobile-session-list .session-mobile-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    #mobile-session-list .session-status-chip,
+    #mobile-session-list .session-mobile-meta-pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }
+
+    #mobile-session-list .session-status-chip.running {
+        background: rgba(59, 130, 246, 0.16);
+        color: #8ec5ff;
+    }
+
+    #mobile-session-list .session-status-chip.idle {
+        background: rgba(148, 163, 184, 0.16);
+        color: var(--text-secondary);
+    }
+
+    #mobile-session-list .session-status-chip.needs-input {
+        background: rgba(255, 193, 7, 0.18);
+        color: var(--warning);
+    }
+
+    #mobile-session-list .session-status-chip.error {
+        background: rgba(248, 81, 73, 0.16);
+        color: var(--error);
+    }
+
+    #mobile-session-list .session-activity-text {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+
+    #mobile-session-list .session-mobile-meta-pill {
+        background: rgba(46, 160, 67, 0.14);
+        color: #7ee787;
+    }
+
+    #mobile-session-list .session-goal {
+        margin-top: 8px;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        line-height: 1.45;
+    }
+
+    #mobile-session-list .sidebar-kebab-btn {
+        opacity: 0.75 !important;
     }
 
     .drag-grip {
@@ -699,9 +921,80 @@
         background: var(--bg-secondary);
     }
 
+    /* Panel tabs: larger, evenly spaced on mobile */
+    .agentic-state.mobile-panel-overlay .agentic-state-tabs {
+        justify-content: space-evenly;
+        padding: 8px 4px;
+        gap: 2px;
+    }
+
+    .agentic-state.mobile-panel-overlay .agentic-tab {
+        min-width: 44px;
+        min-height: 44px;
+        flex: 1;
+        justify-content: center;
+    }
+
+    /* Panel content fills remaining space */
+    .agentic-state.mobile-panel-overlay .agentic-panel.active {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
     /* When panel is shown, hide the task-bar-resize-handle */
     .agentic-state.mobile-panel-overlay + .task-bar-resize-handle {
         display: none !important;
+    }
+
+    /* Mobile file preview: full-screen overlay */
+    .mobile-file-preview-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 200;
+        background: var(--bg-primary);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .mobile-file-preview-overlay .inline-preview-header {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
+    }
+
+    .mobile-file-preview-overlay .inline-preview-body,
+    .mobile-file-preview-overlay .inline-preview-cm {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+}
+
+    /* Welcome team cards: stack vertically on mobile */
+    .welcome-team-presets {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .welcome-team-card {
+        width: 100%;
+        max-width: 300px;
+    }
+
+    /* Team modal: single column on mobile */
+    .team-columns {
+        flex-direction: column !important;
+    }
+
+    .team-col-left,
+    .team-col-right {
+        width: 100% !important;
+        min-width: 0 !important;
     }
 }
 
@@ -774,5 +1067,27 @@
     /* Group kebab always visible on touch */
     .group-kebab .sidebar-kebab-btn {
         opacity: 0.4 !important;
+    }
+
+    /* File list items: larger touch targets */
+    .file-item {
+        min-height: 44px;
+        padding: 8px 12px;
+    }
+
+    /* Agentic tab buttons: larger for touch */
+    .agentic-tab {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    /* File action buttons: always visible on touch (no hover) */
+    .file-action-btns {
+        opacity: 1 !important;
+    }
+
+    .file-action-btn {
+        min-width: 32px;
+        min-height: 32px;
     }
 }

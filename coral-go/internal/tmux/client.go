@@ -17,6 +17,7 @@ type Pane struct {
 	SessionName string `json:"session_name"`
 	Target      string `json:"target"`
 	CurrentPath string `json:"current_path"`
+	SocketPath  string `json:"-"` // which tmux socket this pane was found on (empty = default)
 }
 
 // Client wraps tmux command execution.
@@ -27,12 +28,19 @@ type Client struct {
 	// If set, all commands use this socket for consistent session visibility
 	// across different launch contexts (terminal vs app bundle).
 	SocketPath string
+	// FallbackToDefault enables checking the default tmux socket (no -S flag)
+	// when no sessions are found on the primary socket. This provides backward
+	// compatibility with sessions created before the fixed socket was introduced.
+	FallbackToDefault bool
+	// sessionSockets caches which socket each session was found on.
+	// Populated by ListPanes, used by runForTarget to route commands.
+	sessionSockets map[string]string
 }
 
 // NewClient creates a new tmux Client.
-// If CORAL_TMUX_SOCKET is set or ~/.coral/tmux.sock exists, uses a fixed socket.
+// Uses ~/.coral/tmux.sock as the fixed socket with fallback to the default socket.
 func NewClient() *Client {
-	c := &Client{TmuxBin: "tmux"}
+	c := &Client{TmuxBin: "tmux", FallbackToDefault: true, sessionSockets: make(map[string]string)}
 	if sp := os.Getenv("CORAL_TMUX_SOCKET"); sp != "" {
 		c.SocketPath = sp
 	} else {
@@ -45,15 +53,38 @@ func NewClient() *Client {
 }
 
 // ListPanes returns all tmux panes with their titles, session names, and targets.
+// If FallbackToDefault is enabled and the primary socket has no sessions,
+// also checks the default tmux socket for backward compatibility.
 func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
-	stdout, err := c.run(ctx, "list-panes", "-a",
-		"-F", "#{pane_title}|#{session_name}|#S:#I.#P|#{pane_current_path}")
+	panes := c.listPanesOnSocket(ctx, c.SocketPath)
+
+	// Fallback: check default tmux socket for sessions created before fixed socket
+	if len(panes) == 0 && c.FallbackToDefault && c.SocketPath != "" {
+		fallbackPanes := c.listPanesOnSocket(ctx, "")
+		panes = append(panes, fallbackPanes...)
+	}
+
+	// Cache which socket each session lives on
+	for _, p := range panes {
+		c.sessionSockets[p.SessionName] = p.SocketPath
+	}
+
+	return panes, nil
+}
+
+func (c *Client) listPanesOnSocket(ctx context.Context, socketPath string) []Pane {
+	args := []string{"list-panes", "-a", "-F", "#{pane_title}|#{session_name}|#S:#I.#P|#{pane_current_path}"}
+	if socketPath != "" {
+		args = append([]string{"-S", socketPath}, args...)
+	}
+	cmd := exec.CommandContext(ctx, c.TmuxBin, args...)
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, nil // tmux not running is not an error
+		return nil
 	}
 
 	var panes []Pane
-	for _, line := range strings.Split(stdout, "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -67,9 +98,10 @@ func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
 			SessionName: parts[1],
 			Target:      parts[2],
 			CurrentPath: parts[3],
+			SocketPath:  socketPath,
 		})
 	}
-	return panes, nil
+	return panes
 }
 
 // FindPane finds the tmux pane for a given agent, matching by session_id or agent_name.
@@ -427,10 +459,36 @@ func (c *Client) ResizePaneTarget(ctx context.Context, target string, columns in
 	return err
 }
 
-// run executes a tmux command and returns stdout.
+// run executes a tmux command. If the args target a session (-t flag),
+// it routes to the correct socket using the session cache.
 func (c *Client) run(ctx context.Context, args ...string) (string, error) {
-	if c.SocketPath != "" {
-		args = append([]string{"-S", c.SocketPath}, args...)
+	// Check if this command targets a session — route via cache
+	if c.FallbackToDefault && c.SocketPath != "" {
+		for i, arg := range args {
+			if arg == "-t" && i+1 < len(args) {
+				target := args[i+1]
+				session := sessionFromTarget(target)
+				if socket, ok := c.sessionSockets[session]; ok && socket != c.SocketPath {
+					return c.runOnSocket(ctx, socket, args...)
+				}
+				break
+			}
+		}
+	}
+	// Default: use primary socket, fallback on error
+	out, err := c.runOnSocket(ctx, c.SocketPath, args...)
+	if err != nil && c.FallbackToDefault && c.SocketPath != "" {
+		if fallbackOut, fallbackErr := c.runOnSocket(ctx, "", args...); fallbackErr == nil {
+			return fallbackOut, nil
+		}
+	}
+	return out, err
+}
+
+// runOnSocket runs a tmux command on a specific socket. Empty socketPath uses the default.
+func (c *Client) runOnSocket(ctx context.Context, socketPath string, args ...string) (string, error) {
+	if socketPath != "" {
+		args = append([]string{"-S", socketPath}, args...)
 	}
 	cmd := exec.CommandContext(ctx, c.TmuxBin, args...)
 	out, err := cmd.Output()
@@ -439,3 +497,12 @@ func (c *Client) run(ctx context.Context, args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// sessionFromTarget extracts the session name from a tmux target (e.g. "name.0" → "name").
+func sessionFromTarget(target string) string {
+	if i := strings.IndexAny(target, ".:"); i > 0 {
+		return target[:i]
+	}
+	return target
+}
+

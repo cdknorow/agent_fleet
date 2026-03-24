@@ -197,11 +197,23 @@ export function openFileEdit(filepath) {
 }
 
 async function _openInlinePane(filepath, initialView) {
-    const panel = document.getElementById('agentic-panel-files');
-    if (!panel) return;
+    // On mobile, use a full-screen overlay instead of the sidebar pane
+    const isMobile = window.innerWidth <= 767;
+    let panel;
 
-    // Switch to files tab if not active
-    if (window.switchAgenticTab) window.switchAgenticTab('files', 'top');
+    if (isMobile) {
+        // Remove any existing overlay
+        document.querySelectorAll('.mobile-file-preview-overlay').forEach(el => el.remove());
+        const overlay = document.createElement('div');
+        overlay.className = 'mobile-file-preview-overlay';
+        document.body.appendChild(overlay);
+        panel = overlay;
+    } else {
+        panel = document.getElementById('agentic-panel-files');
+        if (!panel) return;
+        // Switch to files tab if not active
+        if (window.switchAgenticTab) window.switchAgenticTab('files', 'top');
+    }
 
     const { name } = splitPath(filepath);
     const gen = ++_previewGen;
@@ -489,6 +501,10 @@ window._savePreviewFile = async function() {
 window._closeInlinePreview = function() {
     _destroyCmEditor();
     _previewState = null;
+
+    // Remove mobile overlay if present
+    document.querySelectorAll('.mobile-file-preview-overlay').forEach(el => el.remove());
+
     const panel = document.getElementById('agentic-panel-files');
     if (panel) {
         panel.innerHTML = `
