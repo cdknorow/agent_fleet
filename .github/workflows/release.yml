@@ -227,6 +227,11 @@ jobs:
           cp installers/install-cli.sh "$APP/Contents/MacOS/install-cli.sh"
           chmod +x "$APP/Contents/MacOS/install-cli.sh"
 
+      - name: Smoke test Coral.app
+        run: |
+          chmod +x scripts/test-macos-app.sh
+          CI=true scripts/test-macos-app.sh dist/Coral.app
+
       - name: Import signing certificate
         if: env.MACOS_CERTIFICATE != ''
         env:
@@ -259,6 +264,9 @@ jobs:
             --entitlements entitlements.plist "$APP"
           echo "Verifying..."
           codesign --verify --deep --verbose=2 "$APP"
+
+      - name: Smoke test Coral.app
+        run: scripts/test-macos-app.sh dist/Coral.app
 
       - name: Create DMG
         run: |

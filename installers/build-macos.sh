@@ -17,11 +17,14 @@ APP_DIR="$DIST_DIR/Coral.app"
 
 echo "==> Building coral-go for macOS (universal) v${VERSION}"
 
-# Build ldflags — always strip symbols; optionally set Edition for demo builds
+# Build ldflags — always strip symbols; optionally set Edition/SkipLicense
 LDFLAGS="-s -w"
 if [ -n "$CORAL_EDITION" ]; then
-    LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.Edition=$CORAL_EDITION"
-    echo "==> Edition: $CORAL_EDITION"
+    LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true -X github.com/cdknorow/coral/internal/config.Edition=$CORAL_EDITION"
+    echo "==> Edition: $CORAL_EDITION (license skipped)"
+elif [ "${CORAL_DEV:-}" = "1" ]; then
+    LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true"
+    echo "==> Dev mode (license skipped)"
 fi
 
 rm -rf "$APP_DIR" "$DIST_DIR/coral-arm64" "$DIST_DIR/coral-amd64"
@@ -128,6 +131,15 @@ else
     echo "WARNING: hdiutil not available (not on macOS). Creating tar.gz instead."
     cd "$DIST_DIR" && tar czf "Coral-${VERSION}.tar.gz" Coral.app
     DMG_NAME="Coral-${VERSION}.tar.gz"
+fi
+
+# Optional smoke test
+if [ "${SMOKE_TEST:-}" = "1" ]; then
+    echo "==> Running smoke test..."
+    SCRIPT_DIR_TEST="$(cd "$(dirname "$0")/.." && pwd)/scripts"
+    if [ -f "$SCRIPT_DIR_TEST/test-macos-app.sh" ]; then
+        bash "$SCRIPT_DIR_TEST/test-macos-app.sh" "$APP_DIR"
+    fi
 fi
 
 echo ""
