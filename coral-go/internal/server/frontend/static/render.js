@@ -189,14 +189,6 @@ export function showBoardChatTab(boardName) {
     panel.innerHTML = `
         <div class="board-chat-header">
             <a class="board-chat-title" href="#" onclick="event.preventDefault(); selectBoardProject('${escapeAttr(boardName)}')" title="Open full board view">${escapeHtml(boardName)}</a>
-            <span class="board-chat-actions">
-                <button class="board-chat-action-btn" id="board-pause-btn" onclick="window._toggleBoardPause('${escapeAttr(boardName)}')" title="Pause/Resume board">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
-                </button>
-                <button class="board-chat-action-btn board-chat-danger" onclick="window._clearBoardMessages('${escapeAttr(boardName)}')" title="Clear all messages">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
-                </button>
-            </span>
         </div>
         <div class="board-chat-messages" id="board-panel-msgs"></div>
         <div class="board-chat-input-pane" id="board-chat-input-pane">
