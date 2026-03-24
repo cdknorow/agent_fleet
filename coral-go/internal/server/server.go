@@ -334,6 +334,14 @@ func (s *Server) buildRouter() chi.Router {
 	// Uploads
 	r.Post("/api/upload", routes.UploadFile)
 
+	// Custom views
+	viewsHandler := routes.NewViewsHandler(s.db)
+	r.Get("/api/views", viewsHandler.ListViews)
+	r.Post("/api/views", viewsHandler.CreateView)
+	r.Get("/api/views/{id}", viewsHandler.GetView)
+	r.Put("/api/views/{id}", viewsHandler.UpdateView)
+	r.Delete("/api/views/{id}", viewsHandler.DeleteView)
+
 	// Board remotes
 	brHandler := routes.NewBoardRemotesHandler(s.db, s.cfg)
 	r.Post("/api/board/remotes", brHandler.AddSubscription)
@@ -381,6 +389,12 @@ func (s *Server) buildRouter() chi.Router {
 		log.Fatalf("Failed to embed static files: %v", err)
 	}
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+
+	// API spec for custom views
+	r.Get("/api/spec.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.ServeFileFS(w, r, staticFS, "frontend/static/api-spec.json")
+	})
 
 	// ── Dashboard SPA ───────────────────────────────────────────
 	r.Get("/", s.serveIndex)

@@ -208,22 +208,20 @@ function _hasPermFlag(flagsStr) {
 }
 
 /** Verify a CLI path by calling the backend check endpoint. */
-window._verifyCLI = async function(inputId, btn) {
+async function _checkOneCLI(inputId, resultId) {
     const input = document.getElementById(inputId);
-    const resultEl = btn.nextElementSibling;
+    const resultEl = document.getElementById(resultId);
     if (!input || !resultEl) return;
 
     const binary = input.value.trim() || input.placeholder;
-    btn.disabled = true;
-    btn.textContent = '...';
-    resultEl.textContent = '';
+    resultEl.textContent = '...';
     resultEl.className = 'cli-verify-result';
 
     try {
         const resp = await fetch(`/api/system/cli-check?binary=${encodeURIComponent(binary)}`);
         const data = await resp.json();
         if (data.found) {
-            resultEl.textContent = data.version ? `v${data.version}` : 'Found';
+            resultEl.textContent = data.version || 'Found';
             resultEl.classList.add('cli-verify-ok');
         } else {
             resultEl.textContent = 'Not found';
@@ -232,10 +230,18 @@ window._verifyCLI = async function(inputId, btn) {
     } catch {
         resultEl.textContent = 'Error';
         resultEl.classList.add('cli-verify-fail');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Verify';
     }
+}
+
+window._verifyAllCLIs = async function() {
+    const btn = document.getElementById('verify-all-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+    await Promise.all([
+        _checkOneCLI('settings-cli-path-claude', 'cli-result-claude'),
+        _checkOneCLI('settings-cli-path-codex', 'cli-result-codex'),
+        _checkOneCLI('settings-cli-path-gemini', 'cli-result-gemini'),
+    ]);
+    if (btn) { btn.disabled = false; btn.textContent = 'Verify All'; }
 };
 
 function _showCLIWarning(el, agentType, available) {

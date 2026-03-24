@@ -427,9 +427,10 @@
                 </dd>
                 <dt>CLI Paths</dt>
                 <dd class="settings-cli-paths">
-                    <label>Claude: <input type="text" id="settings-cli-path-claude" class="settings-input" placeholder="claude"><button class="btn btn-small cli-verify-btn" onclick="window._verifyCLI('settings-cli-path-claude', this)">Verify</button><span class="cli-verify-result"></span></label>
-                    <label>Codex: <input type="text" id="settings-cli-path-codex" class="settings-input" placeholder="codex"><button class="btn btn-small cli-verify-btn" onclick="window._verifyCLI('settings-cli-path-codex', this)">Verify</button><span class="cli-verify-result"></span></label>
-                    <label>Gemini: <input type="text" id="settings-cli-path-gemini" class="settings-input" placeholder="gemini"><button class="btn btn-small cli-verify-btn" onclick="window._verifyCLI('settings-cli-path-gemini', this)">Verify</button><span class="cli-verify-result"></span></label>
+                    <label>Claude: <input type="text" id="settings-cli-path-claude" class="settings-input" placeholder="claude"><span id="cli-result-claude" class="cli-verify-result"></span></label>
+                    <label>Codex: <input type="text" id="settings-cli-path-codex" class="settings-input" placeholder="codex"><span id="cli-result-codex" class="cli-verify-result"></span></label>
+                    <label>Gemini: <input type="text" id="settings-cli-path-gemini" class="settings-input" placeholder="gemini"><span id="cli-result-gemini" class="cli-verify-result"></span></label>
+                    <button class="btn btn-small" onclick="window._verifyAllCLIs()" id="verify-all-btn" style="margin-top:6px">Verify All</button>
                     <span class="settings-hint">Full path to agent CLI binary. Leave empty to use default from PATH.</span>
                 </dd>
                 <dt>Group by Team</dt>
@@ -732,5 +733,38 @@
         </div>
     </div>
 
+    <!-- Create/Edit Custom View Modal -->
+    <div id="custom-view-modal" class="modal" style="display:none">
+        <div class="modal-content modal-content-extra-wide">
+            <div class="modal-header">
+                <h3 id="custom-view-modal-title">Create Custom View</h3>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="custom-view-edit-id">
+                <label>View Name:
+                    <input type="text" id="custom-view-name" class="settings-input" placeholder="e.g. Token Usage Chart">
+                </label>
+                <label>HTML / JavaScript:
+                    <div id="custom-view-editor" class="custom-view-editor"></div>
+                </label>
+                <details class="custom-view-help">
+                    <summary>API Reference</summary>
+                    <p>Your view runs in a sandboxed iframe with access to Coral's API via <code>fetch()</code>. Key endpoints:</p>
+                    <ul>
+                        <li><code>GET /api/sessions/live</code> — list live sessions</li>
+                        <li><code>GET /api/sessions/live/{name}/events</code> — agent events</li>
+                        <li><code>GET /api/sessions/live/{name}/tasks</code> — agent tasks</li>
+                        <li><code>GET /api/sessions/live/{name}/files</code> — changed files</li>
+                        <li><code>GET /api/board/{project}/messages/all</code> — board messages</li>
+                    </ul>
+                    <p>Context is available via <code>window.CORAL_CONTEXT</code> (agent name, session ID).</p>
+                </details>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window._hideViewModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="window._saveView()">Save</button>
+            </div>
+        </div>
+    </div>
 
 {{ end }}

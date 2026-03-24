@@ -23,6 +23,7 @@ import { loadChangedFiles, openFileDiff, openFilePreview, openFileEdit, refreshC
 import { initFileMention } from './file_mention.js';
 import { initCommandMention } from './command_mention.js';
 import { loadAgentNotes, initNotesMd } from './agent_notes.js';
+import { loadCustomViews, activateCustomView } from './custom_views.js';
 import { switchAgenticTab, restoreAgenticTabs, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
 import { copyBranchName, escapeHtml } from './utils.js';
@@ -208,6 +209,7 @@ window.loadChangedFiles = loadChangedFiles;
 window.openFileDiff = openFileDiff;
 window.openFilePreview = openFilePreview;
 window.openFileEdit = openFileEdit;
+window._activateCustomView = activateCustomView;
 window.refreshChangedFiles = refreshChangedFiles;
 window.loadAgentTasks = loadAgentTasks;
 window.addAgentTask = addAgentTask;
@@ -498,6 +500,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     loadLiveSessions();
     loadAllFolderTags();
+    loadCustomViews();
     connectCoralWs();
     checkForUpdates();
     pollStartupStatus();

@@ -451,6 +451,25 @@
 /* When using modal-header/body/footer structure, body scrolls instead */
 .modal-content:has(.modal-body) {
     overflow: hidden;
+    padding: 0;
+}
+
+.modal-content:has(.modal-body) .modal-header {
+    position: static;
+    margin: 0;
+    padding: 24px 24px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-content:has(.modal-body) .modal-body {
+    padding: 12px 24px;
+}
+
+.modal-content:has(.modal-body) .modal-footer {
+    position: static;
+    margin: 0;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
 }
 
 .modal-content-wide {
@@ -544,6 +563,7 @@
 
 .launch-modal-step {
     flex: 1;
+    flex-direction: column;
     min-height: 0;
     overflow-y: auto;
     padding-right: 4px;

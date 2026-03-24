@@ -430,6 +430,12 @@ export function switchAgenticTab(tabName, blockId) {
         if (window._closeInlinePreview) window._closeInlinePreview();
     }
 
+    // Activate custom view iframe when switching to a custom view tab
+    if (tabName.startsWith('custom-view-') && window._activateCustomView) {
+        const viewId = parseInt(tabName.replace('custom-view-', ''), 10);
+        window._activateCustomView(viewId);
+    }
+
     // Refresh changed files when switching to the files tab
     if (tabName === 'files' && state.currentSession && state.currentSession.type === 'live') {
         loadChangedFiles(state.currentSession.name, state.currentSession.session_id);

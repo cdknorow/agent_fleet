@@ -1269,3 +1269,100 @@
 .activity-stats-summary:hover {
     color: var(--text-primary);
 }
+
+/* ── Custom Views ─────────────────────────────────────────── */
+
+.agentic-tab-add {
+    opacity: 0.5;
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+}
+
+.agentic-tab-add:hover {
+    opacity: 1;
+}
+
+.agentic-tab-add .material-icons {
+    font-size: 16px;
+}
+
+.custom-view-panel {
+    padding: 0;
+    overflow: hidden;
+}
+
+.custom-view-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--bg-primary);
+}
+
+.custom-view-editor {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 4px;
+    min-height: 300px;
+    height: 50vh;
+}
+
+.custom-view-editor .cm-editor {
+    height: 100%;
+}
+
+.custom-view-editor .cm-scroller {
+    overflow: auto;
+}
+
+.custom-view-help {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+}
+
+.custom-view-help summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.custom-view-help ul {
+    padding-left: 20px;
+    margin: 4px 0;
+}
+
+.custom-view-help code {
+    background: var(--bg-tertiary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* Context menu for custom view tabs */
+.view-context-menu {
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    z-index: 200;
+    box-shadow: var(--shadow-md);
+}
+
+.view-context-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.view-context-menu button:hover {
+    background: var(--bg-hover);
+}

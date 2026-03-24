@@ -91,6 +91,17 @@ func (d *DB) ensureSchema(ctx context.Context) error {
 		UNIQUE(session_id, remote_server, project)
 	)`)
 
+	d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS custom_views (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT NOT NULL,
+		prompt     TEXT NOT NULL DEFAULT '',
+		html       TEXT NOT NULL DEFAULT '',
+		tab_order  INTEGER NOT NULL DEFAULT 0,
+		scope      TEXT NOT NULL DEFAULT 'global',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+
 	// Create additional indexes
 	for _, ddl := range additionalIndexes {
 		d.ExecContext(ctx, ddl) // Ignore errors for existing indexes

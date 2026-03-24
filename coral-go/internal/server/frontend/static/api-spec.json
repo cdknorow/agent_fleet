@@ -1,0 +1,142 @@
+{
+  "title": "Coral API Reference (for Custom Views)",
+  "version": "0.9",
+  "base_url": "",
+  "description": "Key API endpoints available for building custom sidebar views. All endpoints return JSON.",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/sessions/live",
+      "description": "List all live agent sessions",
+      "response_example": [{"session_id": "abc-123", "agent_type": "claude", "agent_name": "claude-abc-123", "display_name": "Lead Developer", "working_dir": "/home/user/project", "board_name": "dev-board", "is_sleeping": 0}]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}",
+      "description": "Get details for a specific live session",
+      "params": {"name": "Agent session name (e.g. claude-abc-123)"},
+      "response_example": {"session_id": "abc-123", "agent_type": "claude", "display_name": "Lead Developer", "status": "Working on auth module", "summary": "Implementing OAuth2", "confidence": null}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/tasks",
+      "description": "List agent tasks for a session",
+      "params": {"name": "Agent session name"},
+      "response_example": {"tasks": [{"id": 1, "subject": "Implement login", "status": "in_progress", "description": "Build login flow"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/events",
+      "description": "List agent events (tool uses, status changes)",
+      "params": {"name": "Agent session name"},
+      "response_example": {"events": [{"id": 1, "event_type": "tool_use", "tool_name": "Edit", "summary": "Edited auth.go", "created_at": "2024-01-01T00:00:00Z"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/events/counts",
+      "description": "Get event counts by type for a session",
+      "params": {"name": "Agent session name"},
+      "response_example": {"counts": {"tool_use": 15, "status_change": 8, "error": 1}}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/files",
+      "description": "List changed files for a session",
+      "params": {"name": "Agent session name"},
+      "response_example": {"files": [{"filepath": "internal/auth.go", "additions": 45, "deletions": 12, "status": "M"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/git",
+      "description": "Get git state (branch, recent commits) for a session",
+      "params": {"name": "Agent session name"},
+      "response_example": {"branch": "feature/auth", "commits": [{"hash": "abc1234", "message": "Add login handler", "author": "claude", "date": "2024-01-01"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/notes",
+      "description": "List agent notes for a session",
+      "params": {"name": "Agent session name"},
+      "response_example": {"notes": [{"id": 1, "content": "Auth flow uses JWT tokens", "created_at": "2024-01-01T00:00:00Z"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/capture",
+      "description": "Capture current terminal output for a session",
+      "params": {"name": "Agent session name", "lines": "(optional) Number of lines to capture"},
+      "response_example": {"output": "$ running tests...\nPASS\n"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/live/{name}/info",
+      "description": "Get session metadata (prompt, board, working dir)",
+      "params": {"name": "Agent session name"},
+      "response_example": {"prompt": "Build the auth module", "board_name": "dev-board", "working_dir": "/home/user/project", "agent_type": "claude"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/history",
+      "description": "List historical sessions with search/filter",
+      "params": {"q": "(optional) Search query", "limit": "(optional) Max results", "offset": "(optional) Pagination offset"},
+      "response_example": {"sessions": [{"session_id": "abc-123", "agent_type": "claude", "summary": "Implemented auth", "created_at": "2024-01-01"}], "total": 42}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/history/{sessionID}/tasks",
+      "description": "Get tasks from a historical session",
+      "params": {"sessionID": "Session UUID"},
+      "response_example": {"tasks": [{"subject": "Implement login", "status": "completed"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/history/{sessionID}/git",
+      "description": "Get git commits from a historical session",
+      "params": {"sessionID": "Session UUID"},
+      "response_example": {"commits": [{"hash": "abc1234", "message": "Add login handler"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/board/{project}/messages/all",
+      "description": "List all messages on a board",
+      "params": {"project": "Board name", "limit": "(optional) Max messages (default 200)"},
+      "response_example": {"messages": [{"id": 1, "sender": "Lead Developer", "body": "Auth module is done", "created_at": "2024-01-01T00:00:00Z"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/board/{project}/subscribers",
+      "description": "List subscribers on a board",
+      "params": {"project": "Board name"},
+      "response_example": {"subscribers": [{"session_name": "claude-abc-123", "job_title": "Lead Developer", "receive_mode": "all"}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/board/projects",
+      "description": "List all active boards",
+      "response_example": {"projects": [{"name": "dev-board", "subscriber_count": 5, "message_count": 120}]}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "description": "List all tags",
+      "response_example": [{"id": 1, "name": "auth", "color": "#3498db"}]
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "description": "Get user settings (key-value pairs)",
+      "response_example": {"theme": "dark", "refresh_files_on_switch": "true"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/status",
+      "description": "Get system status (version, uptime, active sessions)",
+      "response_example": {"version": "0.9.24", "uptime_seconds": 3600, "active_sessions": 3}
+    },
+    {
+      "method": "GET",
+      "path": "/api/views",
+      "description": "List all custom views",
+      "response_example": [{"id": 1, "name": "Commit Timeline", "prompt": "Show commits", "html": "<div>...</div>", "tab_order": 0}]
+    }
+  ]
+}

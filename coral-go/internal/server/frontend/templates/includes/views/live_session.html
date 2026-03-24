@@ -109,6 +109,11 @@
                                 <button class="agentic-tab" onclick="switchAgenticTab('activity', 'top')" id="agentic-tab-activity" title="Activity" aria-label="Activity">
                                     <span class="material-icons">timeline</span>
                                 </button>
+                                <!-- Custom view tabs inserted here dynamically -->
+                                <span id="custom-view-tabs"></span>
+                                <button class="agentic-tab agentic-tab-add" onclick="window._showCreateViewModal()" id="agentic-tab-add-view" title="Add custom view" aria-label="Add custom view">
+                                    <span class="material-icons">add</span>
+                                </button>
                             </div>
                             <!-- Files tab -->
                             <div id="agentic-panel-files" class="agentic-panel active">
@@ -149,6 +154,8 @@
                                     </div>
                                 </div>
                             </div>
+                            <!-- Custom view panels inserted here dynamically -->
+                            <div id="custom-view-panels"></div>
                         </div>
                     </div>
                 </div>
