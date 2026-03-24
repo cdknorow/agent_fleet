@@ -132,8 +132,6 @@ export async function resendInputPrompt() {
 }
 
 const DEFAULT_MACROS = [
-    { label: "/compact", command: "/compact" },
-    { label: "/clear", command: "/clear" },
     { label: "🎨 Icon", command: "Pick an emoji that represents your role and set it with: coral-agent-icon set <emoji>" },
 ];
 
@@ -221,8 +219,6 @@ export function renderQuickActions() {
 
     const navButtons = `
         <button class="btn-nav" onclick="sendRawKeys(['Escape'])" title="Escape" aria-label="Escape">Esc</button>
-        <button class="btn-nav" onclick="sendRawKeys(['Left'])" title="Arrow Left" aria-label="Arrow Left">&larr;</button>
-        <button class="btn-nav" onclick="sendRawKeys(['Right'])" title="Arrow Right" aria-label="Arrow Right">&rarr;</button>
         <button class="btn-nav" onclick="sendRawKeys(['Up'])" title="Arrow Up" aria-label="Arrow Up">&uarr;</button>
         <button class="btn-nav" onclick="sendRawKeys(['Down'])" title="Arrow Down" aria-label="Arrow Down">&darr;</button>
         <button class="btn-nav btn-enter" onclick="sendRawKeys(['Enter'])" data-tooltip="Sends an Enter keypress to the terminal" aria-label="Enter">&#9166;</button>
