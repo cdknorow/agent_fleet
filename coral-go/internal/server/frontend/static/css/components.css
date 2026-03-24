@@ -1621,6 +1621,18 @@
     margin-bottom: 12px;
 }
 
+.add-agent-board-columns {
+    display: grid;
+    grid-template-columns: 1fr 1.35fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.add-agent-board-col-left,
+.add-agent-board-col-right {
+    min-width: 0;
+}
+
 .team-col-left,
 .team-col-right {
     min-width: 0;
@@ -1642,6 +1654,17 @@
     color: var(--text-muted);
     margin: 4px 0 0;
     line-height: 1.4;
+}
+
+.team-field-hint {
+    margin: -4px 0 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.team-field-hint.error {
+    color: var(--error);
 }
 
 .team-agents-footer {
@@ -1677,6 +1700,51 @@
 
 .team-template-dropdown-label select {
     margin-top: 4px;
+}
+
+.team-template-actions {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 12px;
+    flex-wrap: wrap;
+}
+
+.team-advanced {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+}
+
+.team-advanced summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    list-style: none;
+}
+
+.team-advanced summary::-webkit-details-marker {
+    display: none;
+}
+
+.team-advanced summary::after {
+    content: "+";
+    float: right;
+    color: var(--text-muted);
+}
+
+.team-advanced[open] summary::after {
+    content: "-";
+}
+
+.team-advanced-body {
+    padding: 0 12px 12px;
+}
+
+.team-settings-toggle {
+    margin-top: 8px;
 }
 
 .agent-picker-browse {
@@ -1971,19 +2039,22 @@
     display: flex;
     gap: 6px;
     margin-bottom: 10px;
+    flex-wrap: wrap;
 }
 
 .btn-subtle {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: 11px;
-    padding: 3px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light, var(--border));
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 12px;
 }
 
 .btn-subtle:hover {
     color: var(--text-primary);
-    border-color: var(--text-muted);
+    border-color: var(--accent);
+    background: var(--bg-hover);
 }
 
 .add-agent-board-subtitle {

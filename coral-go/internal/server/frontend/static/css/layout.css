@@ -611,6 +611,64 @@ img[src*="coral.png"] {
     box-shadow: var(--shadow-md);
 }
 
+.welcome-team-presets {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 24px;
+}
+
+.welcome-team-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 20px 24px;
+    width: 190px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.welcome-team-card:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-dim);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.welcome-team-card strong {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.welcome-team-icon {
+    font-size: 32px;
+    color: var(--accent);
+    margin-bottom: 4px;
+}
+
+.welcome-team-desc {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.welcome-team-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-top: 2px;
+}
+
 .welcome-tip {
     margin-top: 24px;
     font-size: 13px;

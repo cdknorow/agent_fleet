@@ -26,6 +26,7 @@ export function toggleFlag(inputId, flag) {
 
 // Track which launch mode is active: null (chooser), 'agent', or 'terminal'
 let _launchMode = null;
+let _existingTeamBoardNames = new Set();
 
 function _showLaunchStep(step) {
     document.getElementById("launch-step-chooser").style.display = step === "chooser" ? "flex" : "none";
@@ -911,6 +912,8 @@ async function _initTeamForm() {
     // Reset form
     document.getElementById("team-board-name").value = "";
     document.getElementById("team-board-server").value = "";
+    _existingTeamBoardNames = new Set();
+    _validateTeamName();
     const tfEl = document.getElementById("team-flags");
     if (tfEl) tfEl.value = _getPermFlag('team-agent-type');
     const tapEl = document.getElementById("team-auto-permissions");
@@ -926,22 +929,14 @@ async function _initTeamForm() {
     const typeSelect = document.getElementById("team-agent-type");
     if (s.default_agent_type && typeSelect) typeSelect.value = s.default_agent_type;
 
-    // Fetch existing message board projects for the dropdown
-    const select = document.getElementById("team-board-select");
-    select.innerHTML = '<option value="__new__">Create new board...</option>';
+    // Fetch existing boards for uniqueness validation
     try {
         const resp = await fetch("/api/board/projects");
         const projects = await resp.json();
         for (const p of projects) {
-            const opt = document.createElement("option");
-            opt.value = p.project;
-            opt.textContent = p.project;
-            select.appendChild(opt);
+            if (p.project) _existingTeamBoardNames.add(String(p.project).trim().toLowerCase());
         }
     } catch (_) {}
-
-    // Show new board name input
-    document.getElementById("team-new-board-row").style.display = "";
 
     // Render team template selector
     _renderTeamTemplateSelector();
@@ -952,16 +947,41 @@ async function _initTeamForm() {
     }
 
     document.getElementById("team-board-name").focus();
+    _validateTeamName();
 }
 
 const BUILTIN_TEAM_TEMPLATES = [
     {
-        name: "Demo Team",
+        name: "Coding Team",
         builtin: true,
         agents: [
             { name: "Orchestrator", prompt: "You are the orchestrator. Break down the task, assign work to the team via the message board, and track progress. Do not write code yourself — delegate to the other agents. Discuss your plan with the operator before posting assignments." },
             { name: "Lead Developer", prompt: "You are the lead developer. Implement features, write code, and coordinate with the team via the message board. Wait for instructions from the Orchestrator before starting." },
             { name: "QA Engineer", prompt: "You are a QA engineer. Review code, write tests, and verify the work of other agents. Wait for instructions from the Orchestrator before starting." },
+            { name: "Frontend Dev", prompt: "You are a frontend developer. Build UI components, style pages, and ensure a great user experience. Wait for instructions from the Orchestrator before starting." },
+            { name: "Security Reviewer", prompt: "You are a security expert. Review code for vulnerabilities (OWASP top 10, injection, auth issues, data exposure), audit dependencies, and recommend security best practices. Wait for instructions from the Orchestrator before starting." },
+        ],
+        flags: "",
+    },
+    {
+        name: "Marketing Team",
+        builtin: true,
+        agents: [
+            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the marketing team, break down campaigns, assign tasks via the message board, and track progress. Do not write content yourself — delegate to the other agents." },
+            { name: "Content Writer", prompt: "You are an expert content writer. Write blog posts, social media copy, email campaigns, and landing page content. Focus on clear, engaging writing that drives action. Coordinate with the team via the message board." },
+            { name: "SEO Strategist", prompt: "You are an SEO and analytics expert. Research keywords, analyze competitors, optimize content for search engines, and provide data-driven recommendations. Coordinate with the team via the message board." },
+            { name: "Design Director", prompt: "You are a creative director focused on visual design. Create design briefs, review visual assets, ensure brand consistency, and provide art direction. Coordinate with the team via the message board." },
+        ],
+        flags: "",
+    },
+    {
+        name: "Personal Assistant",
+        builtin: true,
+        agents: [
+            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the assistant team, prioritize tasks, delegate work via the message board, and ensure nothing falls through the cracks." },
+            { name: "Research Analyst", prompt: "You are a thorough research analyst. Find information, summarize documents, compare options, and provide well-sourced answers. Coordinate with the team via the message board." },
+            { name: "Writer & Editor", prompt: "You are a skilled writer and editor. Draft emails, documents, presentations, and reports. Polish and proofread content for clarity and professionalism. Coordinate with the team via the message board." },
+            { name: "Scheduler & Planner", prompt: "You are an organizational expert. Help plan projects, create timelines, track deadlines, and organize information into actionable plans. Coordinate with the team via the message board." },
         ],
         flags: "",
     },
@@ -987,6 +1007,14 @@ window._loadTeamTemplateFromSelect = function(name) {
     // Reset dropdown to placeholder after loading
     const select = document.getElementById("team-template-selector");
     if (select) select.value = "";
+};
+
+/** Launch a team preset from the welcome screen — opens the team modal pre-filled. */
+window._launchTeamPreset = function(templateName) {
+    showLaunchModal();
+    if (window._selectLaunchType) window._selectLaunchType('team');
+    // Wait for the team form to initialize, then load the template
+    setTimeout(() => _loadTeamTemplate(templateName), 100);
 };
 
 function _loadTeamTemplate(name) {
@@ -1256,25 +1284,36 @@ window._addTeamAgent = () => {
     if (picker) picker.style.display = "none";
 };
 
-function _onTeamBoardChange() {
-    const select = document.getElementById("team-board-select");
-    const newRow = document.getElementById("team-new-board-row");
-    newRow.style.display = select.value === "__new__" ? "" : "none";
+function _validateTeamName() {
+    const input = document.getElementById("team-board-name");
+    const hint = document.getElementById("team-board-name-hint");
+    if (!input || !hint) return true;
+    const value = input.value.trim();
+    if (!value) {
+        hint.textContent = "This will also be the message board name.";
+        hint.classList.remove("error");
+        return false;
+    }
+    if (_existingTeamBoardNames.has(value.toLowerCase())) {
+        hint.textContent = "That team name is already in use. Pick a unique name.";
+        hint.classList.add("error");
+        return false;
+    }
+    hint.textContent = "Looks good. This will also be the message board name.";
+    hint.classList.remove("error");
+    return true;
 }
-window._onTeamBoardChange = _onTeamBoardChange;
+window._validateTeamName = _validateTeamName;
 
 async function launchTeam() {
-    // Collect board name
-    const boardSelect = document.getElementById("team-board-select");
-    let boardName;
-    if (boardSelect.value === "__new__") {
-        boardName = document.getElementById("team-board-name").value.trim();
-        if (!boardName) {
-            showToast("Board name is required", true);
-            return;
-        }
-    } else {
-        boardName = boardSelect.value;
+    const boardName = document.getElementById("team-board-name").value.trim();
+    if (!boardName) {
+        showToast("Team name is required", true);
+        return;
+    }
+    if (!_validateTeamName()) {
+        showToast("Team name must be unique", true);
+        return;
     }
 
     const workingDir = document.getElementById("launch-team-dir").value.trim();

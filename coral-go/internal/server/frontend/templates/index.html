@@ -111,27 +111,35 @@
             <div id="welcome-screen" class="welcome">
                 <img src="/static/favicon.png" alt="Coral" class="welcome-logo">
                 <h2>Welcome to Coral</h2>
-                <p>Select a session from the sidebar, or get started:</p>
-                <button class="welcome-hero-btn" onclick="showLaunchModal(); if (window._selectLaunchType) window._selectLaunchType('team')">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/>
-                        <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-                        <path d="M17 11a4 4 0 0 1 4 4v2"/>
-                    </svg>
-                    Launch Agent Team
-                </button>
+                <p>Select a session from the sidebar, or launch a team:</p>
+                <div class="welcome-team-presets">
+                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Coding Team')">
+                        <span class="material-icons welcome-team-icon">code</span>
+                        <strong>Coding Team</strong>
+                        <span class="welcome-team-desc">Lead Dev, QA, Frontend Dev, Security Reviewer</span>
+                        <span class="welcome-team-count">5 agents</span>
+                    </button>
+                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Marketing Team')">
+                        <span class="material-icons welcome-team-icon">campaign</span>
+                        <strong>Marketing Team</strong>
+                        <span class="welcome-team-desc">Content Writer, SEO Strategist, Design Director</span>
+                        <span class="welcome-team-count">4 agents</span>
+                    </button>
+                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Personal Assistant')">
+                        <span class="material-icons welcome-team-icon">assistant</span>
+                        <strong>Personal Assistant</strong>
+                        <span class="welcome-team-desc">Research Analyst, Writer, Scheduler</span>
+                        <span class="welcome-team-count">4 agents</span>
+                    </button>
+                </div>
                 <div class="welcome-actions">
                     <button class="welcome-action-card" onclick="showLaunchModal()" aria-label="Launch Agent">
                         <span class="material-icons">add_circle</span>
                         <span>Launch Agent</span>
                     </button>
-                    <button class="welcome-action-card" onclick="showJobModal()" aria-label="Create Job">
-                        <span class="material-icons">schedule</span>
-                        <span>Create Job</span>
-                    </button>
-                    <button class="welcome-action-card" onclick="showWebhookModal(); showWebhookCreate();" aria-label="Create Webhook">
-                        <span class="material-icons">webhook</span>
-                        <span>Create Webhook</span>
+                    <button class="welcome-action-card" onclick="showLaunchModal(); if (window._selectLaunchType) window._selectLaunchType('team')" aria-label="Custom Team">
+                        <span class="material-icons">groups</span>
+                        <span>Custom Team</span>
                     </button>
                 </div>
                 <div class="welcome-secondary">
