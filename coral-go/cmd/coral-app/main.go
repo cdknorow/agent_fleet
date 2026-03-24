@@ -77,11 +77,24 @@ func main() {
 	setupNativeTitlebar()
 
 	// Inject native app flag so frontend can adjust styling (title bar padding, drag regions)
+	// Also intercept external links and open them in the system browser.
 	w.Init(`window.__CORAL_APP__ = true; document.addEventListener('DOMContentLoaded', function() {
 		document.body.classList.add('native-app');
 		if (navigator.platform && navigator.platform.indexOf('Mac') !== -1) document.body.classList.add('native-macos');
 		if (navigator.platform && navigator.platform.indexOf('Win') !== -1) document.body.classList.add('native-windows');
-	});`)
+	});
+	document.addEventListener('click', function(e) {
+		var a = e.target.closest('a');
+		if (!a) return;
+		var href = a.getAttribute('href');
+		if (!href) return;
+		// Open external links and target=_blank in system browser
+		var isExternal = href.startsWith('http') && !href.startsWith(location.origin);
+		if (isExternal || a.target === '_blank') {
+			e.preventDefault();
+			window.open(href, '_blank');
+		}
+	}, true);`)
 
 	// Bind JS console.log to Go logger in debug mode
 	if debugMode {
