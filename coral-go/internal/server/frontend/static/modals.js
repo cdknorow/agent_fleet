@@ -1156,7 +1156,13 @@ window._quickLaunchTeam = async function() {
         const data = await resp.json();
         if (data.error) { showToast(data.error, 'error'); return; }
         document.getElementById('quick-launch-modal').style.display = 'none';
-        showToast(`Launched ${templateName} on ${boardName}`);
+        const launched = data.agents || [];
+        const failed = launched.filter(a => a.error);
+        if (failed.length > 0) {
+            showToast(`Launched ${launched.length - failed.length} of ${launched.length} agents (${failed.length} failed)`, 'error');
+        } else {
+            showToast(`Launched ${templateName} on ${boardName}`);
+        }
     } catch (e) {
         showToast('Launch failed: ' + e.message, 'error');
     } finally {
