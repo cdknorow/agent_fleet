@@ -161,9 +161,12 @@ func (s *Server) buildRouter() chi.Router {
 	// Middleware
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	allowAllOrigins := s.cfg.Host == "0.0.0.0" || s.cfg.Host == ""
 	r.Use(cors.Handler(cors.Options{
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			// Allow localhost origins only (matches Python CORS config)
+			if allowAllOrigins {
+				return true
+			}
 			return isLocalhostOrigin(origin)
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -266,6 +269,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/system/status", sysHandler.Status)
 	r.Get("/api/system/update-check", sysHandler.UpdateCheck)
 	r.Get("/api/system/cli-check", sysHandler.CLICheck)
+	r.Get("/api/system/qr", sysHandler.QRCode)
 	r.Get("/api/filesystem/list", sysHandler.ListFilesystem)
 	r.Post("/api/indexer/refresh", sysHandler.RefreshIndexer)
 
@@ -388,12 +392,24 @@ func (s *Server) buildRouter() chi.Router {
 	if err != nil {
 		log.Fatalf("Failed to embed static files: %v", err)
 	}
+	// Service worker needs wider scope header
+	r.Get("/static/sw.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Service-Worker-Allowed", "/")
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFileFS(w, r, staticFS, "frontend/static/sw.js")
+	})
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	// API spec for custom views
 	r.Get("/api/spec.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		http.ServeFileFS(w, r, staticFS, "frontend/static/api-spec.json")
+	})
+
+	// PWA manifest (also accessible at /static/manifest.json)
+	r.Get("/manifest.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		http.ServeFileFS(w, r, staticFS, "frontend/static/manifest.json")
 	})
 
 	// ── Dashboard SPA ───────────────────────────────────────────

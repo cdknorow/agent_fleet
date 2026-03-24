@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/cdknorow/coral/internal/agent"
 	"github.com/cdknorow/coral/internal/config"
@@ -417,4 +418,22 @@ func (h *SystemHandler) RemoveFolderTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// QRCode generates a QR code PNG for the given URL.
+// GET /api/system/qr?url=<encoded_url>
+func (h *SystemHandler) QRCode(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		http.Error(w, "url parameter required", http.StatusBadRequest)
+		return
+	}
+	png, err := qrcode.Encode(url, qrcode.Medium, 256)
+	if err != nil {
+		http.Error(w, "failed to generate QR code", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(png)
 }

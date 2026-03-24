@@ -51,41 +51,22 @@ function switchMobileTab(tab) {
     if (boardView) boardView.style.display = 'none';
     if (schedulerView) schedulerView.style.display = 'none';
 
-    // Hide agentic panel overlay when leaving panel tab
-    const agenticState = document.getElementById('agentic-state');
-    if (agenticState) agenticState.classList.remove('mobile-panel-overlay');
-
     switch (tab) {
         case 'agents':
             if (agentList) agentList.style.display = 'flex';
             break;
-        case 'history':
-            // Show the sidebar history section as a full-screen view
-            _showMobileHistory(agentList);
-            break;
-        case 'jobs':
-            if (schedulerView) {
-                schedulerView.style.display = 'flex';
+        case 'chat':
+            // Show the current live session (agent terminal output)
+            if (liveView && state.currentSession && state.currentSession.type === 'live') {
+                liveView.style.display = 'flex';
+            } else if (agentList) {
+                // No session selected — show agent list so user can pick one
+                agentList.style.display = 'flex';
             }
             break;
-        case 'panel':
-            // Show agentic panel as full-screen overlay
-            if (agenticState) {
-                agenticState.classList.add('mobile-panel-overlay');
-            }
-            // Also show the live session view underneath (for context)
-            if (liveView) liveView.style.display = 'flex';
-            break;
-        case 'settings':
-            if (window.showSettingsModal) {
-                window.showSettingsModal();
-            }
-            // Re-activate the agents tab (settings is a modal, not a view)
-            _currentMobileTab = 'agents';
-            document.querySelectorAll('.mobile-tab').forEach(t => {
-                t.classList.toggle('active', t.dataset.tab === 'agents');
-            });
-            if (agentList) agentList.style.display = 'flex';
+        case 'board':
+            // Show the message board view
+            if (boardView) boardView.style.display = 'flex';
             break;
     }
 }
@@ -163,6 +144,9 @@ function mobileBack() {
     document.querySelectorAll('.mobile-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === 'agents');
     });
+
+    // Push agents view to history
+    if (window._pushView) window._pushView('agents');
 }
 window.mobileBack = mobileBack;
 

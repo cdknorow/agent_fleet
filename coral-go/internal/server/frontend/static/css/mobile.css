@@ -282,6 +282,17 @@
     /* Show mobile back button in session header */
     .mobile-back-btn {
         display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        min-height: 36px;
+        font-size: 20px;
+        z-index: 5;
+    }
+
+    /* Live session view: account for bottom tab bar */
+    .session-view {
+        padding-bottom: 60px;
     }
 
     /* Live session view adjustments */
@@ -289,6 +300,7 @@
         flex-direction: column !important;
     }
 
+    .agentic-state,
     .agentic-state-panel,
     .task-bar-resize-handle {
         display: none !important;

@@ -2110,3 +2110,22 @@ document.addEventListener("keydown", (e) => {
         window.hideWebhookModal?.();
     }
 });
+
+// ── Mobile Connect Modal ─────────────────────────────────────────────────
+
+window._showMobileConnectModal = function() {
+    const modal = document.getElementById('mobile-connect-modal');
+    if (!modal) return;
+
+    // Build the server URL from the current page
+    const url = window.location.origin;
+    document.getElementById('mobile-connect-url').textContent = url;
+
+    // Try to generate QR code via server endpoint
+    const qrContainer = document.getElementById('mobile-connect-qr');
+    if (qrContainer) {
+        qrContainer.innerHTML = `<img src="/api/system/qr?url=${encodeURIComponent(url)}" alt="QR Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px" onerror="this.style.display='none'">`;
+    }
+
+    modal.style.display = 'flex';
+};

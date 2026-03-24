@@ -56,6 +56,9 @@ export async function selectLiveSession(name, agentType, sessionId) {
     document.getElementById("messageboard-view").style.display = "none";
     document.getElementById("live-session-view").style.display = "flex";
 
+    // Push view to history for back navigation
+    if (window._pushView) window._pushView('chat', { sessionId });
+
     // Show loading skeleton
     const captureWrapper = document.getElementById("capture-wrapper");
     captureWrapper.classList.add("loading-skeleton");
