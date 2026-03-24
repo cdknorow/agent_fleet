@@ -445,12 +445,24 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Resolve pane target
-	target, err := h.terminal.FindTarget(ctx, name, agentType, sessionID)
-	if debugEnabled() {
-		slog.Info("[debug] ws/terminal polling resolve", "name", name, "agentType", agentType, "sessionID", sessionID, "target", target, "err", err)
+	// Resolve pane target — retry briefly for freshly launched sessions
+	// where the tmux pane may not exist yet.
+	var target string
+	for attempt := 0; attempt < 15; attempt++ {
+		t, err := h.terminal.FindTarget(ctx, name, agentType, sessionID)
+		if err == nil && t != "" {
+			target = t
+			break
+		}
+		if debugEnabled() {
+			slog.Info("[debug] ws/terminal polling resolve attempt", "name", name, "attempt", attempt, "err", err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	if err != nil || target == "" {
+	if debugEnabled() {
+		slog.Info("[debug] ws/terminal polling resolve", "name", name, "agentType", agentType, "sessionID", sessionID, "target", target)
+	}
+	if target == "" {
 		if debugEnabled() {
 			slog.Info("[debug] ws/terminal pane not found — closing", "name", name)
 		}
