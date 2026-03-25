@@ -473,8 +473,14 @@ async function _loadDiffView(filepath, gen) {
 
 /** Render file content with syntax highlighting into the given container. */
 function _renderContentView(container, content, filepath) {
-    const escaped = escapeHtml(content);
     const lang = _getLangFromPath(filepath);
+    // Render markdown files as formatted HTML
+    if (lang === 'markdown' && typeof marked !== 'undefined') {
+        const html = marked.parse(content);
+        container.innerHTML = `<div class="notes-rendered" style="padding:12px 14px;overflow-y:auto">${typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html}</div>`;
+        return;
+    }
+    const escaped = escapeHtml(content);
     container.innerHTML = `<pre class="inline-preview-code"><code class="language-${lang}">${escaped}</code></pre>`;
     // Apply highlight.js if available
     if (window.hljs) {
@@ -652,13 +658,19 @@ window._closeInlinePreview = function() {
     if (panel) {
         panel.innerHTML = `
             <div class="changed-files-header" id="changed-files-header">
+                <div class="files-search-row">
+                    <input type="search" id="files-search-input" class="files-search-input" placeholder="Search files..." autocomplete="off">
+                    <button class="refresh-files-btn" onclick="refreshChangedFiles()" title="Refresh git diff">&#x21bb;</button>
+                </div>
                 <span class="changed-files-title" id="changed-files-title">Loading...</span>
-                <button class="refresh-files-btn" onclick="refreshChangedFiles()" title="Refresh git diff">&#x21bb;</button>
             </div>
+            <div id="files-search-results" class="changed-files-list" style="display:none"></div>
+            <div id="starred-files-list" class="changed-files-list" style="display:none"></div>
             <div class="changed-files-list" id="changed-files-list">
                 <div class="file-empty">Loading...</div>
             </div>
         `;
+        initFileSearch();
     }
     if (state.currentSession) {
         loadChangedFiles(state.currentSession.name, state.currentSession.session_id);
