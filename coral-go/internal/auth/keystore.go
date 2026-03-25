@@ -121,14 +121,16 @@ func (ks *KeyStore) CreateSession(clientIP, userAgent string) string {
 }
 
 // ValidateSession checks if a session token is valid and not expired.
+// Expired sessions are removed lazily on access.
 func (ks *KeyStore) ValidateSession(token string) bool {
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	s, ok := ks.sessions[token]
 	if !ok {
 		return false
 	}
 	if time.Since(s.CreatedAt) > sessionMaxAge {
+		delete(ks.sessions, token)
 		return false
 	}
 	return true
@@ -138,6 +140,17 @@ func (ks *KeyStore) ValidateSession(token string) bool {
 func (ks *KeyStore) CheckRateLimit(ip string) bool {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
+
+	// Lazy cleanup: prune expired entries when map grows too large
+	if len(ks.rateMap) > 1000 {
+		now := time.Now()
+		for k, e := range ks.rateMap {
+			if now.Sub(e.windowAt) > rateLimitWindow {
+				delete(ks.rateMap, k)
+			}
+		}
+	}
+
 	entry, ok := ks.rateMap[ip]
 	if !ok {
 		ks.rateMap[ip] = &rateLimitEntry{count: 1, windowAt: time.Now()}
@@ -186,13 +199,18 @@ func ExtractSessionCookie(r *http.Request) string {
 }
 
 // SetSessionCookie sets the session cookie on the response.
-func SetSessionCookie(w http.ResponseWriter, token string) {
+// The Secure flag is set when the request arrived over TLS or from
+// a non-localhost remote address (implying a reverse proxy / HTTPS
+// frontend), so the cookie won't leak over plain HTTP.
+func SetSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure := r.TLS != nil || !IsLocalhost(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
 		MaxAge:   int(sessionMaxAge.Seconds()),
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

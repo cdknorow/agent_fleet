@@ -29,7 +29,7 @@ func main() {
 	}
 
 	base := hooks.CoralBase()
-	sessionID := hooks.ResolveSessionID(strVal(d, "session_id"))
+	sessionID := hooks.ResolveSessionID(hooks.StrVal(d, "session_id"))
 	agentName := hooks.ResolveAgentName(d)
 	if agentName == "" {
 		return
@@ -152,7 +152,3 @@ func cacheRead(taskID string) string {
 	return string(data)
 }
 
-func strVal(d map[string]any, key string) string {
-	v, _ := d[key].(string)
-	return v
-}

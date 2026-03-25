@@ -55,7 +55,7 @@ var sensitiveKeys = map[string]bool{}
 func (h *SystemHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryxContext(r.Context(), "SELECT key, value FROM user_settings")
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -77,7 +77,7 @@ func (h *SystemHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 func (h *SystemHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	for k, v := range body {
@@ -98,7 +98,7 @@ func (h *SystemHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
 			"INSERT INTO user_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 			k, s)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			errInternalServer(w, err.Error())
 			return
 		}
 	}
@@ -156,7 +156,7 @@ func (h *SystemHandler) CLICheck(w http.ResponseWriter, r *http.Request) {
 	agentType := r.URL.Query().Get("type")
 
 	if binaryPath == "" && agentType == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "type or binary parameter required"})
+		errBadRequest(w, "type or binary parameter required")
 		return
 	}
 
@@ -218,7 +218,7 @@ func (h *SystemHandler) RefreshIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.indexer.RunOnce(r.Context()); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -240,14 +240,14 @@ func (h *SystemHandler) ListFilesystem(w http.ResponseWriter, r *http.Request) {
 
 	expanded, err := filepath.Abs(reqPath)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		errBadRequest(w, "invalid path")
 		return
 	}
 
 	// Security: restrict to home directory
 	home, _ := os.UserHomeDir()
 	if !strings.HasPrefix(expanded, home) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "access denied"})
+		errForbidden(w, "access denied")
 		return
 	}
 
@@ -291,13 +291,10 @@ func (h *SystemHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 	}
 	var tags []tag
 	if err := h.db.SelectContext(r.Context(), &tags, "SELECT id, name, color FROM tags ORDER BY name"); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if tags == nil {
-		tags = []tag{}
-	}
-	writeJSON(w, http.StatusOK, tags)
+	writeJSON(w, http.StatusOK, emptyIfNil(tags))
 }
 
 // CreateTag creates a new tag.
@@ -308,7 +305,7 @@ func (h *SystemHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		Color string `json:"color"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Tag name is required"})
+		errBadRequest(w, "Tag name is required")
 		return
 	}
 	if body.Color == "" {
@@ -317,7 +314,7 @@ func (h *SystemHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	result, err := h.db.ExecContext(r.Context(),
 		"INSERT INTO tags (name, color) VALUES (?, ?)", body.Name, body.Color)
 	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "tag already exists"})
+		errConflict(w, "tag already exists")
 		return
 	}
 	id, _ := result.LastInsertId()
@@ -340,7 +337,7 @@ func (h *SystemHandler) AddSessionTag(w http.ResponseWriter, r *http.Request) {
 		TagID int `json:"tag_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TagID == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tag_id is required"})
+		errBadRequest(w, "tag_id is required")
 		return
 	}
 	h.db.ExecContext(r.Context(),
@@ -367,7 +364,7 @@ func (h *SystemHandler) RemoveSessionTag(w http.ResponseWriter, r *http.Request)
 func (h *SystemHandler) GetAllFolderTags(w http.ResponseWriter, r *http.Request) {
 	result, err := h.ss.GetAllFolderTags(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if result == nil {
@@ -382,13 +379,10 @@ func (h *SystemHandler) GetFolderTags(w http.ResponseWriter, r *http.Request) {
 	folderName := chi.URLParam(r, "folderName")
 	tags, err := h.ss.GetFolderTags(r.Context(), folderName)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if tags == nil {
-		tags = []store.Tag{}
-	}
-	writeJSON(w, http.StatusOK, tags)
+	writeJSON(w, http.StatusOK, emptyIfNil(tags))
 }
 
 // AddFolderTag adds a tag to a folder.
@@ -399,11 +393,11 @@ func (h *SystemHandler) AddFolderTag(w http.ResponseWriter, r *http.Request) {
 		TagID int64 `json:"tag_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TagID == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tag_id is required"})
+		errBadRequest(w, "tag_id is required")
 		return
 	}
 	if err := h.ss.AddFolderTag(r.Context(), folderName, body.TagID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -415,7 +409,7 @@ func (h *SystemHandler) RemoveFolderTag(w http.ResponseWriter, r *http.Request) 
 	folderName := chi.URLParam(r, "folderName")
 	tagID, _ := strconv.ParseInt(chi.URLParam(r, "tagID"), 10, 64)
 	if err := h.ss.RemoveFolderTag(r.Context(), folderName, tagID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

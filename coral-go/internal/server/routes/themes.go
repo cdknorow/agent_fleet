@@ -175,10 +175,7 @@ func (h *ThemesHandler) ListThemes(w http.ResponseWriter, r *http.Request) {
 		themes = append(themes, themeInfo{Name: name, Description: t.Description, Base: t.Base})
 	}
 	sort.Slice(themes, func(i, j int) bool { return themes[i].Name < themes[j].Name })
-	if themes == nil {
-		themes = []themeInfo{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"themes": themes})
+	writeJSON(w, http.StatusOK, map[string]any{"themes": emptyIfNil(themes)})
 }
 
 // GetTheme returns a specific theme.
@@ -187,17 +184,17 @@ func (h *ThemesHandler) GetTheme(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	path := h.safePath(name)
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid theme name"})
+		errBadRequest(w, "Invalid theme name")
 		return
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Theme not found"})
+		errNotFound(w, "Theme not found")
 		return
 	}
 	var theme map[string]any
 	if json.Unmarshal(data, &theme) != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Invalid theme file"})
+		errInternalServer(w, "Invalid theme file")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"name": name, "theme": theme})
@@ -210,12 +207,12 @@ func (h *ThemesHandler) SaveTheme(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	path := h.safePath(name)
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid theme name"})
+		errBadRequest(w, "Invalid theme name")
 		return
 	}
 	var body map[string]any
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	themeData := map[string]any{
@@ -225,7 +222,7 @@ func (h *ThemesHandler) SaveTheme(w http.ResponseWriter, r *http.Request) {
 	}
 	data, _ := json.MarshalIndent(themeData, "", "  ")
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
@@ -249,7 +246,7 @@ func (h *ThemesHandler) ImportTheme(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(10 << 20) // 10 MB
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file required"})
+		errBadRequest(w, "file required")
 		return
 	}
 	defer file.Close()
@@ -257,7 +254,7 @@ func (h *ThemesHandler) ImportTheme(w http.ResponseWriter, r *http.Request) {
 	data, _ := io.ReadAll(file)
 	var parsed map[string]any
 	if json.Unmarshal(data, &parsed) != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON file"})
+		errBadRequest(w, "Invalid JSON file")
 		return
 	}
 
@@ -267,7 +264,7 @@ func (h *ThemesHandler) ImportTheme(w http.ResponseWriter, r *http.Request) {
 	}
 	safe := strings.TrimSpace(safeNameRE.ReplaceAllString(name, ""))
 	if safe == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Could not determine theme name"})
+		errBadRequest(w, "Could not determine theme name")
 		return
 	}
 
@@ -298,7 +295,7 @@ func (h *ThemesHandler) GenerateTheme(w http.ResponseWriter, r *http.Request) {
 		AgentType   string `json:"agent_type"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Description) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Description is required"})
+		errBadRequest(w, "Description is required")
 		return
 	}
 	if body.Base == "" {

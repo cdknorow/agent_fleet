@@ -1,6 +1,6 @@
 /* Message Board: project list, messages, subscribers, posting */
 
-import { escapeHtml, escapeAttr } from './utils.js';
+import { escapeHtml, escapeAttr, showView } from './utils.js';
 import { loadLiveSessions } from './api.js';
 
 let currentProject = null;
@@ -69,11 +69,7 @@ export function selectBoardProject(project) {
     currentProject = project;
 
     // Hide other views, show messageboard
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('live-session-view').style.display = 'none';
-    document.getElementById('history-session-view').style.display = 'none';
-    document.getElementById('scheduler-view').style.display = 'none';
-    document.getElementById('messageboard-view').style.display = 'flex';
+    showView("messageboard-view");
 
     // Show board panel
     document.getElementById('mb-project-list').style.display = 'none';
@@ -109,11 +105,7 @@ export function showMessageBoardProjects() {
     currentProject = null;
     stopBoardPoll();
 
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('live-session-view').style.display = 'none';
-    document.getElementById('history-session-view').style.display = 'none';
-    document.getElementById('scheduler-view').style.display = 'none';
-    document.getElementById('messageboard-view').style.display = 'flex';
+    showView("messageboard-view");
 
     document.getElementById('mb-project-list').style.display = '';
     document.getElementById('mb-board').style.display = 'none';

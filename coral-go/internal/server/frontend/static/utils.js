@@ -60,6 +60,29 @@ export function showNotificationToast(agentLabel, detail, onClick) {
     setTimeout(() => toast.remove(), 10000);
 }
 
+const VIEW_IDS = [
+    "welcome-screen",
+    "live-session-view",
+    "history-session-view",
+    "scheduler-view",
+    "messageboard-view",
+];
+
+const VIEW_DISPLAY = {
+    "welcome-screen": "flex",
+    "live-session-view": "flex",
+    "history-session-view": "flex",
+    "scheduler-view": "block",
+    "messageboard-view": "flex",
+};
+
+export function showView(activeId) {
+    for (const id of VIEW_IDS) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = id === activeId ? VIEW_DISPLAY[id] : "none";
+    }
+}
+
 export function copyBranchName(btn) {
     const branchText = btn.closest(".branch-chip").querySelector(".branch-text").textContent;
     navigator.clipboard.writeText(branchText).then(() => {

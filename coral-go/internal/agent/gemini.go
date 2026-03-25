@@ -24,19 +24,14 @@ func (a *GeminiAgent) HistoryBasePath() string {
 func (a *GeminiAgent) HistoryGlobPattern() string { return "session-*.json" }
 
 func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
-	bin := "gemini"
-	if params.CLIPath != "" {
-		bin = params.CLIPath
-	}
+	bin := resolveBinary(params.CLIPath, "gemini")
 	var parts []string
 
 	// Inject system prompt: combine protocol file + board system prompt
 	// Gemini uses GEMINI_SYSTEM_MD env var pointing to a markdown file
 	var sysParts []string
-	if params.ProtocolPath != "" {
-		if content, err := os.ReadFile(params.ProtocolPath); err == nil {
-			sysParts = append(sysParts, string(content))
-		}
+	if proto := readProtocolFile(params.ProtocolPath); proto != "" {
+		sysParts = append(sysParts, proto)
 	}
 	boardSysPrompt := BuildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
 	if boardSysPrompt != "" {
@@ -44,8 +39,7 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 	}
 
 	if len(sysParts) > 0 {
-		sysFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_gemini_sys_%s.md", params.SessionID))
-		os.WriteFile(sysFile, []byte(strings.Join(sysParts, "\n\n")), 0600)
+		sysFile := writeTempFile("gemini_sys", params.SessionID, "md", []byte(strings.Join(sysParts, "\n\n")))
 		parts = append(parts, fmt.Sprintf(`GEMINI_SYSTEM_MD="%s"`, sysFile))
 	}
 
@@ -68,6 +62,3 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 	return strings.Join(parts, " ")
 }
 
-func (a *GeminiAgent) PrepareResume(sessionID, workingDir string) {
-	// Gemini does not support resume
-}

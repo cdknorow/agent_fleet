@@ -30,12 +30,10 @@ func NewScheduleHandler(db *store.DB, cfg *config.Config) *ScheduleHandler {
 func (h *ScheduleHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.sched.ListScheduledJobs(r.Context(), false)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if jobs == nil {
-		jobs = []store.ScheduledJob{}
-	}
+	jobs = emptyIfNil(jobs)
 
 	// Enrich each job with last_run and next_fire_at (matches Python behavior)
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
@@ -76,7 +74,7 @@ func (h *ScheduleHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	jobID, _ := strconv.ParseInt(chi.URLParam(r, "jobID"), 10, 64)
 	job, err := h.sched.GetScheduledJob(r.Context(), jobID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+		errNotFound(w, "job not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
@@ -102,7 +100,7 @@ func (h *ScheduleHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		Flags           string `json:"flags"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 
@@ -158,7 +156,7 @@ func (h *ScheduleHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	created, err := h.sched.CreateScheduledJob(r.Context(), &job)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, created)
@@ -170,7 +168,7 @@ func (h *ScheduleHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 	jobID, _ := strconv.ParseInt(chi.URLParam(r, "jobID"), 10, 64)
 	var fields map[string]interface{}
 	if err := decodeJSON(r, &fields); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 
@@ -187,7 +185,7 @@ func (h *ScheduleHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.sched.UpdateScheduledJob(r.Context(), jobID, fields)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if updated == nil {
@@ -202,7 +200,7 @@ func (h *ScheduleHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 func (h *ScheduleHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID, _ := strconv.ParseInt(chi.URLParam(r, "jobID"), 10, 64)
 	if err := h.sched.DeleteScheduledJob(r.Context(), jobID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -214,7 +212,7 @@ func (h *ScheduleHandler) ToggleJob(w http.ResponseWriter, r *http.Request) {
 	jobID, _ := strconv.ParseInt(chi.URLParam(r, "jobID"), 10, 64)
 	job, err := h.sched.GetScheduledJob(r.Context(), jobID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+		errNotFound(w, "job not found")
 		return
 	}
 	newEnabled := 1
@@ -223,7 +221,7 @@ func (h *ScheduleHandler) ToggleJob(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := h.sched.UpdateScheduledJob(r.Context(), jobID, map[string]interface{}{"enabled": newEnabled})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -236,13 +234,10 @@ func (h *ScheduleHandler) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 20)
 	runs, err := h.sched.GetRunsForJob(r.Context(), jobID, limit)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if runs == nil {
-		runs = []store.ScheduledRun{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
 }
 
 // GetRecentRuns returns recent runs across all jobs.
@@ -251,13 +246,10 @@ func (h *ScheduleHandler) GetRecentRuns(w http.ResponseWriter, r *http.Request) 
 	limit := queryInt(r, "limit", 50)
 	runs, err := h.sched.ListAllRecentRuns(r.Context(), limit)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if runs == nil {
-		runs = []store.ScheduledRun{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
 }
 
 // ValidateCron validates a cron expression and returns next fire times.
@@ -268,11 +260,11 @@ func (h *ScheduleHandler) ValidateCron(w http.ResponseWriter, r *http.Request) {
 		Timezone string `json:"timezone"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.CronExpr == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cron_expr is required"})
+		errBadRequest(w, "cron_expr is required")
 		return
 	}
 

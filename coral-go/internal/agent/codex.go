@@ -24,10 +24,7 @@ func (a *CodexAgent) HistoryBasePath() string {
 func (a *CodexAgent) HistoryGlobPattern() string { return "rollout-*.jsonl" }
 
 func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
-	bin := "codex"
-	if params.CLIPath != "" {
-		bin = params.CLIPath
-	}
+	bin := resolveBinary(params.CLIPath, "codex")
 	var parts []string
 
 	if params.SessionName != "" {
@@ -59,10 +56,8 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 	var promptParts []string
 
 	// Add protocol content
-	if params.ProtocolPath != "" {
-		if content, err := os.ReadFile(params.ProtocolPath); err == nil {
-			promptParts = append(promptParts, string(content))
-		}
+	if proto := readProtocolFile(params.ProtocolPath); proto != "" {
+		promptParts = append(promptParts, proto)
 	}
 
 	// Add board system prompt (CLI usage instructions)
@@ -81,14 +76,10 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 
 	if len(promptParts) > 0 {
 		combined := strings.Join(promptParts, "\n\n")
-		promptFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_codex_prompt_%s.txt", params.SessionID))
-		os.WriteFile(promptFile, []byte(combined), 0600)
+		promptFile := writeTempFile("codex_prompt", params.SessionID, "txt", []byte(combined))
 		parts = append(parts, FormatPromptFileArg(promptFile))
 	}
 
 	return strings.Join(parts, " ")
 }
 
-func (a *CodexAgent) PrepareResume(sessionID, workingDir string) {
-	// Codex handles resume natively via the 'resume' subcommand; no file preparation needed.
-}

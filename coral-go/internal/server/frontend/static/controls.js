@@ -1,7 +1,7 @@
 /* Quick actions, command sending, mode toggling, and session controls */
 
 import { state, sessionKey } from './state.js';
-import { escapeHtml, escapeAttr, showToast } from './utils.js';
+import { escapeHtml, escapeAttr, showToast, showView } from './utils.js';
 import { stopCaptureRefresh } from './capture.js';
 import { renderLiveSessions } from './render.js';
 import { loadAgentEvents, renderEventTimeline } from './agentic_state.js';
@@ -360,10 +360,7 @@ export async function killSession() {
                 showToast(`Killed: ${state.currentSession.name}`);
                 stopCaptureRefresh();
                 state.currentSession = null;
-                document.getElementById("live-session-view").style.display = "none";
-                document.getElementById("scheduler-view").style.display = "none";
-                document.getElementById("messageboard-view").style.display = "none";
-                document.getElementById("welcome-screen").style.display = "flex";
+                showView("welcome-screen");
                 state.liveSessions = state.liveSessions.filter(s => s.session_id !== killedSid);
                 renderLiveSessions(state.liveSessions);
             }

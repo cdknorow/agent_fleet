@@ -1,7 +1,7 @@
 /* Scheduler: scheduled jobs sidebar list, job detail view, and CRUD operations */
 
 import { state } from './state.js';
-import { showToast } from './utils.js';
+import { showToast, showView } from './utils.js';
 
 let scheduledJobs = [];
 let selectedJobId = null;
@@ -72,11 +72,7 @@ export async function selectScheduledJob(jobId) {
     if (!job) return;
 
     // Hide other views, show scheduler view
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('live-session-view').style.display = 'none';
-    document.getElementById('history-session-view').style.display = 'none';
-    document.getElementById('messageboard-view').style.display = 'none';
-    document.getElementById('scheduler-view').style.display = 'block';
+    showView("scheduler-view");
 
     // Deselect live/history sessions
     state.currentSession = null;
@@ -181,8 +177,7 @@ export function deleteScheduledJob(jobId) {
             await fetch(`/api/scheduled/jobs/${jobId}`, { method: 'DELETE' });
             showToast('Job deleted');
             selectedJobId = null;
-            document.getElementById('scheduler-view').style.display = 'none';
-            document.getElementById('welcome-screen').style.display = '';
+            showView("welcome-screen");
             await fetchJobs();
         } catch (e) {
             showToast('Failed to delete job', true);

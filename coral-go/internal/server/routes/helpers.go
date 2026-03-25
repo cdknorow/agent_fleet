@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -12,6 +13,98 @@ import (
 // decodeJSON decodes JSON from the request body into v.
 func decodeJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
+}
+
+func errBadRequest(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+}
+
+func errNotFound(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": msg})
+}
+
+func errInternalServer(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": msg})
+}
+
+func errForbidden(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusForbidden, map[string]string{"error": msg})
+}
+
+func errConflict(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusConflict, map[string]string{"error": msg})
+}
+
+func queryInt(r *http.Request, key string, fallback int) int {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nilIf(cond bool, s string) any {
+	if cond || s == "" {
+		return nil
+	}
+	return s
+}
+
+// querySessionID extracts session_id from the query string and returns a
+// *string (nil when absent/empty), ready for store methods that accept *string.
+func querySessionID(r *http.Request) *string {
+	return strPtr(r.URL.Query().Get("session_id"))
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func derefStrPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// intPtrOr returns the value of p if non-nil, otherwise the default.
+func intPtrOr(p *int, def int) int {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+
+// promptOverrides extracts the default prompt override settings from a user
+// settings map. Used by restart, resume, launch, and rejoin handlers.
+func promptOverrides(settings map[string]string) map[string]string {
+	return map[string]string{
+		"default_prompt_orchestrator": settings["default_prompt_orchestrator"],
+		"default_prompt_worker":       settings["default_prompt_worker"],
+	}
+}
+
+// emptyIfNil returns s unchanged when non-nil, or an empty slice of the same
+// type when nil. This ensures JSON encodes as [] instead of null.
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // debugEnabled returns true when CORAL_DEBUG=1 is set.

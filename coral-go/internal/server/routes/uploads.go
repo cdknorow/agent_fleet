@@ -97,7 +97,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Failed to create upload directory"})
+		errInternalServer(w, "Failed to create upload directory")
 		return
 	}
 
@@ -114,7 +114,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 
 	dest := filepath.Join(uploadDir, safeName)
 	if err := os.WriteFile(dest, content, 0644); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Failed to save file"})
+		errInternalServer(w, "Failed to save file")
 		return
 	}
 

@@ -342,7 +342,9 @@ func TestMiddleware_RateLimitBlocks(t *testing.T) {
 
 func TestSetSessionCookie_Attributes(t *testing.T) {
 	w := httptest.NewRecorder()
-	SetSessionCookie(w, "test-token-123")
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "127.0.0.1:12345"
+	SetSessionCookie(w, r, "test-token-123")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
@@ -350,6 +352,17 @@ func TestSetSessionCookie_Attributes(t *testing.T) {
 	assert.Equal(t, "test-token-123", c.Value)
 	assert.Equal(t, "/", c.Path)
 	assert.True(t, c.HttpOnly)
+	assert.False(t, c.Secure, "localhost requests should not set Secure")
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
 	assert.Equal(t, int(sessionMaxAge.Seconds()), c.MaxAge)
+}
+
+func TestSetSessionCookie_SecureOnRemote(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.168.1.100:12345"
+	SetSessionCookie(w, r, "test-token-456")
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.True(t, cookies[0].Secure, "non-localhost requests should set Secure")
 }

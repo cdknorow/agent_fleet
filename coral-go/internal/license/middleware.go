@@ -2,9 +2,10 @@ package license
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
+
+	"github.com/cdknorow/coral/internal/httputil"
 )
 
 // Middleware returns an HTTP middleware that gates access behind a valid license.
@@ -22,9 +23,7 @@ func Middleware(m *Manager) func(http.Handler) http.Handler {
 			}
 
 			if !m.IsValid() {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]any{
+				httputil.WriteJSON(w, http.StatusForbidden, map[string]any{
 					"error":    "license_required",
 					"message":  "A valid license is required. Please activate your license.",
 					"activate": "/api/license/activate",
@@ -66,18 +65,19 @@ func NewRoutes(mgr *Manager) *Routes {
 
 // Activate handles POST /api/license/activate
 func (lr *Routes) Activate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	var body struct {
 		LicenseKey string `json:"license_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.LicenseKey == "" {
-		writeJSONResponse(w, http.StatusBadRequest, map[string]string{"error": "license_key is required"})
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "license_key is required"})
 		return
 	}
 
 	body.LicenseKey = strings.TrimSpace(body.LicenseKey)
 
 	if err := lr.mgr.Activate(body.LicenseKey); err != nil {
-		writeJSONResponse(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"valid": false,
 			"error": err.Error(),
 		})
@@ -85,7 +85,7 @@ func (lr *Routes) Activate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info := lr.mgr.GetInfo()
-	writeJSONResponse(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"valid":          true,
 		"customer_name":  info.CustomerName,
 		"customer_email": info.CustomerEmail,
@@ -97,10 +97,10 @@ func (lr *Routes) Activate(w http.ResponseWriter, r *http.Request) {
 func (lr *Routes) Status(w http.ResponseWriter, r *http.Request) {
 	info := lr.mgr.GetInfo()
 	if info == nil {
-		writeJSONResponse(w, http.StatusOK, map[string]any{"valid": false, "activated": false})
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"valid": false, "activated": false})
 		return
 	}
-	writeJSONResponse(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"valid":          info.Valid,
 		"activated":      true,
 		"customer_name":  info.CustomerName,
@@ -108,12 +108,4 @@ func (lr *Routes) Status(w http.ResponseWriter, r *http.Request) {
 		"activated_at":   info.ActivatedAt,
 		"last_validated": info.LastValidated,
 	})
-}
-
-func writeJSONResponse(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("JSON encode error: %v", err)
-	}
 }

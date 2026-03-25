@@ -23,13 +23,10 @@ func NewViewsHandler(db *store.DB) *ViewsHandler {
 func (h *ViewsHandler) ListViews(w http.ResponseWriter, r *http.Request) {
 	views, err := h.vs.ListViews(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if views == nil {
-		views = []store.CustomView{}
-	}
-	writeJSON(w, http.StatusOK, views)
+	writeJSON(w, http.StatusOK, emptyIfNil(views))
 }
 
 // GetView returns a single view.
@@ -37,16 +34,16 @@ func (h *ViewsHandler) ListViews(w http.ResponseWriter, r *http.Request) {
 func (h *ViewsHandler) GetView(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		errBadRequest(w, "invalid id")
 		return
 	}
 	view, err := h.vs.GetView(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if view == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "view not found"})
+		errNotFound(w, "view not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -63,11 +60,11 @@ func (h *ViewsHandler) CreateView(w http.ResponseWriter, r *http.Request) {
 		Scope    string `json:"scope"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		errBadRequest(w, "name is required")
 		return
 	}
 	if body.Scope == "" {
@@ -83,7 +80,7 @@ func (h *ViewsHandler) CreateView(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := h.vs.CreateView(r.Context(), view)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	view.ID = id
@@ -95,7 +92,7 @@ func (h *ViewsHandler) CreateView(w http.ResponseWriter, r *http.Request) {
 func (h *ViewsHandler) UpdateView(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		errBadRequest(w, "invalid id")
 		return
 	}
 	var body struct {
@@ -106,7 +103,7 @@ func (h *ViewsHandler) UpdateView(w http.ResponseWriter, r *http.Request) {
 		Scope    string `json:"scope"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.Scope == "" {
@@ -121,7 +118,7 @@ func (h *ViewsHandler) UpdateView(w http.ResponseWriter, r *http.Request) {
 		Scope:    body.Scope,
 	}
 	if err := h.vs.UpdateView(r.Context(), id, view); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	view.ID = id
@@ -133,11 +130,11 @@ func (h *ViewsHandler) UpdateView(w http.ResponseWriter, r *http.Request) {
 func (h *ViewsHandler) DeleteView(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		errBadRequest(w, "invalid id")
 		return
 	}
 	if err := h.vs.DeleteView(r.Context(), id); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})

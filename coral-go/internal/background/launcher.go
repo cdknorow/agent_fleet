@@ -67,7 +67,7 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 
 	// If resuming, let the agent prepare (e.g. copy session files)
 	if resumeSessionID != "" && !isTerminal {
-		ag.PrepareResume(resumeSessionID, workingDir)
+		agent.TryPrepareResume(ag, resumeSessionID, workingDir)
 	}
 
 	// Clear old log

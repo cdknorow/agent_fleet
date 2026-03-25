@@ -47,19 +47,19 @@ type remoteSubDeleteRequest struct {
 func (h *BoardRemotesHandler) AddSubscription(w http.ResponseWriter, r *http.Request) {
 	var req remoteSubRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
+		errBadRequest(w, "invalid request body")
 		return
 	}
 
 	// SSRF validation: ensure the remote server URL doesn't resolve to private/reserved IPs
 	if _, err := resolveAndValidateURL(req.RemoteServer); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		errBadRequest(w, err.Error())
 		return
 	}
 
 	sub, err := h.rbs.AddRemoteSub(r.Context(), req.SessionID, req.RemoteServer, req.Project, req.JobTitle)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, sub)
@@ -69,13 +69,13 @@ func (h *BoardRemotesHandler) AddSubscription(w http.ResponseWriter, r *http.Req
 func (h *BoardRemotesHandler) RemoveSubscription(w http.ResponseWriter, r *http.Request) {
 	var req remoteSubDeleteRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
+		errBadRequest(w, "invalid request body")
 		return
 	}
 
 	removed, err := h.rbs.RemoveRemoteSubs(r.Context(), req.SessionID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
@@ -85,7 +85,7 @@ func (h *BoardRemotesHandler) RemoveSubscription(w http.ResponseWriter, r *http.
 func (h *BoardRemotesHandler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	subs, err := h.rbs.ListAllRemoteSubs(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, subs)
@@ -101,7 +101,7 @@ func (h *BoardRemotesHandler) ProxyProjects(w http.ResponseWriter, r *http.Reque
 	// The wildcard captures everything after /proxy/
 	parts := strings.SplitN(remoteServer, "/projects", 2)
 	if len(parts) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing remote server"})
+		errBadRequest(w, "missing remote server")
 		return
 	}
 	server := parts[0]

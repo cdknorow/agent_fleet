@@ -115,10 +115,10 @@ func Load() *Config {
 		cfg.DevMode = true
 	}
 
-	// Build-time license skip (e.g. partner/internal builds)
-	if SkipLicense == "true" {
-		cfg.DevMode = true
-	}
+	// Note: SkipLicense no longer sets DevMode. They are independent:
+	// - SkipLicense bypasses license checks (partner/demo builds)
+	// - DevMode enables developer features (CORAL_DEV=1 or --dev flag)
+	// Use LicenseRequired() to check whether license validation is needed.
 
 	// Edition-specific limits
 	if Edition == "forDropbox" {
@@ -127,6 +127,12 @@ func Load() *Config {
 	}
 
 	return cfg
+}
+
+// LicenseRequired returns true if license validation should be enforced.
+// It is false in dev mode or when the build was compiled with SkipLicense.
+func (c *Config) LicenseRequired() bool {
+	return !c.DevMode && SkipLicense != "true"
 }
 
 // CoralDir returns the ~/.coral directory path.

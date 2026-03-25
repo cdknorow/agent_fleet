@@ -56,13 +56,10 @@ func (h *BoardHandler) IsPaused(project string) bool {
 func (h *BoardHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.bs.ListProjects(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if projects == nil {
-		projects = []board.ProjectInfo{}
-	}
-	writeJSON(w, http.StatusOK, projects)
+	writeJSON(w, http.StatusOK, emptyIfNil(projects))
 }
 
 // Subscribe subscribes a session to a board.
@@ -76,7 +73,7 @@ func (h *BoardHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 		ReceiveMode string  `json:"receive_mode"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id required"})
+		errBadRequest(w, "session_id required")
 		return
 	}
 	if body.JobTitle == "" {
@@ -84,7 +81,7 @@ func (h *BoardHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, err := h.bs.Subscribe(r.Context(), project, body.SessionID, body.JobTitle, body.WebhookURL, nil, body.ReceiveMode)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, sub)
@@ -98,16 +95,16 @@ func (h *BoardHandler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id required"})
+		errBadRequest(w, "session_id required")
 		return
 	}
 	found, err := h.bs.Unsubscribe(r.Context(), project, body.SessionID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "subscriber not found"})
+		errNotFound(w, "subscriber not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -124,7 +121,7 @@ func (h *BoardHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		As            string  `json:"as,omitempty"` // display name for auto-subscribe (e.g. "Operator")
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content required"})
+		errBadRequest(w, "content required")
 		return
 	}
 
@@ -138,7 +135,7 @@ func (h *BoardHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.bs.PostMessage(r.Context(), project, body.SessionID, body.Content, body.TargetGroupID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 
@@ -217,13 +214,10 @@ func (h *BoardHandler) ReadMessages(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 50)
 	messages, err := h.bs.ReadMessages(r.Context(), project, sessionID, limit)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if messages == nil {
-		messages = []board.Message{}
-	}
-	writeJSON(w, http.StatusOK, messages)
+	writeJSON(w, http.StatusOK, emptyIfNil(messages))
 }
 
 // ListAllMessages returns all messages (no cursor advancement).
@@ -239,7 +233,7 @@ func (h *BoardHandler) ListAllMessages(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
 	messages, err := h.bs.ListMessages(r.Context(), project, limit, offset, beforeID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if format == "dashboard" {
@@ -252,10 +246,7 @@ func (h *BoardHandler) ListAllMessages(w http.ResponseWriter, r *http.Request) {
 		})
 	} else {
 		// Default: bare array for CLI consumers
-		if messages == nil {
-			messages = []board.Message{}
-		}
-		writeJSON(w, http.StatusOK, messages)
+		writeJSON(w, http.StatusOK, emptyIfNil(messages))
 	}
 }
 
@@ -270,7 +261,7 @@ func (h *BoardHandler) CheckUnread(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	count, err := h.bs.CheckUnread(r.Context(), project, sessionID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"unread": count})
@@ -282,11 +273,11 @@ func (h *BoardHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	msgID, _ := strconv.ParseInt(chi.URLParam(r, "messageID"), 10, 64)
 	found, err := h.bs.DeleteMessage(r.Context(), msgID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "message not found"})
+		errNotFound(w, "message not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -298,13 +289,10 @@ func (h *BoardHandler) ListSubscribers(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	subs, err := h.bs.ListSubscribers(r.Context(), project)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if subs == nil {
-		subs = []board.Subscriber{}
-	}
-	writeJSON(w, http.StatusOK, subs)
+	writeJSON(w, http.StatusOK, emptyIfNil(subs))
 }
 
 // PauseBoard pauses reads for a board.
@@ -353,13 +341,10 @@ func (h *BoardHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	groups, err := h.bs.ListGroups(r.Context(), project)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if groups == nil {
-		groups = []board.GroupInfo{}
-	}
-	writeJSON(w, http.StatusOK, groups)
+	writeJSON(w, http.StatusOK, emptyIfNil(groups))
 }
 
 // ListGroupMembers returns session IDs in a group.
@@ -369,13 +354,10 @@ func (h *BoardHandler) ListGroupMembers(w http.ResponseWriter, r *http.Request) 
 	groupID := chi.URLParam(r, "groupID")
 	members, err := h.bs.ListGroupMembers(r.Context(), project, groupID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if members == nil {
-		members = []string{}
-	}
-	writeJSON(w, http.StatusOK, members)
+	writeJSON(w, http.StatusOK, emptyIfNil(members))
 }
 
 // AddGroupMember adds a session to a group.
@@ -387,11 +369,11 @@ func (h *BoardHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id required"})
+		errBadRequest(w, "session_id required")
 		return
 	}
 	if err := h.bs.AddToGroup(r.Context(), project, groupID, body.SessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -405,11 +387,11 @@ func (h *BoardHandler) RemoveGroupMember(w http.ResponseWriter, r *http.Request)
 	sessionID := chi.URLParam(r, "sessionID")
 	removed, err := h.bs.RemoveFromGroup(r.Context(), project, groupID, sessionID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if !removed {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "member not found"})
+		errNotFound(w, "member not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

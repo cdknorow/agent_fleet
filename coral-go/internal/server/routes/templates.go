@@ -187,11 +187,7 @@ func (h *TemplatesHandler) ListAgentCategories(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	categories := extractDirItems(data, "dir")
-	if categories == nil {
-		categories = []map[string]string{}
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"categories": categories})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"categories": emptyIfNil(extractDirItems(data, "dir"))})
 }
 
 // ListAgentsInCategory lists agent templates in a category.
@@ -206,12 +202,8 @@ func (h *TemplatesHandler) ListAgentsInCategory(w http.ResponseWriter, r *http.R
 		})
 		return
 	}
-	agents := extractFileItems(data)
-	if agents == nil {
-		agents = []map[string]string{}
-	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"agents":   agents,
+		"agents":   emptyIfNil(extractFileItems(data)),
 		"category": category,
 	})
 }
@@ -263,11 +255,7 @@ func (h *TemplatesHandler) ListCommandCategories(w http.ResponseWriter, r *http.
 		})
 		return
 	}
-	categories := extractDirItems(data, "dir")
-	if categories == nil {
-		categories = []map[string]string{}
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"categories": categories})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"categories": emptyIfNil(extractDirItems(data, "dir"))})
 }
 
 // ListCommandsInCategory lists command templates in a category.
@@ -282,12 +270,8 @@ func (h *TemplatesHandler) ListCommandsInCategory(w http.ResponseWriter, r *http
 		})
 		return
 	}
-	commands := extractFileItems(data)
-	if commands == nil {
-		commands = []map[string]string{}
-	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"commands": commands,
+		"commands": emptyIfNil(extractFileItems(data)),
 		"category": category,
 	})
 }

@@ -27,7 +27,7 @@ import { loadCustomViews, activateCustomView } from './custom_views.js';
 import { initRouter, pushView } from './router.js';
 import { switchAgenticTab, restoreAgenticTabs, loadAgentEvents, toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup } from './agentic_state.js';
 import { toggleHistoryEventFilter, toggleAllHistoryEventFilters } from './history_tabs.js';
-import { copyBranchName, escapeHtml } from './utils.js';
+import { copyBranchName, escapeHtml, showView } from './utils.js';
 import { initScheduler, selectScheduledJob, toggleScheduledJob, deleteScheduledJob, editScheduledJob, showJobModal, hideJobModal, validateCronPreview, saveScheduledJob } from './scheduler.js';
 import {
     showWebhookModal, hideWebhookModal, showWebhookCreate,
@@ -43,10 +43,74 @@ import { initMobile, syncMobileAgentList } from './mobile.js';
 import { checkForUpdates, dismissUpdateToast } from './update_check.js';
 
 // ── Expose functions to HTML onclick handlers ─────────────────────────────
-window._coralLoadLiveSessions = loadLiveSessions;
-window.sendCommand = sendCommand;
-window.sendCommandWithTeam = sendCommandWithTeam;
-window.resendInputPrompt = resendInputPrompt;
+// Grouped by source module for maintainability. Add new entries to the
+// appropriate section rather than appending to the bottom.
+Object.assign(window, {
+    // api
+    _coralLoadLiveSessions: loadLiveSessions,
+    // controls
+    sendCommand, sendCommandWithTeam, resendInputPrompt, sendRawKeys,
+    sendModeToggle, cycleModeToggle, sendQuickCommand,
+    executeMacro, addMacro, deleteMacro, showMacroModal, hideMacroModal,
+    attachTerminal, killSession, restartSession,
+    editGoal, refreshGoal, requestGoal,
+    hideRestartModal, confirmRestart, removeAttachment,
+    // modals
+    showSettingsModal, hideSettingsModal, applySettings,
+    showDefaultPromptsModal, hideDefaultPromptsModal, resetDefaultPrompt, saveDefaultPrompts,
+    showLaunchModal, hideLaunchModal, launchSession, toggleFlag,
+    showInfoModal, hideInfoModal, copyInfoCommand,
+    showResumeModal, hideResumeModal, resumeIntoSession,
+    showAddAgentToBoard, hideAddAgentBoardModal, launchAgentToBoard,
+    exportPersonas, importPersonas, exportTeamTemplates, importTeamTemplates,
+    // sessions
+    selectLiveSession, selectHistorySession, editAndResubmit, renameAgent, setAgentIcon,
+    // notes
+    loadSessionNotes, saveNotes, resummarize, toggleNotesEdit, cancelNotesEdit, switchHistoryTab,
+    // tags
+    loadSessionTags, addTagToSession, removeTagFromSession, showTagDropdown, hideTagDropdown, createTag,
+    // changed_files
+    loadChangedFiles, openFileDiff, openFilePreview, openFileEdit, refreshChangedFiles,
+    // tasks
+    loadAgentTasks, addAgentTask, toggleAgentTask, deleteAgentTask, editAgentTaskTitle,
+    // agent_notes
+    loadAgentNotes,
+    // agentic_state
+    switchAgenticTab, loadAgentEvents,
+    toggleEventFilter, toggleAllEventFilters, toggleFilterDropdown, showFilterPopup, hideFilterPopup,
+    // history_tabs
+    toggleHistoryEventFilter, toggleAllHistoryEventFilters,
+    // scheduler
+    selectScheduledJob, toggleScheduledJob, deleteScheduledJob, editScheduledJob,
+    showJobModal, hideJobModal, validateCronPreview, saveScheduledJob,
+    // webhooks
+    showWebhookModal, hideWebhookModal, showWebhookCreate, showWebhookList,
+    showWebhookEdit, saveWebhook, deleteWebhook, testWebhook, showWebhookHistory,
+    // live_jobs
+    selectLiveJobRun,
+    // sidebar
+    switchJobsSubtab, toggleAgenticPanel,
+    // browser
+    toggleBrowser, browserNavigateTo, browserNavigateUp,
+    // theme
+    showThemeConfigurator, hideThemeConfigurator,
+    // update_check
+    dismissUpdateToast,
+    // message_board
+    selectBoardProject, showMessageBoardProjects, postBoardMessage,
+    deleteMessageBoardProject, confirmDeleteBoard: deleteMessageBoardProject,
+    toggleBoardPause, toggleBoardSleep, deleteBoardMessage,
+    // folder_tags
+    showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag,
+    // utils
+    copyBranchName,
+    // router
+    _activateCustomView: activateCustomView, _pushView: pushView,
+    // render (pagination)
+    loadHistoryPage,
+});
+
+// Inline helpers that need custom logic (can't be simple re-exports)
 window.toggleSendMenu = function(btn) {
     const menu = btn.parentElement.querySelector('.send-btn-menu');
     if (!menu) return;
@@ -65,36 +129,6 @@ window.toggleSendMenu = function(btn) {
 window.closeSendMenu = function() {
     document.querySelectorAll('.send-btn-menu').forEach(m => m.style.display = 'none');
 };
-window.sendRawKeys = sendRawKeys;
-window.sendModeToggle = sendModeToggle;
-window.cycleModeToggle = cycleModeToggle;
-window.sendQuickCommand = sendQuickCommand;
-window.executeMacro = executeMacro;
-window.addMacro = addMacro;
-window.deleteMacro = deleteMacro;
-window.showMacroModal = showMacroModal;
-window.hideMacroModal = hideMacroModal;
-window.attachTerminal = attachTerminal;
-window.killSession = killSession;
-window.restartSession = restartSession;
-window.editGoal = editGoal;
-window.refreshGoal = refreshGoal;
-window.requestGoal = requestGoal;
-window.hideRestartModal = hideRestartModal;
-window.confirmRestart = confirmRestart;
-window.removeAttachment = removeAttachment;
-window.showSettingsModal = showSettingsModal;
-window.hideSettingsModal = hideSettingsModal;
-window.applySettings = applySettings;
-window.showDefaultPromptsModal = showDefaultPromptsModal;
-window.hideDefaultPromptsModal = hideDefaultPromptsModal;
-window.resetDefaultPrompt = resetDefaultPrompt;
-window.saveDefaultPrompts = saveDefaultPrompts;
-window.selectLiveSession = selectLiveSession;
-window.selectHistorySession = selectHistorySession;
-window.editAndResubmit = editAndResubmit;
-window.renameAgent = renameAgent;
-window.setAgentIcon = setAgentIcon;
 window.openTeamIconPicker = function(btn) {
     showEmojiPicker((emoji) => {
         btn.textContent = emoji || '🤖';
@@ -103,40 +137,33 @@ window.openTeamIconPicker = function(btn) {
         if (hiddenInput) hiddenInput.value = emoji;
     });
 };
-window.browseAgentTemplatesNew = function() {
-    showTemplateBrowser('agents', (template) => {
-        const name = (template.name || '').replace(/-/g, ' ');
-        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
-        if (window._addTeamAgent) {
-            window._addTeamAgent(name, prompt);
-        }
-    });
-};
-window.browseAgentTemplatesForModal = function() {
-    showTemplateBrowser('agents', (template) => {
-        const name = (template.name || '').replace(/-/g, ' ');
-        const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+function applyAgentTemplate(template, target, btn) {
+    const name = (template.name || '').replace(/-/g, ' ');
+    const prompt = (template.body || '') + '\n\nCoordinate with the team via the message board.';
+    if (target === 'team-new') {
+        if (window._addTeamAgent) window._addTeamAgent(name, prompt);
+    } else if (target === 'modal') {
         const nameEl = document.getElementById('add-agent-board-agent-name');
         const promptEl = document.getElementById('add-agent-board-prompt');
         if (nameEl) nameEl.value = name;
         if (promptEl) promptEl.value = prompt;
-    });
-};
-window.browseAgentTemplates = function(btn) {
-    showTemplateBrowser('agents', (template) => {
+    } else if (target === 'row' && btn) {
         const row = btn.closest('.team-agent-row');
         if (!row) return;
         const promptEl = row.querySelector('.team-agent-prompt');
-        if (promptEl) {
-            promptEl.value = (template.body || '') + '\n\nCoordinate with the team via the message board.';
-            promptEl.dispatchEvent(new Event('input'));
-        }
+        if (promptEl) { promptEl.value = prompt; promptEl.dispatchEvent(new Event('input')); }
         const nameEl = row.querySelector('.team-agent-name');
-        if (nameEl && template.name && !nameEl.value.trim()) {
-            nameEl.value = (template.name || '').replace(/-/g, ' ');
-            nameEl.dispatchEvent(new Event('input'));
-        }
-    });
+        if (nameEl && template.name && !nameEl.value.trim()) { nameEl.value = name; nameEl.dispatchEvent(new Event('input')); }
+    }
+}
+window.browseAgentTemplatesNew = function() {
+    showTemplateBrowser('agents', (t) => applyAgentTemplate(t, 'team-new'));
+};
+window.browseAgentTemplatesForModal = function() {
+    showTemplateBrowser('agents', (t) => applyAgentTemplate(t, 'modal'));
+};
+window.browseAgentTemplates = function(btn) {
+    showTemplateBrowser('agents', (t) => applyAgentTemplate(t, 'row', btn));
 };
 window.showMacroAddMenu = function(btn) {
     // Remove existing menu
@@ -179,91 +206,6 @@ window.browseCommandTemplates = async function() {
         renderQuickActions();
     });
 };
-window.showLaunchModal = showLaunchModal;
-window.hideLaunchModal = hideLaunchModal;
-window.launchSession = launchSession;
-window.toggleFlag = toggleFlag;
-window.showInfoModal = showInfoModal;
-window.hideInfoModal = hideInfoModal;
-window.copyInfoCommand = copyInfoCommand;
-window.copyBranchName = copyBranchName;
-window.showResumeModal = showResumeModal;
-window.hideResumeModal = hideResumeModal;
-window.resumeIntoSession = resumeIntoSession;
-window.toggleBrowser = toggleBrowser;
-window.browserNavigateTo = browserNavigateTo;
-window.browserNavigateUp = browserNavigateUp;
-window.loadSessionNotes = loadSessionNotes;
-window.saveNotes = saveNotes;
-window.resummarize = resummarize;
-window.toggleNotesEdit = toggleNotesEdit;
-window.cancelNotesEdit = cancelNotesEdit;
-window.switchHistoryTab = switchHistoryTab;
-window.loadSessionTags = loadSessionTags;
-window.addTagToSession = addTagToSession;
-window.removeTagFromSession = removeTagFromSession;
-window.showTagDropdown = showTagDropdown;
-window.hideTagDropdown = hideTagDropdown;
-window.createTag = createTag;
-window.loadHistoryPage = loadHistoryPage;
-window.loadChangedFiles = loadChangedFiles;
-window.openFileDiff = openFileDiff;
-window.openFilePreview = openFilePreview;
-window.openFileEdit = openFileEdit;
-window._activateCustomView = activateCustomView;
-window._pushView = pushView;
-window.refreshChangedFiles = refreshChangedFiles;
-window.loadAgentTasks = loadAgentTasks;
-window.addAgentTask = addAgentTask;
-window.toggleAgentTask = toggleAgentTask;
-window.deleteAgentTask = deleteAgentTask;
-window.editAgentTaskTitle = editAgentTaskTitle;
-window.loadAgentNotes = loadAgentNotes;
-window.switchAgenticTab = switchAgenticTab;
-window.loadAgentEvents = loadAgentEvents;
-window.toggleEventFilter = toggleEventFilter;
-window.toggleAllEventFilters = toggleAllEventFilters;
-window.toggleFilterDropdown = toggleFilterDropdown;
-window.showFilterPopup = showFilterPopup;
-window.hideFilterPopup = hideFilterPopup;
-window.toggleHistoryEventFilter = toggleHistoryEventFilter;
-window.toggleAllHistoryEventFilters = toggleAllHistoryEventFilters;
-window.selectScheduledJob = selectScheduledJob;
-window.toggleScheduledJob = toggleScheduledJob;
-window.deleteScheduledJob = deleteScheduledJob;
-window.editScheduledJob = editScheduledJob;
-window.showJobModal = showJobModal;
-window.hideJobModal = hideJobModal;
-window.validateCronPreview = validateCronPreview;
-window.saveScheduledJob = saveScheduledJob;
-window.showWebhookModal  = showWebhookModal;
-window.hideWebhookModal  = hideWebhookModal;
-window.showWebhookCreate = showWebhookCreate;
-window.showWebhookList   = showWebhookList;
-window.showWebhookEdit   = showWebhookEdit;
-window.saveWebhook       = saveWebhook;
-window.deleteWebhook     = deleteWebhook;
-window.testWebhook       = testWebhook;
-window.showWebhookHistory = showWebhookHistory;
-window.selectLiveJobRun = selectLiveJobRun;
-window.switchJobsSubtab = switchJobsSubtab;
-window.toggleAgenticPanel = toggleAgenticPanel;
-window.showThemeConfigurator = showThemeConfigurator;
-window.hideThemeConfigurator = hideThemeConfigurator;
-window.dismissUpdateToast = dismissUpdateToast;
-window.selectBoardProject = selectBoardProject;
-window.showMessageBoardProjects = showMessageBoardProjects;
-window.postBoardMessage = postBoardMessage;
-window.deleteMessageBoardProject = deleteMessageBoardProject;
-window.confirmDeleteBoard = deleteMessageBoardProject;
-window.toggleBoardPause = toggleBoardPause;
-window.toggleBoardSleep = toggleBoardSleep;
-window.deleteBoardMessage = deleteBoardMessage;
-window.showFolderTagDropdown = showFolderTagDropdown;
-window.hideFolderTagDropdown = hideFolderTagDropdown;
-window.addFolderTag = addFolderTag;
-window.removeFolderTag = removeFolderTag;
-window.createAndAddFolderTag = createAndAddFolderTag;
 
 // ── Sidebar kebab menu helpers ───────────────────────────────────────────
 function closeSidebarKebabs() {
@@ -298,38 +240,20 @@ function toggleSidebarKebab(btn) {
     }
 }
 
-window.toggleSidebarKebab = toggleSidebarKebab;
-window.closeSidebarKebabs = closeSidebarKebabs;
-window.toggleGroupCollapse = toggleGroupCollapse;
-window.killGroup = killGroup;
-window.moveGroupUp = moveGroupUp;
-window.moveGroupDown = moveGroupDown;
-window.copyFolderPath = copyFolderPath;
-window.killBoard = killBoard;
-window.setBoardAccentColor = setBoardAccentColor;
-window.moveSessionUp = moveSessionUp;
-window.moveSessionDown = moveSessionDown;
-window.toggleTeamSleep = toggleTeamSleep;
-window.toggleAgentSleep = toggleAgentSleep;
-window.sleepAllAgents = sleepAllAgents;
-window.wakeAllAgents = wakeAllAgents;
-window.shareAgentTeam = shareAgentTeam;
-window.saveTeamFromSidebar = saveTeamFromSidebar;
-window.showConfirmModal = showConfirmModal;
-window.hideConfirmModal = hideConfirmModal;
-window.showAddAgentToBoard = showAddAgentToBoard;
-window.hideAddAgentBoardModal = hideAddAgentBoardModal;
-window.launchAgentToBoard = launchAgentToBoard;
-window.exportPersonas = exportPersonas;
-window.importPersonas = importPersonas;
-window.exportTeamTemplates = exportTeamTemplates;
-window.importTeamTemplates = importTeamTemplates;
-window.showTemplateBrowser = showTemplateBrowser;
-window.toggleGroupByTeam = toggleGroupByTeam;
-window.killSessionDirect = killSessionDirect;
-window.showInfoDirect = showInfoDirect;
-window.attachDirect = attachDirect;
-window.restartDirect = restartDirect;
+Object.assign(window, {
+    toggleSidebarKebab, closeSidebarKebabs,
+    // render (sidebar actions)
+    toggleGroupCollapse, killGroup, moveGroupUp, moveGroupDown,
+    copyFolderPath, killBoard, setBoardAccentColor,
+    moveSessionUp, moveSessionDown,
+    toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents,
+    shareAgentTeam, saveTeamFromSidebar,
+    showConfirmModal, hideConfirmModal,
+    killSessionDirect, showInfoDirect, attachDirect, restartDirect,
+    toggleGroupByTeam,
+    // template_browser
+    showTemplateBrowser,
+});
 
 // Top-bar settings dropdown
 function toggleTopBarSettings() {
@@ -490,14 +414,7 @@ function pollStartupStatus() {
 // ── Home Navigation ──────────────────────────────────────────────────────
 window._goHome = function() {
     window.location.hash = '';
-    // Show welcome screen
-    const welcome = document.getElementById('welcome-screen');
-    if (welcome) welcome.style.display = '';
-    // Hide all session views
-    ['live-session-view', 'history-session-view', 'messageboard-view'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-    });
+    showView("welcome-screen");
     // Deselect sidebar items
     document.querySelectorAll('.sidebar .session-item.active, .sidebar .session-item.selected').forEach(el => {
         el.classList.remove('active', 'selected');

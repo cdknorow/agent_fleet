@@ -44,7 +44,7 @@ func main() {
 	hooks.DebugLog(fmt.Sprintf("AGENTIC_STATE INPUT: hook_type=%s argv=%v", hookType, os.Args[1:]))
 
 	base := hooks.CoralBase()
-	sessionID := hooks.ResolveSessionID(strVal(d, "session_id"))
+	sessionID := hooks.ResolveSessionID(hooks.StrVal(d, "session_id"))
 	agentName := hooks.ResolveAgentName(d)
 	if agentName == "" {
 		hooks.DebugLog(fmt.Sprintf("DROPPED (no agent_name): hook_type=%s", hookType))
@@ -148,7 +148,3 @@ func makeToolDetail(tool string, inp map[string]any) string {
 	return string(b)
 }
 
-func strVal(d map[string]any, key string) string {
-	v, _ := d[key].(string)
-	return v
-}

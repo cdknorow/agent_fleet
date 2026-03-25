@@ -23,6 +23,7 @@ import (
 	"github.com/cdknorow/coral/internal/board"
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/gitutil"
+	"github.com/cdknorow/coral/internal/httputil"
 	"github.com/cdknorow/coral/internal/jsonl"
 	"github.com/cdknorow/coral/internal/pulse"
 	"github.com/cdknorow/coral/internal/ptymanager"
@@ -194,7 +195,7 @@ func getLogStatus(logPath string) map[string]any {
 func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	agents, err := h.discoverAgents(r)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 
@@ -425,11 +426,7 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if sessions == nil {
-		sessions = []map[string]any{}
-	}
-
-	writeJSON(w, http.StatusOK, sessions)
+	writeJSON(w, http.StatusOK, emptyIfNil(sessions))
 }
 
 func (h *SessionsHandler) trackStatusSummary(ctx interface{}, agentName, status, summary, sessionID string) {
@@ -560,9 +557,7 @@ func (h *SessionsHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	} else {
 		messages, total = h.jsonl.ReadNewMessages(id, workingDir, agentType)
 	}
-	if messages == nil {
-		messages = []map[string]any{}
-	}
+	messages = emptyIfNil(messages)
 
 	// Pagination for full history: return the most recent `limit` messages,
 	// with `offset` counting backwards from the end for "Load More".
@@ -696,11 +691,7 @@ func (h *SessionsHandler) resolveGitRoot(ctx context.Context, name, agentType, s
 // GET /api/sessions/live/{name}/files
 func (h *SessionsHandler) Files(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
-	}
+	sidPtr := querySessionID(r)
 	files, err := h.gs.GetChangedFiles(r.Context(), name, sidPtr)
 	if err != nil {
 		files = []store.ChangedFile{}
@@ -772,10 +763,7 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Merge in files from agent Write/Edit events
-	var sidPtr *string
-	if body.SessionID != "" {
-		sidPtr = &body.SessionID
-	}
+	sidPtr := strPtr(body.SessionID)
 	events, _ := h.ts.ListAgentEvents(r.Context(), name, 200, sidPtr)
 	for _, ev := range events {
 		if ev.ToolName == nil || (*ev.ToolName != "Write" && *ev.ToolName != "Edit") {
@@ -993,16 +981,16 @@ func (h *SessionsHandler) Send(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.Command == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No command provided"})
+		errBadRequest(w, "No command provided")
 		return
 	}
 
 	if err := h.terminal.SendInput(r.Context(), name, body.Command, body.AgentType, body.SessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "command": body.Command})
@@ -1018,12 +1006,12 @@ func (h *SessionsHandler) Keys(w http.ResponseWriter, r *http.Request) {
 		SessionID string   `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Keys) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "keys must be a non-empty list"})
+		errBadRequest(w, "keys must be a non-empty list")
 		return
 	}
 
 	if err := h.terminal.SendRawInput(r.Context(), name, body.Keys, body.AgentType, body.SessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "keys": body.Keys})
@@ -1039,12 +1027,12 @@ func (h *SessionsHandler) Resize(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Columns < 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "columns must be >= 10"})
+		errBadRequest(w, "columns must be >= 10")
 		return
 	}
 
 	if err := h.terminal.ResizeSession(r.Context(), name, body.Columns, body.AgentType, body.SessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "columns": body.Columns})
@@ -1127,14 +1115,14 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	// Skip sleeping sessions — they should be woken via the wake endpoint, not restarted
 	if body.SessionID != "" {
 		if ls, err := h.ss.GetLiveSession(ctx, body.SessionID); err == nil && ls != nil && ls.IsSleeping == 1 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Session is sleeping. Use wake endpoint to resume."})
+			errBadRequest(w, "Session is sleeping. Use wake endpoint to resume.")
 			return
 		}
 	}
 
 	pane, err := h.terminal.FindSession(ctx, name, agentType, body.SessionID)
 	if err != nil || pane == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Pane not found"})
+		errNotFound(w, "Pane not found")
 		return
 	}
 
@@ -1145,11 +1133,11 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	// Close old pipe-pane, respawn, rename
 	h.terminal.StopLogging(ctx, pane.Target)
 	if err := h.terminal.RestartPane(ctx, pane.Target, pane.CurrentPath); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	if err := h.terminal.RenameSession(ctx, pane.SessionName, newSessionName); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 
@@ -1187,12 +1175,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		role = agentType
 	}
 
-	// Read user prompt overrides from settings
 	userSettings, _ := h.ss.GetSettings(ctx)
-	promptOverrides := map[string]string{
-		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
-		"default_prompt_worker":       userSettings["default_prompt_worker"],
-	}
 
 	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
@@ -1203,7 +1186,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		BoardName:       storedBoard,
 		Role:            role,
 		Prompt:          storedPrompt,
-		PromptOverrides: promptOverrides,
+		PromptOverrides: promptOverrides(userSettings),
 		BoardType:       storedBoardType,
 	}))
 	log.Printf("[launch] restart session=%s cmd=%s", target, cmd)
@@ -1243,7 +1226,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		CurrentSessionID string `json:"current_session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+		errBadRequest(w, "session_id is required")
 		return
 	}
 
@@ -1253,19 +1236,19 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 	agentImpl := agent.GetAgent(agentType)
 	if !agentImpl.SupportsResume() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Resume not supported for %s", agentType)})
+		errBadRequest(w, fmt.Sprintf("Resume not supported for %s", agentType))
 		return
 	}
 
 	ctx := r.Context()
 	pane, _ := h.terminal.FindSession(ctx, name, agentType, body.CurrentSessionID)
 	if pane == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Pane not found"})
+		errNotFound(w, "Pane not found")
 		return
 	}
 
 	// Prepare resume files
-	agentImpl.PrepareResume(body.SessionID, pane.CurrentPath)
+	agent.TryPrepareResume(agentImpl, body.SessionID, pane.CurrentPath)
 
 	newSessionID := generateUUID()
 	newSessionName := fmt.Sprintf("%s-%s", agentType, newSessionID)
@@ -1288,12 +1271,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		role = agentType
 	}
 
-	// Read user prompt overrides
 	userSettings, _ := h.ss.GetSettings(ctx)
-	promptOverrides := map[string]string{
-		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
-		"default_prompt_worker":       userSettings["default_prompt_worker"],
-	}
 
 	h.terminal.StopLogging(ctx, pane.Target)
 	h.terminal.RestartPane(ctx, pane.Target, pane.CurrentPath)
@@ -1314,7 +1292,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		BoardName:       storedBoard,
 		Role:            role,
 		Prompt:          storedPrompt,
-		PromptOverrides: promptOverrides,
+		PromptOverrides: promptOverrides(userSettings),
 		BoardType:       storedBoardType,
 	}))
 	h.terminal.SendToTarget(ctx, target, cmd)
@@ -1359,7 +1337,7 @@ func (h *SessionsHandler) Attach(w http.ResponseWriter, r *http.Request) {
 
 	pane, _ := h.terminal.FindSession(r.Context(), name, body.AgentType, body.SessionID)
 	if pane == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Pane not found"})
+		errNotFound(w, "Pane not found")
 		return
 	}
 
@@ -1381,16 +1359,16 @@ func (h *SessionsHandler) SetDisplayName(w http.ResponseWriter, r *http.Request)
 		SessionID   string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.SessionID == "" || body.DisplayName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id and display_name required"})
+		errBadRequest(w, "session_id and display_name required")
 		return
 	}
 
 	if err := h.ss.SetDisplayName(r.Context(), body.SessionID, body.DisplayName); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "display_name": body.DisplayName})
@@ -1412,11 +1390,11 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		Capabilities *agent.Capabilities `json:"capabilities"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.WorkingDir == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "working_dir is required"})
+		errBadRequest(w, "working_dir is required")
 		return
 	}
 
@@ -1434,7 +1412,7 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	result, err := h.launchSession(r.Context(), body.WorkingDir, body.AgentType, body.DisplayName,
 		"", body.Flags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, body.Capabilities)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 
@@ -1465,11 +1443,11 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		} `json:"agents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.BoardName == "" || body.WorkingDir == "" || len(body.Agents) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "board_name, working_dir, and agents required"})
+		errBadRequest(w, "board_name, working_dir, and agents required")
 		return
 	}
 
@@ -1529,11 +1507,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 
 func (h *SessionsHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
-	}
+	sidPtr := querySessionID(r)
 	tasks, err := h.ts.ListAgentTasks(r.Context(), name, sidPtr)
 	if err != nil || tasks == nil {
 		tasks = []store.AgentTask{}
@@ -1547,17 +1521,13 @@ func (h *SessionsHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
+		errBadRequest(w, "title is required")
 		return
 	}
 	name := chi.URLParam(r, "name")
-	var sidPtr *string
-	if body.SessionID != "" {
-		sidPtr = &body.SessionID
-	}
-	task, err := h.ts.CreateAgentTask(r.Context(), name, body.Title, sidPtr)
+	task, err := h.ts.CreateAgentTask(r.Context(), name, body.Title, strPtr(body.SessionID))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
@@ -1571,11 +1541,11 @@ func (h *SessionsHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		SortOrder *int    `json:"sort_order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if err := h.ts.UpdateAgentTask(r.Context(), taskID, body.Title, body.Completed, body.SortOrder); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1584,7 +1554,7 @@ func (h *SessionsHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 func (h *SessionsHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(chi.URLParam(r, "taskID"), 10, 64)
 	if err := h.ts.DeleteAgentTask(r.Context(), taskID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1596,11 +1566,11 @@ func (h *SessionsHandler) ReorderTasks(w http.ResponseWriter, r *http.Request) {
 		TaskIDs []int64 `json:"task_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.TaskIDs) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task_ids required"})
+		errBadRequest(w, "task_ids required")
 		return
 	}
 	if err := h.ts.ReorderAgentTasks(r.Context(), name, body.TaskIDs); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1610,11 +1580,7 @@ func (h *SessionsHandler) ReorderTasks(w http.ResponseWriter, r *http.Request) {
 
 func (h *SessionsHandler) ListNotes(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
-	}
+	sidPtr := querySessionID(r)
 	notes, err := h.ts.ListAgentNotes(r.Context(), name, sidPtr)
 	if err != nil || notes == nil {
 		notes = []store.AgentNote{}
@@ -1629,16 +1595,12 @@ func (h *SessionsHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Content == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
+		errBadRequest(w, "content is required")
 		return
 	}
-	var sidPtr *string
-	if body.SessionID != "" {
-		sidPtr = &body.SessionID
-	}
-	note, err := h.ts.CreateAgentNote(r.Context(), name, body.Content, sidPtr)
+	note, err := h.ts.CreateAgentNote(r.Context(), name, body.Content, strPtr(body.SessionID))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, note)
@@ -1650,11 +1612,11 @@ func (h *SessionsHandler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Content == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
+		errBadRequest(w, "content is required")
 		return
 	}
 	if err := h.ts.UpdateAgentNote(r.Context(), noteID, body.Content); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1663,7 +1625,7 @@ func (h *SessionsHandler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 func (h *SessionsHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	noteID, _ := strconv.ParseInt(chi.URLParam(r, "noteID"), 10, 64)
 	if err := h.ts.DeleteAgentNote(r.Context(), noteID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1673,14 +1635,10 @@ func (h *SessionsHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 
 func (h *SessionsHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
+	sidPtr := querySessionID(r)
 	limit := queryInt(r, "limit", 50)
 	if limit > 200 {
 		limit = 200
-	}
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
 	}
 	events, err := h.ts.ListAgentEvents(r.Context(), name, limit, sidPtr)
 	if err != nil || events == nil {
@@ -1699,11 +1657,11 @@ func (h *SessionsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		DetailJSON any    `json:"detail_json"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.EventType == "" || body.Summary == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "event_type and summary required"})
+		errBadRequest(w, "event_type and summary required")
 		return
 	}
 
@@ -1728,7 +1686,7 @@ func (h *SessionsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	created, err := h.ts.InsertAgentEvent(r.Context(), event)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, created)
@@ -1736,11 +1694,7 @@ func (h *SessionsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
 func (h *SessionsHandler) EventCounts(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
-	}
+	sidPtr := querySessionID(r)
 	counts, err := h.ts.GetAgentEventCounts(r.Context(), name, sidPtr)
 	if err != nil || counts == nil {
 		counts = []store.ToolCount{}
@@ -1750,13 +1704,9 @@ func (h *SessionsHandler) EventCounts(w http.ResponseWriter, r *http.Request) {
 
 func (h *SessionsHandler) ClearEvents(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	sessionID := r.URL.Query().Get("session_id")
-	var sidPtr *string
-	if sessionID != "" {
-		sidPtr = &sessionID
-	}
+	sidPtr := querySessionID(r)
 	if err := h.ts.ClearAgentEvents(r.Context(), name, sidPtr); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1776,54 +1726,10 @@ func (h *SessionsHandler) findLogPath(agentType, sessionID string) string {
 	return filepath.Join(h.cfg.LogDir, fmt.Sprintf("%s_coral_%s.log", agentType, sessionID))
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("JSON encode error: %v", err)
-	}
-}
+// writeJSON is a package-local alias for httputil.WriteJSON.
+// Kept as a short name since it's called 220+ times across route handlers.
+var writeJSON = httputil.WriteJSON
 
-func queryInt(r *http.Request, key string, fallback int) int {
-	v := r.URL.Query().Get(key)
-	if v == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
-
-func nilIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nilIf(cond bool, s string) any {
-	if cond || s == "" {
-		return nil
-	}
-	return s
-}
-
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// intPtrOr returns the value of p if non-nil, otherwise the default.
-func intPtrOr(p *int, def int) int {
-	if p != nil {
-		return *p
-	}
-	return def
-}
 
 func generateUUID() string {
 	b := make([]byte, 16)
@@ -1892,12 +1798,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 	isTerminal := agentType == at.Terminal
 	agentImpl := agent.GetAgent(agentType)
 	if resumeSessionID != "" && !isTerminal {
-		agentImpl.PrepareResume(resumeSessionID, absDir)
-	}
-
-	promptOverrides := map[string]string{
-		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
-		"default_prompt_worker":       userSettings["default_prompt_worker"],
+		agent.TryPrepareResume(agentImpl, resumeSessionID, absDir)
 	}
 
 	role := displayName
@@ -1915,7 +1816,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		BoardName:       boardName,
 		Role:            role,
 		Prompt:          prompt,
-		PromptOverrides: promptOverrides,
+		PromptOverrides: promptOverrides(userSettings),
 		BoardType:       boardType,
 		Capabilities:    capabilities,
 		CLIPath:         cliPath,
@@ -2237,7 +2138,7 @@ func (h *SessionsHandler) SaveFileContent(w http.ResponseWriter, r *http.Request
 		Content *string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.Content == nil {
@@ -2279,7 +2180,7 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 		Icon      string `json:"icon"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.SessionID == "" {
@@ -2294,7 +2195,7 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.ss.SetIcon(r.Context(), body.SessionID, icon); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "icon": icon})
@@ -2343,7 +2244,7 @@ func (h *SessionsHandler) Sleep(w http.ResponseWriter, r *http.Request) {
 	// Set all board sessions to sleeping
 	affected, err := h.ss.SetBoardSleeping(ctx, boardName, true)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 
@@ -2441,16 +2342,9 @@ func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.Liv
 	logFile := filepath.Join(h.cfg.LogDir, fmt.Sprintf("%s_coral_%s.log", ls.AgentType, ls.SessionID))
 
 	agentImpl := agent.GetAgent(ls.AgentType)
-	if agentImpl.SupportsResume() {
-		agentImpl.PrepareResume(ls.SessionID, ls.WorkingDir)
-	}
+	agent.TryPrepareResume(agentImpl, ls.SessionID, ls.WorkingDir)
 
-	// Read user settings for prompt overrides and CLI path
 	userSettings, _ := h.ss.GetSettings(ctx)
-	promptOverrides := map[string]string{
-		"default_prompt_orchestrator": userSettings["default_prompt_orchestrator"],
-		"default_prompt_worker":       userSettings["default_prompt_worker"],
-	}
 	cliPath := userSettings[agent.CLIPathSettingKey(ls.AgentType)]
 
 	role := displayName
@@ -2468,7 +2362,7 @@ func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.Liv
 		BoardName:       boardName,
 		Role:            role,
 		Prompt:          prompt,
-		PromptOverrides: promptOverrides,
+		PromptOverrides: promptOverrides(userSettings),
 		BoardType:       boardType,
 		Capabilities:    nil,
 		CLIPath:         cliPath,

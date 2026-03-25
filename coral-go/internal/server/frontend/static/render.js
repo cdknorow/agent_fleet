@@ -1,7 +1,7 @@
 /* Rendering functions for session lists, chat history, and status updates */
 
 import { state } from './state.js';
-import { escapeHtml, showToast, escapeAttr, dbg } from './utils.js';
+import { escapeHtml, showToast, escapeAttr, dbg, showView } from './utils.js';
 import { renderSidebarTagDots } from './tags.js';
 import { getFolderTags, renderFolderTagPills } from './folder_tags.js';
 import { updateSectionVisibility } from './sidebar.js';
@@ -561,8 +561,7 @@ export function killSessionDirect(name, agentType, sessionId) {
         state.liveSessions = state.liveSessions.filter(s => s.session_id !== sessionId);
         if (state.currentSession && state.currentSession.session_id === sessionId) {
             state.currentSession = null;
-            document.getElementById("live-session-view").style.display = "none";
-            document.getElementById("welcome-screen").style.display = "flex";
+            showView("welcome-screen");
         }
         renderLiveSessions(state.liveSessions);
     } catch (e) {

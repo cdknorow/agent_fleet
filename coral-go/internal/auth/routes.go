@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+
+	"github.com/cdknorow/coral/internal/httputil"
 )
 
 // Routes provides HTTP handlers for authentication endpoints.
@@ -31,45 +33,45 @@ func (ar *Routes) ValidateKey(w http.ResponseWriter, r *http.Request) {
 		Key string `json:"key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
 
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if !ar.ks.CheckRateLimit(ip) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many attempts. Try again later."})
+		httputil.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many attempts. Try again later."})
 		return
 	}
 
 	if !ar.ks.ValidateKey(body.Key) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid API key"})
+		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid API key"})
 		return
 	}
 
 	token := ar.ks.CreateSession(ip, r.UserAgent())
-	SetSessionCookie(w, token)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	SetSessionCookie(w, r, token)
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // GetAPIKey returns the API key (localhost only).
 // GET /api/system/api-key
 func (ar *Routes) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 	if !IsLocalhost(r) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
+		httputil.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"key": ar.ks.Key()})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"key": ar.ks.Key()})
 }
 
 // RegenerateKey generates a new API key (localhost only).
 // POST /api/system/api-key/regenerate
 func (ar *Routes) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 	if !IsLocalhost(r) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
+		httputil.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
 		return
 	}
 	newKey := ar.ks.RegenerateKey()
-	writeJSON(w, http.StatusOK, map[string]any{"key": newKey})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"key": newKey})
 }
 
 // AuthStatus returns the current authentication status.
@@ -89,14 +91,8 @@ func (ar *Routes) AuthStatus(w http.ResponseWriter, r *http.Request) {
 		authenticated = true
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"authenticated": authenticated,
 		"method":        method,
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
 }

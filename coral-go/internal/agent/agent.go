@@ -3,6 +3,8 @@ package agent
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	at "github.com/cdknorow/coral/internal/agenttypes"
@@ -47,12 +49,25 @@ type Agent interface {
 	SupportsResume() bool
 	// BuildLaunchCommand builds the shell command to launch this agent.
 	BuildLaunchCommand(params LaunchParams) string
-	// PrepareResume prepares for resuming a session (e.g. copy files).
-	PrepareResume(sessionID, workingDir string)
 	// HistoryBasePath returns the root directory for history files.
 	HistoryBasePath() string
 	// HistoryGlobPattern returns the glob pattern for history files.
 	HistoryGlobPattern() string
+}
+
+// ResumableAgent is optionally implemented by agents that need file
+// preparation before resuming a session (e.g. copying history files).
+type ResumableAgent interface {
+	PrepareResume(sessionID, workingDir string)
+}
+
+// TryPrepareResume calls PrepareResume on the agent if it implements
+// ResumableAgent. This avoids forcing agents without resume preparation
+// to carry empty stubs.
+func TryPrepareResume(ag Agent, sessionID, workingDir string) {
+	if r, ok := ag.(ResumableAgent); ok {
+		r.PrepareResume(sessionID, workingDir)
+	}
 }
 
 // GetAgent returns the agent implementation for the given type.
@@ -96,6 +111,34 @@ func GetCLIInfo(agentType string) *CLIInfo {
 // CLIPathSettingKey returns the settings key for the agent's custom CLI path.
 func CLIPathSettingKey(agentType string) string {
 	return "cli_path_" + agentType
+}
+
+// resolveBinary returns cliPath if non-empty, otherwise the default binary name.
+func resolveBinary(cliPath, defaultBin string) string {
+	if cliPath != "" {
+		return cliPath
+	}
+	return defaultBin
+}
+
+// readProtocolFile reads the protocol file and returns its content, or "" on error.
+func readProtocolFile(path string) string {
+	if path == "" {
+		return ""
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(content)
+}
+
+// writeTempFile writes content to a temp file named coral_{prefix}_{id}.{ext}
+// and returns the file path.
+func writeTempFile(prefix, id, ext string, content []byte) string {
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("coral_%s_%s.%s", prefix, id, ext))
+	os.WriteFile(path, content, 0600)
+	return path
 }
 
 // Default board system-prompt fragments (used by all agents).
@@ -193,3 +236,4 @@ func BuildBoardActionPrompt(boardName, role, basePrompt string, promptOverrides 
 	}
 	return actionText
 }
+

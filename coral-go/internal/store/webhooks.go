@@ -3,8 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"strings"
+	"log"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // WebhookConfig represents a webhook subscription.
@@ -85,45 +86,31 @@ func (s *WebhookStore) CreateWebhookConfig(ctx context.Context, name, platform, 
 	if err != nil {
 		return nil, err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return s.GetWebhookConfig(ctx, id)
 }
 
 // UpdateWebhookConfig updates allowed fields on a webhook config.
 func (s *WebhookStore) UpdateWebhookConfig(ctx context.Context, webhookID int64, fields map[string]interface{}) error {
-	allowed := map[string]bool{
+	return dynamicUpdate(ctx, s.db, "webhook_configs", webhookID, fields, map[string]bool{
 		"name": true, "platform": true, "url": true, "enabled": true,
 		"event_filter": true, "idle_threshold_seconds": true,
 		"agent_filter": true, "low_confidence_only": true, "consecutive_failures": true,
-	}
-	now := nowUTC()
-	sets := []string{"updated_at = ?"}
-	args := []interface{}{now}
-	for k, v := range fields {
-		if !allowed[k] {
-			continue
-		}
-		sets = append(sets, fmt.Sprintf("%s = ?", k))
-		args = append(args, v)
-	}
-	args = append(args, webhookID)
-	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("UPDATE webhook_configs SET %s WHERE id = ?", strings.Join(sets, ", ")),
-		args...)
-	return err
+	}, nil, true)
 }
 
 // DeleteWebhookConfig deletes a webhook config and its deliveries.
 func (s *WebhookStore) DeleteWebhookConfig(ctx context.Context, webhookID int64) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
+	return s.db.WithTx(ctx, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM webhook_deliveries WHERE webhook_id = ?", webhookID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM webhook_configs WHERE id = ?", webhookID)
 		return err
-	}
-	defer tx.Rollback()
-
-	tx.ExecContext(ctx, "DELETE FROM webhook_deliveries WHERE webhook_id = ?", webhookID)
-	tx.ExecContext(ctx, "DELETE FROM webhook_configs WHERE id = ?", webhookID)
-	return tx.Commit()
+	})
 }
 
 // ── Webhook Deliveries ─────────────────────────────────────────────────
@@ -139,15 +126,20 @@ func (s *WebhookStore) CreateWebhookDelivery(ctx context.Context, webhookID int6
 	if err != nil {
 		return nil, err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 
-	// Prune to 200 deliveries per webhook (excluding pending)
-	s.db.ExecContext(ctx,
+	// Prune to 200 deliveries per webhook (best-effort)
+	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM webhook_deliveries WHERE webhook_id = ?
 		 AND status != 'pending' AND id NOT IN
 		 (SELECT id FROM webhook_deliveries WHERE webhook_id = ?
 		  AND status != 'pending' ORDER BY id DESC LIMIT 200)`,
-		webhookID, webhookID)
+		webhookID, webhookID); err != nil {
+		log.Printf("[store] webhook delivery prune failed for webhook %d: %v", webhookID, err)
+	}
 
 	return &WebhookDelivery{
 		ID: id, WebhookID: webhookID, AgentName: agentName,

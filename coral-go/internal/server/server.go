@@ -66,9 +66,9 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		log.Printf("Warning: failed to open board store: %v", err)
 	}
 
-	// Initialize license manager (skip in dev mode)
+	// Initialize license manager (skip when license not required)
 	licenseMgr := license.NewManager(cfg.CoralDir())
-	if !cfg.DevMode && licenseMgr.NeedsRevalidation() {
+	if cfg.LicenseRequired() && licenseMgr.NeedsRevalidation() {
 		log.Println("Revalidating license...")
 		licenseMgr.Revalidate()
 	}
@@ -175,13 +175,17 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Middleware
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.RealIP)
-	allowAllOrigins := s.cfg.Host == "0.0.0.0" || s.cfg.Host == ""
+	// NOTE: middleware.RealIP was intentionally removed. It rewrites r.RemoteAddr
+	// from X-Forwarded-For headers, which would allow an attacker to spoof
+	// 127.0.0.1 and bypass auth.IsLocalhost(). Coral is a desktop app with no
+	// reverse proxy, so RealIP is not needed.
+
+	// CORS: only allow localhost origins, matching the Python reference.
+	// Even when bound to 0.0.0.0, we must not allow arbitrary origins
+	// with credentials — that would let any website make authenticated
+	// requests to a user's Coral instance.
 	r.Use(cors.Handler(cors.Options{
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			if allowAllOrigins {
-				return true
-			}
 			return isLocalhostOrigin(origin)
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -197,8 +201,8 @@ func (s *Server) buildRouter() chi.Router {
 
 	// License gate — gates all API access behind a valid license key.
 	// Activation and static asset paths are always accessible.
-	// In dev mode, skip the license check entirely.
-	if !s.cfg.DevMode {
+	// Skipped in dev mode and SkipLicense builds.
+	if s.cfg.LicenseRequired() {
 		r.Use(license.Middleware(s.licenseMgr))
 	}
 
@@ -451,8 +455,8 @@ func (s *Server) buildRouter() chi.Router {
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Show activation page if no valid license (skip in dev mode)
-	if !s.cfg.DevMode && !s.licenseMgr.IsValid() {
+	// Show activation page if no valid license (skip when license not required)
+	if s.cfg.LicenseRequired() && !s.licenseMgr.IsValid() {
 		s.serveActivation(w, r)
 		return
 	}

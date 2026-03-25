@@ -43,7 +43,7 @@ func Middleware(ks *KeyStore) func(http.Handler) http.Handler {
 					// Auto-create session for API key auth via query param
 					if r.URL.Query().Get("api_key") != "" {
 						token := ks.CreateSession(clientIP(r), r.UserAgent())
-						SetSessionCookie(w, token)
+						SetSessionCookie(w, r, token)
 					}
 					next.ServeHTTP(w, r)
 					return

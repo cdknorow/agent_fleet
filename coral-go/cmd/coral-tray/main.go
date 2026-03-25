@@ -29,14 +29,9 @@ import (
 
 	"fyne.io/systray"
 	"github.com/gen2brain/beeep"
-	"github.com/robfig/cron/v3"
-
-	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
-	"github.com/cdknorow/coral/internal/ptymanager"
-	"github.com/cdknorow/coral/internal/server"
-	"github.com/cdknorow/coral/internal/store"
-	"github.com/cdknorow/coral/internal/tmux"
+	"github.com/cdknorow/coral/internal/executil"
+	"github.com/cdknorow/coral/internal/startup"
 )
 
 //go:embed icon.png
@@ -166,7 +161,7 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Start the HTTP server
+	// Start the HTTP server and all background services
 	cfg := config.Load()
 	cfg.Host = host
 	cfg.Port = port
@@ -174,10 +169,16 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		cfg.DevMode = true
 	}
 
-	db, err := store.Open(cfg.DBPath)
+	rs, err := startup.Start(ctx, cfg, startup.Options{
+		BackendType: backendType,
+		OnServerError: func(err error) {
+			log.Printf("Server error: %v", err)
+			beeep.Notify("Coral", "Server failed to start: "+err.Error(), "")
+		},
+	})
 	if err != nil {
-		log.Printf("Failed to open database: %v", err)
-		beeep.Notify("Coral", "Failed to open database: "+err.Error(), "")
+		log.Printf("Failed to start: %v", err)
+		beeep.Notify("Coral", "Failed to start: "+err.Error(), "")
 		// Still launch tray so user sees the error
 		systray.Run(func() {
 			systray.SetTemplateIcon(iconData, iconData)
@@ -187,100 +188,8 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		}, func() {})
 		return
 	}
-	defer db.Close()
-
-	// Select terminal backend
-	var backend ptymanager.TerminalBackend
-	var agentRT background.AgentRuntime
-	var terminal ptymanager.SessionTerminal
-	if backendType == "pty" {
-		ptyBackend := ptymanager.NewPTYBackend()
-		backend = ptyBackend
-		agentRT = background.NewPTYRuntime(ptyBackend)
-		terminal = ptymanager.NewPTYSessionTerminal(ptyBackend)
-		log.Println("Using native PTY terminal backend")
-	} else {
-		tmuxClient := tmux.NewClient()
-		tmuxBackend := ptymanager.NewTmuxBackend(tmuxClient, cfg.LogDir)
-		backend = tmuxBackend
-		agentRT = background.NewTmuxRuntime(tmuxClient)
-		terminal = ptymanager.NewTmuxSessionTerminal(tmuxClient)
-		log.Println("Using tmux terminal backend")
-	}
-
-	srv := server.New(cfg, db, backend, terminal)
-	srv.RestoreSleepingBoards()
-
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	httpServer := &http.Server{
-		Addr:         addr,
-		Handler:      srv.Router(),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 0,
-		IdleTimeout:  60 * time.Second,
-	}
-	gitStore := store.NewGitStore(db)
-	webhookStore := store.NewWebhookStore(db)
-	taskStore := store.NewTaskStore(db)
-
-	gitPoller := background.NewGitPoller(gitStore, agentRT, time.Duration(cfg.GitPollerIntervalS)*time.Second)
-	go gitPoller.Run(ctx)
-
-	indexer := background.NewSessionIndexer(
-		store.NewSessionStore(db), nil,
-		time.Duration(cfg.IndexerIntervalS)*time.Second,
-		time.Duration(cfg.IndexerStartupDelayS)*time.Second,
-	)
-	go indexer.Run(ctx)
-
-	discoverFn := func(ctx context.Context) ([]background.AgentInfo, error) {
-		return agentRT.ListAgents(ctx)
-	}
-
-	idleDetector := background.NewIdleDetector(taskStore, webhookStore, time.Duration(cfg.IdleDetectorIntervalS)*time.Second)
-	idleDetector.SetSessionStore(store.NewSessionStore(db))
-	idleDetector.SetDiscoverFn(discoverFn)
-	go idleDetector.Run(ctx)
-
-	webhookDispatcher := background.NewWebhookDispatcher(webhookStore, time.Duration(cfg.WebhookDispatcherIntervalS)*time.Second)
-	go webhookDispatcher.Run(ctx)
-
-	schedStore := store.NewScheduleStore(db)
-	scheduler := background.NewJobScheduler(schedStore, 30*time.Second)
-	sessStore := store.NewSessionStore(db)
-	launcher := background.NewAgentLauncher(agentRT, sessStore)
-	scheduler.SetLaunchFn(launcher.BuildSchedulerLaunchFn(schedStore))
-	scheduler.SetSessionStore(sessStore)
-	scheduler.SetNextFireTimeFn(nextFireTime)
-	go scheduler.Run(ctx)
-
-	srv.SetScheduler(scheduler)
-
-	boardNotifier := background.NewBoardNotifier(srv.BoardStore(), agentRT, time.Duration(cfg.BoardNotifierIntervalS)*time.Second)
-	boardNotifier.SetDiscoverFn(discoverFn)
-	if bh := srv.BoardHandler(); bh != nil {
-		boardNotifier.SetIsPausedFn(bh.IsPaused)
-	}
-	go boardNotifier.Run(ctx)
-
-	rbStore := store.NewRemoteBoardStore(db)
-	remotePoller := background.NewRemoteBoardPoller(rbStore, agentRT, 30*time.Second)
-	remotePoller.SetDiscoverFn(discoverFn)
-	go remotePoller.Run(ctx)
-
-	summarizeFn := background.BuildSummarizeFn(sessStore)
-	batchSummarizer := background.NewBatchSummarizer(sessStore, summarizeFn)
-	go batchSummarizer.Run(ctx)
-	srv.SetSummarizeFn(summarizeFn)
-
-	// Start HTTP server
-	go func() {
-		log.Printf("Coral dashboard: http://localhost:%d", cfg.Port)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("Server error: %v", err)
-			beeep.Notify("Coral", "Server failed to start: "+err.Error(), "")
-		}
-	}()
+	defer rs.Close()
+	httpServer := rs.HTTPServer
 
 	// Open dashboard (try native app first, fall back to browser)
 	if !noBrowser {
@@ -288,7 +197,7 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 			time.Sleep(time.Second)
 			dashURL := fmt.Sprintf("http://localhost:%d", port)
 			if err := launchCoralApp(dashURL); err != nil {
-				openBrowser(dashURL)
+				executil.OpenBrowser(dashURL)
 			}
 		}()
 	}
@@ -318,7 +227,7 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 				case <-mOpenApp.ClickedCh:
 					go launchCoralApp(url)
 				case <-mOpenBrowser.ClickedCh:
-					openBrowser(url)
+					executil.OpenBrowser(url)
 				case <-mUpdate.ClickedCh:
 					go checkForUpdates()
 				case <-mShutdown.ClickedCh:
@@ -417,7 +326,7 @@ func checkForUpdates() {
 	}
 	if latest != version && version != "dev" {
 		beeep.Notify("Coral", fmt.Sprintf("Update available: v%s\nYou have v%s", latest, version), "")
-		openBrowser(githubReleasesURL)
+		executil.OpenBrowser(githubReleasesURL)
 	} else {
 		beeep.Notify("Coral", "You're on the latest version.", "")
 	}
@@ -543,36 +452,7 @@ func raiseCoralApp() {
 	}
 }
 
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	cmd.Start()
-}
 
-func nextFireTime(cronExpr, tz string, after time.Time) (time.Time, error) {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sched, err := parser.Parse(cronExpr)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
-	}
-	loc := time.UTC
-	if tz != "" {
-		loc, err = time.LoadLocation(tz)
-		if err != nil {
-			loc = time.UTC
-		}
-	}
-	afterLocal := after.In(loc)
-	next := sched.Next(afterLocal)
-	return next.UTC(), nil
-}
 
 // isInsideAppBundle detects if the binary is running inside a macOS .app bundle
 // by checking if the executable path contains ".app/Contents/MacOS/".

@@ -3,8 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"strings"
 
 	at "github.com/cdknorow/coral/internal/agenttypes"
 )
@@ -117,37 +115,13 @@ func (s *ScheduleStore) CreateScheduledJob(ctx context.Context, job *ScheduledJo
 
 // UpdateScheduledJob updates allowed fields on a job.
 func (s *ScheduleStore) UpdateScheduledJob(ctx context.Context, jobID int64, fields map[string]interface{}) (*ScheduledJob, error) {
-	allowed := map[string]bool{
+	err := dynamicUpdate(ctx, s.db, "scheduled_jobs", jobID, fields, map[string]bool{
 		"name": true, "description": true, "cron_expr": true, "timezone": true,
 		"agent_type": true, "repo_path": true, "base_branch": true, "prompt": true,
 		"enabled": true, "max_duration_s": true, "cleanup_worktree": true, "flags": true,
-	}
-
-	now := nowUTC()
-	sets := []string{"updated_at = ?"}
-	args := []interface{}{now}
-	for k, v := range fields {
-		if !allowed[k] {
-			continue
-		}
-		// Convert bools to int for SQLite
-		if k == "enabled" || k == "cleanup_worktree" {
-			if b, ok := v.(bool); ok {
-				if b {
-					v = 1
-				} else {
-					v = 0
-				}
-			}
-		}
-		sets = append(sets, fmt.Sprintf("%s = ?", k))
-		args = append(args, v)
-	}
-	args = append(args, jobID)
-
-	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("UPDATE scheduled_jobs SET %s WHERE id = ?", strings.Join(sets, ", ")),
-		args...)
+	}, map[string]bool{
+		"enabled": true, "cleanup_worktree": true,
+	}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -177,27 +151,10 @@ func (s *ScheduleStore) CreateScheduledRun(ctx context.Context, jobID int64, sch
 
 // UpdateScheduledRun updates allowed fields on a run.
 func (s *ScheduleStore) UpdateScheduledRun(ctx context.Context, runID int64, fields map[string]interface{}) error {
-	allowed := map[string]bool{
+	return dynamicUpdate(ctx, s.db, "scheduled_runs", runID, fields, map[string]bool{
 		"session_id": true, "worktree_path": true, "status": true,
 		"started_at": true, "finished_at": true, "exit_reason": true, "error_msg": true,
-	}
-	sets := []string{}
-	args := []interface{}{}
-	for k, v := range fields {
-		if !allowed[k] {
-			continue
-		}
-		sets = append(sets, fmt.Sprintf("%s = ?", k))
-		args = append(args, v)
-	}
-	if len(sets) == 0 {
-		return nil
-	}
-	args = append(args, runID)
-	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("UPDATE scheduled_runs SET %s WHERE id = ?", strings.Join(sets, ", ")),
-		args...)
-	return err
+	}, nil, false)
 }
 
 // GetRunsForJob returns recent runs for a specific job.

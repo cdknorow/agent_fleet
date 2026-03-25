@@ -17,7 +17,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -28,11 +27,9 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/agent"
-	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
-	"github.com/cdknorow/coral/internal/ptymanager"
-	"github.com/cdknorow/coral/internal/server"
-	"github.com/cdknorow/coral/internal/store"
+	"github.com/cdknorow/coral/internal/executil"
+	"github.com/cdknorow/coral/internal/startup"
 	"github.com/cdknorow/coral/internal/tmux"
 
 	"github.com/google/uuid"
@@ -107,7 +104,7 @@ func main() {
 	if !*noBrowser && !isSSH() {
 		go func() {
 			time.Sleep(time.Second)
-			openBrowser(fmt.Sprintf("http://localhost:%d", cfg.Port))
+			executil.OpenBrowser(fmt.Sprintf("http://localhost:%d", cfg.Port))
 		}()
 	}
 
@@ -220,69 +217,17 @@ func launchAgentSessions(ctx context.Context, tc *tmux.Client, targetDir, agentT
 }
 
 func startWebServer(ctx context.Context, cfg *config.Config) {
-	db, err := store.Open(cfg.DBPath)
+	rs, err := startup.Start(ctx, cfg, startup.Options{
+		BackendType: "tmux",
+	})
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatalf("Failed to start: %v", err)
 	}
-
-	tmuxClient := tmux.NewClient()
-	terminal := ptymanager.NewTmuxSessionTerminal(tmuxClient)
-	srv := server.New(cfg, db, nil, terminal) // nil backend = tmux mode
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-
-	httpServer := &http.Server{
-		Addr:         addr,
-		Handler:      srv.Router(),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 0,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start background services
-	agentRT := background.NewTmuxRuntime(tmuxClient)
-	gitStore := store.NewGitStore(db)
-	webhookStore := store.NewWebhookStore(db)
-	taskStore := store.NewTaskStore(db)
-
-	gitPoller := background.NewGitPoller(gitStore, agentRT, time.Duration(cfg.GitPollerIntervalS)*time.Second)
-	go gitPoller.Run(ctx)
-
-	indexer := background.NewSessionIndexer(
-		store.NewSessionStore(db), nil,
-		time.Duration(cfg.IndexerIntervalS)*time.Second,
-		time.Duration(cfg.IndexerStartupDelayS)*time.Second,
-	)
-	go indexer.Run(ctx)
-
-	idleDetector := background.NewIdleDetector(taskStore, webhookStore, time.Duration(cfg.IdleDetectorIntervalS)*time.Second)
-	go idleDetector.Run(ctx)
-
-	webhookDispatcher := background.NewWebhookDispatcher(webhookStore, time.Duration(cfg.WebhookDispatcherIntervalS)*time.Second)
-	go webhookDispatcher.Run(ctx)
-
-	schedStore := store.NewScheduleStore(db)
-	scheduler := background.NewJobScheduler(schedStore, 30*time.Second)
-
-	// Wire real agent launching into the scheduler
-	sessStore := store.NewSessionStore(db)
-	launcher := background.NewAgentLauncher(agentRT, sessStore)
-	scheduler.SetLaunchFn(launcher.BuildSchedulerLaunchFn(schedStore))
-
-	go scheduler.Run(ctx)
-
-	go func() {
-		log.Printf("Coral dashboard: http://localhost:%d", cfg.Port)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
-		}
-	}()
 
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		httpServer.Shutdown(shutdownCtx)
-		db.Close()
+		rs.Shutdown(10 * time.Second)
+		rs.Close()
 	}()
 }
 
@@ -356,15 +301,3 @@ end tell`, attachCmd, title)
 	}
 }
 
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd.exe", "/c", "start", "", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	cmd.Start()
-}

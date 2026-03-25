@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 )
 
 // CustomView represents a user-created sidebar view.
@@ -29,9 +28,6 @@ func NewViewStore(db *DB) *ViewStore {
 	return &ViewStore{db: db}
 }
 
-func now() string {
-	return time.Now().UTC().Format(time.RFC3339)
-}
 
 // ListViews returns all custom views ordered by tab_order.
 func (s *ViewStore) ListViews(ctx context.Context) ([]CustomView, error) {
@@ -54,7 +50,7 @@ func (s *ViewStore) GetView(ctx context.Context, id int64) (*CustomView, error) 
 
 // CreateView inserts a new custom view.
 func (s *ViewStore) CreateView(ctx context.Context, v *CustomView) (int64, error) {
-	ts := now()
+	ts := nowUTC()
 	result, err := s.db.ExecContext(ctx,
 		"INSERT INTO custom_views (name, prompt, html, tab_order, scope, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		v.Name, v.Prompt, v.HTML, v.TabOrder, v.Scope, ts, ts)
@@ -68,7 +64,7 @@ func (s *ViewStore) CreateView(ctx context.Context, v *CustomView) (int64, error
 func (s *ViewStore) UpdateView(ctx context.Context, id int64, v *CustomView) error {
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE custom_views SET name = ?, prompt = ?, html = ?, tab_order = ?, scope = ?, updated_at = ? WHERE id = ?",
-		v.Name, v.Prompt, v.HTML, v.TabOrder, v.Scope, now(), id)
+		v.Name, v.Prompt, v.HTML, v.TabOrder, v.Scope, nowUTC(), id)
 	return err
 }
 

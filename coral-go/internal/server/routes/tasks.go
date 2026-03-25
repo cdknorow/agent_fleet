@@ -51,19 +51,19 @@ func (h *TasksHandler) SubmitTask(w http.ResponseWriter, r *http.Request) {
 		MaxAutoAccepts   int    `json:"max_auto_accepts"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(body.Prompt) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "'prompt' is required"})
+		errBadRequest(w, "'prompt' is required")
 		return
 	}
 	if strings.TrimSpace(body.RepoPath) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "'repo_path' is required"})
+		errBadRequest(w, "'repo_path' is required")
 		return
 	}
 	if info, err := os.Stat(body.RepoPath); err != nil || !info.IsDir() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo_path '" + body.RepoPath + "' does not exist"})
+		errBadRequest(w, "repo_path '" + body.RepoPath + "' does not exist")
 		return
 	}
 
@@ -127,7 +127,7 @@ func (h *TasksHandler) SubmitTask(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			errInternalServer(w, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "status": "pending"})
@@ -145,7 +145,7 @@ func (h *TasksHandler) SubmitTask(w http.ResponseWriter, r *http.Request) {
 	}
 	runID, err := h.sched.CreateOneshotRun(r.Context(), now, displayName, webhookURL)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "status": "pending"})
@@ -157,7 +157,7 @@ func (h *TasksHandler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 	runID, _ := strconv.ParseInt(chi.URLParam(r, "runID"), 10, 64)
 	run, err := h.sched.GetScheduledRun(r.Context(), runID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+		errNotFound(w, "run not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
@@ -170,7 +170,7 @@ func (h *TasksHandler) KillTask(w http.ResponseWriter, r *http.Request) {
 
 	if h.scheduler != nil {
 		if !h.scheduler.KillRun(r.Context(), runID) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Run not found or not active"})
+			errNotFound(w, "Run not found or not active")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -180,7 +180,7 @@ func (h *TasksHandler) KillTask(w http.ResponseWriter, r *http.Request) {
 	// Fallback: just update DB
 	run, err := h.sched.GetScheduledRun(r.Context(), runID)
 	if err != nil || run == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Run not found or not active"})
+		errNotFound(w, "Run not found or not active")
 		return
 	}
 	h.sched.UpdateScheduledRun(r.Context(), runID, map[string]interface{}{
@@ -204,13 +204,10 @@ func (h *TasksHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := h.sched.ListOneshotRuns(r.Context(), limit, statusPtr)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if runs == nil {
-		runs = []store.ScheduledRun{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
 }
 
 // ListActiveRuns returns currently running tasks.
@@ -218,11 +215,8 @@ func (h *TasksHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 func (h *TasksHandler) ListActiveRuns(w http.ResponseWriter, r *http.Request) {
 	runs, err := h.sched.ListActiveRuns(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if runs == nil {
-		runs = []store.ScheduledRun{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
 }

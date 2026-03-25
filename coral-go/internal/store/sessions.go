@@ -255,7 +255,10 @@ func (s *SessionStore) CreateTag(ctx context.Context, name, color string) (*Tag,
 	if err != nil {
 		return nil, err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return &Tag{ID: id, Name: name, Color: color}, nil
 }
 
@@ -360,20 +363,15 @@ func (s *SessionStore) UpsertSessionIndex(ctx context.Context, idx *SessionIndex
 
 // UpsertFTS updates the FTS5 index for a session.
 func (s *SessionStore) UpsertFTS(ctx context.Context, sessionID, body string) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	tx.ExecContext(ctx, "DELETE FROM session_fts WHERE session_id = ?", sessionID)
-	_, err = tx.ExecContext(ctx,
-		"INSERT INTO session_fts (session_id, body) VALUES (?, ?)",
-		sessionID, body)
-	if err != nil {
+	return s.db.WithTx(ctx, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM session_fts WHERE session_id = ?", sessionID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			"INSERT INTO session_fts (session_id, body) VALUES (?, ?)",
+			sessionID, body)
 		return err // FTS5 may not be available
-	}
-	return tx.Commit()
+	})
 }
 
 // EnqueueForSummarization adds a session to the summarization queue.
@@ -518,23 +516,15 @@ func (s *SessionStore) ListSessionsPaged(ctx context.Context, params SessionList
 			args = append(args, tid)
 		}
 	} else if len(params.TagIDs) > 0 {
-		placeholders := strings.Repeat("?,", len(params.TagIDs))
-		placeholders = placeholders[:len(placeholders)-1]
 		whereClauses = append(whereClauses,
-			fmt.Sprintf("si.session_id IN (SELECT session_id FROM session_tags WHERE tag_id IN (%s))", placeholders))
-		for _, tid := range params.TagIDs {
-			args = append(args, tid)
-		}
+			"si.session_id IN (SELECT session_id FROM session_tags WHERE tag_id IN (?))")
+		args = append(args, params.TagIDs)
 	}
 
 	// Source type filter
 	if len(params.SourceTypes) > 0 {
-		placeholders := strings.Repeat("?,", len(params.SourceTypes))
-		placeholders = placeholders[:len(placeholders)-1]
-		whereClauses = append(whereClauses, fmt.Sprintf("si.source_type IN (%s)", placeholders))
-		for _, st := range params.SourceTypes {
-			args = append(args, st)
-		}
+		whereClauses = append(whereClauses, "si.source_type IN (?)")
+		args = append(args, params.SourceTypes)
 	}
 
 	whereSQL := ""
@@ -544,8 +534,12 @@ func (s *SessionStore) ListSessionsPaged(ctx context.Context, params SessionList
 
 	// Count total
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", fromClause, whereSQL)
+	countSQL, countArgs, err := sqlx.In(countSQL, args...)
+	if err != nil {
+		return nil, err
+	}
 	var total int
-	if err := s.db.GetContext(ctx, &total, countSQL, args...); err != nil {
+	if err := s.db.GetContext(ctx, &total, countSQL, countArgs...); err != nil {
 		return nil, err
 	}
 
@@ -555,7 +549,10 @@ func (s *SessionStore) ListSessionsPaged(ctx context.Context, params SessionList
 		si.first_timestamp, si.last_timestamp, si.message_count, si.display_summary`
 	query := fmt.Sprintf("SELECT %s FROM %s%s ORDER BY %s LIMIT ? OFFSET ?",
 		selectFields, fromClause, whereSQL, orderClause)
-	pageArgs := append(args, params.PageSize, offset)
+	query, pageArgs, err := sqlx.In(query, append(args, params.PageSize, offset)...)
+	if err != nil {
+		return nil, err
+	}
 
 	var rows []struct {
 		SessionID      string  `db:"session_id"`
@@ -819,55 +816,49 @@ func (s *SessionStore) GetAgentTypeForSession(ctx context.Context, sessionID str
 
 // ReplaceLiveSession replaces an old session with a new one, carrying forward metadata.
 func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID string, newSession *LiveSession) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
+	return s.db.WithTx(ctx, func(tx *sqlx.Tx) error {
+		// Carry forward flags, prompt, board from old session if not set
+		var old LiveSession
+		err := tx.GetContext(ctx, &old,
+			"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type FROM live_sessions WHERE session_id = ?",
+			oldSessionID)
+		if err == nil {
+			if newSession.Flags == nil {
+				newSession.Flags = old.Flags
+			}
+			if newSession.Prompt == nil {
+				newSession.Prompt = old.Prompt
+			}
+			if newSession.BoardName == nil {
+				newSession.BoardName = old.BoardName
+			}
+			if newSession.BoardServer == nil {
+				newSession.BoardServer = old.BoardServer
+			}
+			if newSession.Icon == nil {
+				newSession.Icon = old.Icon
+			}
+			if newSession.BoardType == nil {
+				newSession.BoardType = old.BoardType
+			}
+			newSession.IsSleeping = old.IsSleeping
+		}
+
+		if _, err := tx.ExecContext(ctx, "DELETE FROM live_sessions WHERE session_id = ?", oldSessionID); err != nil {
+			return err
+		}
+
+		now := nowUTC()
+		_, err = tx.ExecContext(ctx,
+			`INSERT OR REPLACE INTO live_sessions
+			 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			newSession.SessionID, newSession.AgentType, newSession.AgentName,
+			newSession.WorkingDir, newSession.DisplayName, newSession.ResumeFromID,
+			newSession.Flags, newSession.Prompt, newSession.BoardName,
+			newSession.BoardServer, newSession.Icon, newSession.IsSleeping, newSession.BoardType, now)
 		return err
-	}
-	defer tx.Rollback()
-
-	// Carry forward flags, prompt, board from old session if not set
-	var old LiveSession
-	err = tx.GetContext(ctx, &old,
-		"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type FROM live_sessions WHERE session_id = ?",
-		oldSessionID)
-	if err == nil {
-		if newSession.Flags == nil {
-			newSession.Flags = old.Flags
-		}
-		if newSession.Prompt == nil {
-			newSession.Prompt = old.Prompt
-		}
-		if newSession.BoardName == nil {
-			newSession.BoardName = old.BoardName
-		}
-		if newSession.BoardServer == nil {
-			newSession.BoardServer = old.BoardServer
-		}
-		if newSession.Icon == nil {
-			newSession.Icon = old.Icon
-		}
-		if newSession.BoardType == nil {
-			newSession.BoardType = old.BoardType
-		}
-		newSession.IsSleeping = old.IsSleeping
-	}
-
-	tx.ExecContext(ctx, "DELETE FROM live_sessions WHERE session_id = ?", oldSessionID)
-
-	now := nowUTC()
-	_, err = tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO live_sessions
-		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		newSession.SessionID, newSession.AgentType, newSession.AgentName,
-		newSession.WorkingDir, newSession.DisplayName, newSession.ResumeFromID,
-		newSession.Flags, newSession.Prompt, newSession.BoardName,
-		newSession.BoardServer, newSession.Icon, newSession.IsSleeping, newSession.BoardType, now)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	})
 }
 
 // UpdateLiveSessionDisplayName updates only the display_name field on a live session.
@@ -891,15 +882,12 @@ func (s *SessionStore) GetIcons(ctx context.Context, sessionIDs []string) (map[s
 	if len(sessionIDs) == 0 {
 		return map[string]string{}, nil
 	}
-	placeholders := make([]string, len(sessionIDs))
-	args := make([]any, len(sessionIDs))
-	for i, id := range sessionIDs {
-		placeholders[i] = "?"
-		args[i] = id
+	query, args, err := sqlx.In(
+		"SELECT session_id, icon FROM live_sessions WHERE session_id IN (?) AND icon IS NOT NULL AND icon != ''",
+		sessionIDs)
+	if err != nil {
+		return nil, err
 	}
-	query := fmt.Sprintf(
-		"SELECT session_id, icon FROM live_sessions WHERE session_id IN (%s) AND icon IS NOT NULL AND icon != ''",
-		strings.Join(placeholders, ","))
 	rows, err := s.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

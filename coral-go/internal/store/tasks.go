@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -63,18 +64,13 @@ func NewTaskStore(db *DB) *TaskStore {
 
 // ListAgentTasks returns tasks for an agent, optionally scoped by session.
 func (s *TaskStore) ListAgentTasks(ctx context.Context, agentName string, sessionID *string) ([]AgentTask, error) {
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName}, filterArgs...)
 	var tasks []AgentTask
-	if sessionID != nil {
-		err := s.db.SelectContext(ctx, &tasks,
-			`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
-			 FROM agent_tasks WHERE agent_name = ? AND session_id = ? ORDER BY sort_order`,
-			agentName, *sessionID)
-		return tasks, err
-	}
 	err := s.db.SelectContext(ctx, &tasks,
 		`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
-		 FROM agent_tasks WHERE agent_name = ? ORDER BY sort_order`,
-		agentName)
+		 FROM agent_tasks WHERE agent_name = ?`+filter+` ORDER BY sort_order`,
+		args...)
 	return tasks, err
 }
 
@@ -83,17 +79,11 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 	now := nowUTC()
 
 	// Get next sort order
+	filter, filterArgs := sessionFilter(sessionID)
 	var nextOrder int
-	var err error
-	if sessionID != nil {
-		err = s.db.GetContext(ctx, &nextOrder,
-			"SELECT COALESCE(MAX(sort_order), -1) + 1 FROM agent_tasks WHERE agent_name = ? AND session_id = ?",
-			agentName, *sessionID)
-	} else {
-		err = s.db.GetContext(ctx, &nextOrder,
-			"SELECT COALESCE(MAX(sort_order), -1) + 1 FROM agent_tasks WHERE agent_name = ?",
-			agentName)
-	}
+	err := s.db.GetContext(ctx, &nextOrder,
+		"SELECT COALESCE(MAX(sort_order), -1) + 1 FROM agent_tasks WHERE agent_name = ?"+filter,
+		append([]interface{}{agentName}, filterArgs...)...)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
@@ -105,7 +95,10 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 	if err != nil {
 		return nil, err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("get task insert ID: %w", err)
+	}
 	return &AgentTask{
 		ID: id, AgentName: agentName, Title: title,
 		Completed: 0, SortOrder: nextOrder,
@@ -115,19 +108,13 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 
 // CreateAgentTaskIfNotExists creates a task only if one with the same title doesn't exist.
 func (s *TaskStore) CreateAgentTaskIfNotExists(ctx context.Context, agentName, title string, sessionID *string) (*AgentTask, error) {
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName, title}, filterArgs...)
 	var existing AgentTask
-	var err error
-	if sessionID != nil {
-		err = s.db.GetContext(ctx, &existing,
-			`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
-			 FROM agent_tasks WHERE agent_name = ? AND title = ? AND session_id = ?`,
-			agentName, title, *sessionID)
-	} else {
-		err = s.db.GetContext(ctx, &existing,
-			`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
-			 FROM agent_tasks WHERE agent_name = ? AND title = ?`,
-			agentName, title)
-	}
+	err := s.db.GetContext(ctx, &existing,
+		`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
+		 FROM agent_tasks WHERE agent_name = ? AND title = ?`+filter,
+		args...)
 	if err == nil {
 		return &existing, nil
 	}
@@ -164,17 +151,12 @@ func (s *TaskStore) UpdateAgentTask(ctx context.Context, taskID int64, title *st
 // CompleteAgentTaskByTitle marks a task as completed by title match.
 func (s *TaskStore) CompleteAgentTaskByTitle(ctx context.Context, agentName, title string, sessionID *string) error {
 	now := nowUTC()
-	if sessionID != nil {
-		_, err := s.db.ExecContext(ctx,
-			`UPDATE agent_tasks SET completed = 1, updated_at = ?
-			 WHERE agent_name = ? AND title = ? AND session_id = ? AND completed = 0`,
-			now, agentName, title, *sessionID)
-		return err
-	}
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{now, agentName, title}, filterArgs...)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE agent_tasks SET completed = 1, updated_at = ?
-		 WHERE agent_name = ? AND title = ? AND completed = 0`,
-		now, agentName, title)
+		 WHERE agent_name = ? AND title = ?`+filter+` AND completed = 0`,
+		args...)
 	return err
 }
 
@@ -187,36 +169,29 @@ func (s *TaskStore) DeleteAgentTask(ctx context.Context, taskID int64) error {
 // ReorderAgentTasks sets sort_order based on the provided ID order.
 func (s *TaskStore) ReorderAgentTasks(ctx context.Context, agentName string, taskIDs []int64) error {
 	now := nowUTC()
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	for idx, tid := range taskIDs {
-		tx.ExecContext(ctx,
-			"UPDATE agent_tasks SET sort_order = ?, updated_at = ? WHERE id = ? AND agent_name = ?",
-			idx, now, tid, agentName)
-	}
-	return tx.Commit()
+	return s.db.WithTx(ctx, func(tx *sqlx.Tx) error {
+		for idx, tid := range taskIDs {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE agent_tasks SET sort_order = ?, updated_at = ? WHERE id = ? AND agent_name = ?",
+				idx, now, tid, agentName); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ── Agent Notes ────────────────────────────────────────────────────────
 
 // ListAgentNotes returns notes for an agent, optionally scoped by session.
 func (s *TaskStore) ListAgentNotes(ctx context.Context, agentName string, sessionID *string) ([]AgentNote, error) {
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName}, filterArgs...)
 	var notes []AgentNote
-	if sessionID != nil {
-		err := s.db.SelectContext(ctx, &notes,
-			`SELECT id, agent_name, content, created_at, updated_at
-			 FROM agent_notes WHERE agent_name = ? AND session_id = ? ORDER BY created_at DESC`,
-			agentName, *sessionID)
-		return notes, err
-	}
 	err := s.db.SelectContext(ctx, &notes,
 		`SELECT id, agent_name, content, created_at, updated_at
-		 FROM agent_notes WHERE agent_name = ? ORDER BY created_at DESC`,
-		agentName)
+		 FROM agent_notes WHERE agent_name = ?`+filter+` ORDER BY created_at DESC`,
+		args...)
 	return notes, err
 }
 
@@ -230,7 +205,10 @@ func (s *TaskStore) CreateAgentNote(ctx context.Context, agentName, content stri
 	if err != nil {
 		return nil, err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("get note insert ID: %w", err)
+	}
 	return &AgentNote{
 		ID: id, AgentName: agentName, Content: content,
 		CreatedAt: now, UpdatedAt: now,
@@ -267,50 +245,46 @@ func (s *TaskStore) InsertAgentEvent(ctx context.Context, event *AgentEvent) (*A
 	if err != nil {
 		return nil, err
 	}
-	event.ID, _ = result.LastInsertId()
+	if id, err := result.LastInsertId(); err != nil {
+		log.Printf("[store] get event insert ID: %v", err)
+	} else {
+		event.ID = id
+	}
 
-	// Auto-prune to 500 events per agent
-	s.db.ExecContext(ctx,
+	// Auto-prune to 500 events per agent (best-effort)
+	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM agent_events WHERE agent_name = ? AND id NOT IN
 		 (SELECT id FROM agent_events WHERE agent_name = ? ORDER BY id DESC LIMIT 500)`,
-		event.AgentName, event.AgentName)
+		event.AgentName, event.AgentName); err != nil {
+		log.Printf("[store] event prune failed for %s: %v", event.AgentName, err)
+	}
 
 	return event, nil
 }
 
 // ListAgentEvents returns recent events for an agent.
 func (s *TaskStore) ListAgentEvents(ctx context.Context, agentName string, limit int, sessionID *string) ([]AgentEvent, error) {
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName}, filterArgs...)
+	args = append(args, limit)
 	var events []AgentEvent
-	if sessionID != nil {
-		err := s.db.SelectContext(ctx, &events,
-			`SELECT id, agent_name, session_id, event_type, tool_name, summary, detail_json, created_at
-			 FROM agent_events WHERE agent_name = ? AND session_id = ? ORDER BY created_at DESC LIMIT ?`,
-			agentName, *sessionID, limit)
-		return events, err
-	}
 	err := s.db.SelectContext(ctx, &events,
 		`SELECT id, agent_name, session_id, event_type, tool_name, summary, detail_json, created_at
-		 FROM agent_events WHERE agent_name = ? ORDER BY created_at DESC LIMIT ?`,
-		agentName, limit)
+		 FROM agent_events WHERE agent_name = ?`+filter+` ORDER BY created_at DESC LIMIT ?`,
+		args...)
 	return events, err
 }
 
 // GetAgentEventCounts returns tool usage counts for an agent.
 func (s *TaskStore) GetAgentEventCounts(ctx context.Context, agentName string, sessionID *string) ([]ToolCount, error) {
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName}, filterArgs...)
 	var counts []ToolCount
-	if sessionID != nil {
-		err := s.db.SelectContext(ctx, &counts,
-			`SELECT tool_name, COUNT(*) as count FROM agent_events
-			 WHERE agent_name = ? AND session_id = ? AND tool_name IS NOT NULL
-			 GROUP BY tool_name ORDER BY count DESC`,
-			agentName, *sessionID)
-		return counts, err
-	}
 	err := s.db.SelectContext(ctx, &counts,
 		`SELECT tool_name, COUNT(*) as count FROM agent_events
-		 WHERE agent_name = ? AND tool_name IS NOT NULL
+		 WHERE agent_name = ?`+filter+` AND tool_name IS NOT NULL
 		 GROUP BY tool_name ORDER BY count DESC`,
-		agentName)
+		args...)
 	return counts, err
 }
 
@@ -375,13 +349,11 @@ func (s *TaskStore) GetLatestGoals(ctx context.Context, sessionIDs []string) (ma
 
 // ClearAgentEvents deletes all events for an agent, optionally scoped by session.
 func (s *TaskStore) ClearAgentEvents(ctx context.Context, agentName string, sessionID *string) error {
-	if sessionID != nil {
-		_, err := s.db.ExecContext(ctx,
-			"DELETE FROM agent_events WHERE agent_name = ? AND session_id = ?",
-			agentName, *sessionID)
-		return err
-	}
-	_, err := s.db.ExecContext(ctx, "DELETE FROM agent_events WHERE agent_name = ?", agentName)
+	filter, filterArgs := sessionFilter(sessionID)
+	args := append([]interface{}{agentName}, filterArgs...)
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM agent_events WHERE agent_name = ?"+filter,
+		args...)
 	return err
 }
 
@@ -393,18 +365,22 @@ func (s *TaskStore) GetLastKnownStatusSummary(ctx context.Context) (map[string]m
 		Summary   string  `db:"summary"`
 	}
 	var statusRows []row
-	s.db.SelectContext(ctx, &statusRows,
+	if err := s.db.SelectContext(ctx, &statusRows,
 		`SELECT session_id, agent_name, summary FROM agent_events
 		 WHERE event_type = 'status' AND id IN
 		 (SELECT MAX(id) FROM agent_events WHERE event_type = 'status'
-		  GROUP BY COALESCE(session_id, agent_name))`)
+		  GROUP BY COALESCE(session_id, agent_name))`); err != nil {
+		log.Printf("[store] query last known status: %v", err)
+	}
 
 	var goalRows []row
-	s.db.SelectContext(ctx, &goalRows,
+	if err := s.db.SelectContext(ctx, &goalRows,
 		`SELECT session_id, agent_name, summary FROM agent_events
 		 WHERE event_type = 'goal' AND id IN
 		 (SELECT MAX(id) FROM agent_events WHERE event_type = 'goal'
-		  GROUP BY COALESCE(session_id, agent_name))`)
+		  GROUP BY COALESCE(session_id, agent_name))`); err != nil {
+		log.Printf("[store] query last known goal: %v", err)
+	}
 
 	result := make(map[string]map[string]*string)
 	for _, r := range statusRows {

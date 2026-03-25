@@ -4,8 +4,13 @@ import (
 	"context"
 	"database/sql"
 
-	_ "github.com/jmoiron/sqlx"
+	"github.com/jmoiron/sqlx"
 )
+
+// gitSnapshotCols is the column list for git_snapshots queries.
+const gitSnapshotCols = `id, agent_name, agent_type, working_directory, branch,
+		        commit_hash, commit_subject, commit_timestamp,
+		        session_id, remote_url, recorded_at`
 
 // GitSnapshot represents a git state snapshot for an agent.
 type GitSnapshot struct {
@@ -81,9 +86,7 @@ func (s *GitStore) UpsertGitSnapshot(ctx context.Context, snap *GitSnapshot) err
 func (s *GitStore) GetGitSnapshots(ctx context.Context, agentName string, limit int) ([]GitSnapshot, error) {
 	var snaps []GitSnapshot
 	err := s.db.SelectContext(ctx, &snaps,
-		`SELECT id, agent_name, agent_type, working_directory, branch,
-		        commit_hash, commit_subject, commit_timestamp,
-		        session_id, remote_url, recorded_at
+		`SELECT ` + gitSnapshotCols + `
 		 FROM git_snapshots WHERE agent_name = ?
 		 ORDER BY recorded_at DESC LIMIT ?`,
 		agentName, limit)
@@ -94,9 +97,7 @@ func (s *GitStore) GetGitSnapshots(ctx context.Context, agentName string, limit 
 func (s *GitStore) GetLatestGitState(ctx context.Context, agentName string) (*GitSnapshot, error) {
 	var snap GitSnapshot
 	err := s.db.GetContext(ctx, &snap,
-		`SELECT id, agent_name, agent_type, working_directory, branch,
-		        commit_hash, commit_subject, commit_timestamp,
-		        session_id, remote_url, recorded_at
+		`SELECT ` + gitSnapshotCols + `
 		 FROM git_snapshots WHERE agent_name = ?
 		 ORDER BY recorded_at DESC LIMIT 1`,
 		agentName)
@@ -110,9 +111,7 @@ func (s *GitStore) GetLatestGitState(ctx context.Context, agentName string) (*Gi
 func (s *GitStore) GetLatestGitStateBySession(ctx context.Context, sessionID string) (*GitSnapshot, error) {
 	var snap GitSnapshot
 	err := s.db.GetContext(ctx, &snap,
-		`SELECT id, agent_name, agent_type, working_directory, branch,
-		        commit_hash, commit_subject, commit_timestamp,
-		        session_id, remote_url, recorded_at
+		`SELECT ` + gitSnapshotCols + `
 		 FROM git_snapshots WHERE session_id = ?
 		 ORDER BY recorded_at DESC LIMIT 1`,
 		sessionID)
@@ -155,9 +154,7 @@ func (s *GitStore) GetAllLatestGitState(ctx context.Context) (map[string]*GitSna
 func (s *GitStore) GetGitSnapshotsForSession(ctx context.Context, sessionID string, limit int) ([]GitSnapshot, error) {
 	var snaps []GitSnapshot
 	err := s.db.SelectContext(ctx, &snaps,
-		`SELECT id, agent_name, agent_type, working_directory, branch,
-		        commit_hash, commit_subject, commit_timestamp,
-		        session_id, remote_url, recorded_at
+		`SELECT ` + gitSnapshotCols + `
 		 FROM git_snapshots WHERE session_id = ?
 		 ORDER BY commit_timestamp ASC LIMIT ?`,
 		sessionID, limit)
@@ -181,9 +178,7 @@ func (s *GitStore) GetGitSnapshotsForSession(ctx context.Context, sessionID stri
 	}
 
 	err = s.db.SelectContext(ctx, &snaps,
-		`SELECT id, agent_name, agent_type, working_directory, branch,
-		        commit_hash, commit_subject, commit_timestamp,
-		        session_id, remote_url, recorded_at
+		`SELECT ` + gitSnapshotCols + `
 		 FROM git_snapshots
 		 WHERE commit_timestamp >= ? AND commit_timestamp <= ?
 		 ORDER BY commit_timestamp ASC LIMIT ?`,
@@ -194,33 +189,30 @@ func (s *GitStore) GetGitSnapshotsForSession(ctx context.Context, sessionID stri
 // ReplaceChangedFiles replaces all changed-file records for an agent/session.
 func (s *GitStore) ReplaceChangedFiles(ctx context.Context, agentName, workingDir string, files []ChangedFile, sessionID *string) error {
 	now := nowUTC()
-
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Delete old records
-	if sessionID != nil {
-		tx.ExecContext(ctx, "DELETE FROM git_changed_files WHERE session_id = ?", *sessionID)
-	} else {
-		tx.ExecContext(ctx, "DELETE FROM git_changed_files WHERE agent_name = ? AND session_id IS NULL", agentName)
-	}
-
-	// Insert fresh records
-	for _, f := range files {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO git_changed_files
-			 (agent_name, session_id, working_directory, filepath, additions, deletions, status, recorded_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			agentName, sessionID, workingDir, f.Filepath, f.Additions, f.Deletions, f.Status, now)
-		if err != nil {
-			return err
+	return s.db.WithTx(ctx, func(tx *sqlx.Tx) error {
+		// Delete old records
+		if sessionID != nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM git_changed_files WHERE session_id = ?", *sessionID); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM git_changed_files WHERE agent_name = ? AND session_id IS NULL", agentName); err != nil {
+				return err
+			}
 		}
-	}
 
-	return tx.Commit()
+		// Insert fresh records
+		for _, f := range files {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO git_changed_files
+				 (agent_name, session_id, working_directory, filepath, additions, deletions, status, recorded_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				agentName, sessionID, workingDir, f.Filepath, f.Additions, f.Deletions, f.Status, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // GetChangedFiles returns current changed files for an agent/session.

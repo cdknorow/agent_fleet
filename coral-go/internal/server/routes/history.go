@@ -113,7 +113,7 @@ func (h *HistoryHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	if chatType == "all" || chatType == "agent" {
 		result, err := h.ss.ListSessionsPaged(r.Context(), params)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			errInternalServer(w, err.Error())
 			return
 		}
 
@@ -282,7 +282,7 @@ func (h *HistoryHandler) GetSessionNotes(w http.ResponseWriter, r *http.Request)
 	sid := chi.URLParam(r, "sessionID")
 	meta, err := h.ss.GetSessionNotes(r.Context(), sid)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	// Match Python response shape: include summarizing field, omit session_id
@@ -305,11 +305,11 @@ func (h *HistoryHandler) SaveSessionNotes(w http.ResponseWriter, r *http.Request
 		NotesMD string `json:"notes_md"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if err := h.ss.SaveSessionNotes(r.Context(), sid, body.NotesMD); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -346,13 +346,10 @@ func (h *HistoryHandler) GetSessionTags(w http.ResponseWriter, r *http.Request) 
 	sid := chi.URLParam(r, "sessionID")
 	tags, err := h.ss.GetSessionTags(r.Context(), sid)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if tags == nil {
-		tags = []store.Tag{}
-	}
-	writeJSON(w, http.StatusOK, tags)
+	writeJSON(w, http.StatusOK, emptyIfNil(tags))
 }
 
 // GetSessionGit returns git snapshots for a historical session.
@@ -362,13 +359,10 @@ func (h *HistoryHandler) GetSessionGit(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 20)
 	snaps, err := h.gs.GetGitSnapshotsForSession(r.Context(), sid, limit)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if snaps == nil {
-		snaps = []store.GitSnapshot{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"session_id": sid, "commits": snaps})
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": sid, "commits": emptyIfNil(snaps)})
 }
 
 // GetSessionEvents returns events for a historical session.
@@ -378,13 +372,10 @@ func (h *HistoryHandler) GetSessionEvents(w http.ResponseWriter, r *http.Request
 	limit := queryInt(r, "limit", 200)
 	events, err := h.ts.ListAgentEvents(r.Context(), "", limit, &sid)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if events == nil {
-		events = []store.AgentEvent{}
-	}
-	writeJSON(w, http.StatusOK, events)
+	writeJSON(w, http.StatusOK, emptyIfNil(events))
 }
 
 // GetSessionTasks returns tasks for a historical session.
@@ -393,13 +384,10 @@ func (h *HistoryHandler) GetSessionTasks(w http.ResponseWriter, r *http.Request)
 	sid := chi.URLParam(r, "sessionID")
 	tasks, err := h.ts.ListTasksBySession(r.Context(), sid)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if tasks == nil {
-		tasks = []store.AgentTask{}
-	}
-	writeJSON(w, http.StatusOK, tasks)
+	writeJSON(w, http.StatusOK, emptyIfNil(tasks))
 }
 
 // GetSessionDetail returns all messages for a historical session.
@@ -437,18 +425,9 @@ func (h *HistoryHandler) GetSessionAgentNotes(w http.ResponseWriter, r *http.Req
 	sid := chi.URLParam(r, "sessionID")
 	notes, err := h.ts.ListNotesBySession(r.Context(), sid)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if notes == nil {
-		notes = []store.AgentNote{}
-	}
-	writeJSON(w, http.StatusOK, notes)
+	writeJSON(w, http.StatusOK, emptyIfNil(notes))
 }
 
-func derefStrPtr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}

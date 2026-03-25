@@ -33,13 +33,10 @@ func NewWebhooksHandler(db *store.DB, cfg *config.Config) *WebhooksHandler {
 func (h *WebhooksHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	configs, err := h.ws.ListWebhookConfigs(r.Context(), false)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if configs == nil {
-		configs = []store.WebhookConfig{}
-	}
-	writeJSON(w, http.StatusOK, configs)
+	writeJSON(w, http.StatusOK, emptyIfNil(configs))
 }
 
 // CreateWebhook creates a new webhook.
@@ -52,11 +49,11 @@ func (h *WebhooksHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) 
 		AgentFilter *string `json:"agent_filter"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if body.Name == "" || body.URL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and url are required"})
+		errBadRequest(w, "name and url are required")
 		return
 	}
 	if body.Platform == "" {
@@ -64,7 +61,7 @@ func (h *WebhooksHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 	wh, err := h.ws.CreateWebhookConfig(r.Context(), body.Name, body.Platform, body.URL, body.AgentFilter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, wh)
@@ -76,11 +73,11 @@ func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) 
 	whID, _ := strconv.ParseInt(chi.URLParam(r, "webhookID"), 10, 64)
 	var fields map[string]interface{}
 	if err := decodeJSON(r, &fields); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		errBadRequest(w, "invalid JSON")
 		return
 	}
 	if err := h.ws.UpdateWebhookConfig(r.Context(), whID, fields); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -91,7 +88,7 @@ func (h *WebhooksHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) 
 func (h *WebhooksHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	whID, _ := strconv.ParseInt(chi.URLParam(r, "webhookID"), 10, 64)
 	if err := h.ws.DeleteWebhookConfig(r.Context(), whID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -111,7 +108,7 @@ func (h *WebhooksHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 		"Test notification from Coral dashboard", nil,
 	)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
 	// Deliver immediately inline (same as Python's deliver_now)
@@ -171,11 +168,8 @@ func (h *WebhooksHandler) ListDeliveries(w http.ResponseWriter, r *http.Request)
 	}
 	deliveries, err := h.ws.ListWebhookDeliveries(r.Context(), whID, limit)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errInternalServer(w, err.Error())
 		return
 	}
-	if deliveries == nil {
-		deliveries = []store.WebhookDelivery{}
-	}
-	writeJSON(w, http.StatusOK, deliveries)
+	writeJSON(w, http.StatusOK, emptyIfNil(deliveries))
 }

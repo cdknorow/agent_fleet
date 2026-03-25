@@ -67,8 +67,8 @@ func main() {
 }
 
 func loadBoardState() map[string]any {
-	sessionName := ""
-	if os.Getenv("TMUX") != "" {
+	sessionName := os.Getenv("CORAL_SESSION_NAME")
+	if sessionName == "" && os.Getenv("TMUX") != "" {
 		out, err := exec("tmux", "display-message", "-p", "#S")
 		if err == nil {
 			sessionName = strings.TrimSpace(out)

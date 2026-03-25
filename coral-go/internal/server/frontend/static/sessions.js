@@ -1,7 +1,7 @@
 /* Session selection and management */
 
 import { state, sessionKey } from './state.js';
-import { showToast, escapeHtml, escapeAttr, dbg } from './utils.js';
+import { showToast, escapeHtml, escapeAttr, dbg, showView } from './utils.js';
 import { loadLiveSessionDetail, loadHistoryMessages } from './api.js';
 import { stopCaptureRefresh, startCaptureRefresh } from './capture.js';
 import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
@@ -50,11 +50,7 @@ export async function selectLiveSession(name, agentType, sessionId) {
     input.focus();
 
     // Show live view, hide others
-    document.getElementById("welcome-screen").style.display = "none";
-    document.getElementById("history-session-view").style.display = "none";
-    document.getElementById("scheduler-view").style.display = "none";
-    document.getElementById("messageboard-view").style.display = "none";
-    document.getElementById("live-session-view").style.display = "flex";
+    showView("live-session-view");
 
     // Push view to history for back navigation
     if (window._pushView) window._pushView('chat', { sessionId });
@@ -200,11 +196,7 @@ export async function selectHistorySession(sessionId) {
     const newKey = sessionKey(state.currentSession);
     input.value = state.sessionInputText[newKey] || "";
 
-    document.getElementById("welcome-screen").style.display = "none";
-    document.getElementById("live-session-view").style.display = "none";
-    document.getElementById("scheduler-view").style.display = "none";
-    document.getElementById("messageboard-view").style.display = "none";
-    document.getElementById("history-session-view").style.display = "flex";
+    showView("history-session-view");
 
     document.getElementById("history-session-title").textContent = `Session: ${sessionId}`;
     document.getElementById("history-session-id").textContent = sessionId;

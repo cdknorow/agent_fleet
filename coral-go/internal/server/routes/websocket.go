@@ -19,6 +19,25 @@ import (
 	"github.com/cdknorow/coral/internal/board"
 )
 
+// wsAcceptOptions returns WebSocket accept options with origin validation
+// matching the CORS middleware policy. The nhooyr.io/websocket library
+// automatically allows same-origin requests (where Origin host matches the
+// request Host). OriginPatterns adds cross-origin exceptions for localhost
+// variants so that, e.g., a page served on http://localhost:8420 can open
+// a WebSocket to a server bound on 0.0.0.0:8420.
+func (h *SessionsHandler) wsAcceptOptions() *websocket.AcceptOptions {
+	return &websocket.AcceptOptions{
+		OriginPatterns: []string{
+			"localhost",
+			"localhost:*",
+			"127.0.0.1",
+			"127.0.0.1:*",
+			"[::1]",
+			"[::1]:*",
+		},
+	}
+}
+
 // ── /ws/coral — Diff-based session list streaming ────────────────────
 
 // WSCoral streams the coral-wide session list via WebSocket.
@@ -31,10 +50,7 @@ func (h *SessionsHandler) WSCoral(w http.ResponseWriter, r *http.Request) {
 	if debugEnabled() {
 		slog.Info("[debug] ws/coral connection from", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"))
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Allow localhost origins (matches CORS config)
-		InsecureSkipVerify: true,
-	})
+	conn, err := websocket.Accept(w, r, h.wsAcceptOptions())
 	if err != nil {
 		slog.Debug("ws/coral accept failed", "error", err)
 		return
@@ -320,9 +336,7 @@ func (h *SessionsHandler) WSTerminal(w http.ResponseWriter, r *http.Request) {
 		slog.Info("[debug] ws/terminal connect", "name", name, "agent_type", agentType, "session_id", sessionID, "remote", r.RemoteAddr)
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	conn, err := websocket.Accept(w, r, h.wsAcceptOptions())
 	if err != nil {
 		slog.Debug("ws/terminal accept failed", "error", err)
 		return

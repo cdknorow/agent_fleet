@@ -25,10 +25,7 @@ func (a *ClaudeAgent) HistoryBasePath() string {
 func (a *ClaudeAgent) HistoryGlobPattern() string { return "*.jsonl" }
 
 func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
-	bin := "claude"
-	if params.CLIPath != "" {
-		bin = params.CLIPath
-	}
+	bin := resolveBinary(params.CLIPath, "claude")
 	parts := []string{bin}
 
 	effectiveID := params.SessionID
@@ -44,11 +41,8 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 
 	// Combine protocol + board system prompt into systemPrompt
 	var sysParts []string
-	if params.ProtocolPath != "" {
-		content, err := os.ReadFile(params.ProtocolPath)
-		if err == nil {
-			sysParts = append(sysParts, string(content))
-		}
+	if proto := readProtocolFile(params.ProtocolPath); proto != "" {
+		sysParts = append(sysParts, proto)
 	}
 	boardSysPrompt := BuildBoardSystemPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
 	if boardSysPrompt != "" {
@@ -119,8 +113,7 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	// without relying on fragile tmux send-keys delivery.
 	cliPrompt := BuildBoardActionPrompt(params.BoardName, params.Role, params.Prompt, params.PromptOverrides, params.BoardType)
 	if cliPrompt != "" {
-		promptFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_prompt_%s.txt", effectiveID))
-		os.WriteFile(promptFile, []byte(cliPrompt), 0600)
+		promptFile := writeTempFile("prompt", effectiveID, "txt", []byte(cliPrompt))
 		parts = append(parts, FormatPromptFileArg(promptFile))
 	}
 

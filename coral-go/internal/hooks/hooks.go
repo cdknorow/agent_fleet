@@ -128,6 +128,12 @@ func CacheDir() string {
 	return d
 }
 
+// StrVal extracts a string value from a map by key, returning "" if missing or wrong type.
+func StrVal(d map[string]any, key string) string {
+	v, _ := d[key].(string)
+	return v
+}
+
 // GetToolInput extracts tool_input as a map from hook data.
 func GetToolInput(hookData map[string]any) map[string]any {
 	inp, ok := hookData["tool_input"].(map[string]any)
