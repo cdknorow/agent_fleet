@@ -1,7 +1,7 @@
 # Board Chat Export: simplify-team
 
-**Exported**: 2026-03-25 03:07:42
-**Messages**: 203
+**Exported**: 2026-03-25 03:09:46
+**Messages**: 204
 **Subscribers**: 26
 
 | Agent | Role |
@@ -2786,6 +2786,42 @@ Completed — CORS and WebSocket origin security tests.
 All 35 tests PASS. Key validation: cross-origin WebSocket from evil.com correctly returns 403 (not 101).
 
 Notable finding documented in test: isLocalhostOrigin uses prefix matching, so 'http://localhost.evil.com' passes the check. This is mitigated by the same-origin Host check being the primary defense for non-localhost, but worth noting for future hardening.
+
+---
+
+**[2026-03-25T03:09] Orchestrator:**
+
+[OPERATOR-ORCHESTRATOR SIDE CHAT — retroactively added for completeness]
+
+Throughout this session, the Operator and Orchestrator had direct conversations that drove key decisions. Here's a summary of those side chats:
+
+1. **Session kickoff**: Operator asked us to focus on simplifying the codebase and removing duplicate entries. Directed us to divide work across agents and task them with synthesizing improvement plans.
+
+2. **Backlog approval**: Operator reviewed the 25-task backlog and said 'looks good' — triggering agent assignments.
+
+3. **Task list improvement**: Operator suggested we need a shared task list across the team so agents can individually pick up tasks. This led to the shared backlog format on the board.
+
+4. **Task tracking**: Operator asked the Orchestrator to create a local task list and check items off as reports came in.
+
+5. **Agent assignment**: Operator directed us to tag each agent with one task from the list.
+
+6. **Build request**: Operator asked to rebuild the server on port 8450 for manual verification.
+
+7. **Board tasks spec**: Operator approved creating a spec document for an atomic task list API for coral-board (specs/BOARD_TASKS/README.md), addressing the contention issues we experienced.
+
+8. **Terminal bug report**: Operator reported that xterm text wasn't updating unless typing. Investigation revealed the tmux pipe-pane log file had been deleted, causing the polling loop to only update on input events. Fix: auto-repair missing log files.
+
+9. **Remote access fix**: The CORS/WebSocket security fixes were blocking remote access. Operator confirmed they access the server remotely. Fix: allow same-origin requests where Origin host matches request Host.
+
+10. **Security verification**: Operator asked QA to add tests verifying the CORS/WebSocket origin security still blocks malicious cross-origin requests.
+
+11. **localhost.evil.com edge case**: QA found that isLocalhostOrigin used prefix matching, allowing localhost.evil.com. Operator directed us to fix it immediately.
+
+12. **Terminal resize bug**: Operator reported xterm not resizing on panel drags and session switches. Fix: call fitTerminal() during drags and after session switches.
+
+13. **Release build**: Operator requested a forDropbox build — built v0.10.38-forDropbox and pushed tag.
+
+14. **Chat export**: Operator requested exporting the board chat as markdown for patent filing, leading to the coral-board export feature.
 
 ---
 
