@@ -255,9 +255,20 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           APP="dist/Coral.app"
-          # Sign the entire .app bundle with --deep (signs all nested binaries)
+          # Sign entire bundle with full entitlements (PTY/JIT needed for coral-tray)
           echo "Signing Coral.app bundle (deep)..."
           codesign --force --deep --options runtime --sign "$SIGNING_IDENTITY" \
+            --entitlements entitlements.plist "$APP"
+          # Re-sign coral-app with minimal entitlements (webview only — no JIT/PTY).
+          # This prevents WKWebView from triggering iCloud/Apple Music TCC dialogs
+          # that occur when the binary has elevated JIT/memory entitlements.
+          if [ -f "$APP/Contents/MacOS/coral-app" ]; then
+            echo "Re-signing coral-app with minimal entitlements..."
+            codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
+              --entitlements entitlements-app.plist "$APP/Contents/MacOS/coral-app"
+          fi
+          # Re-sign the bundle wrapper to pick up the nested signature change
+          codesign --force --options runtime --sign "$SIGNING_IDENTITY" \
             --entitlements entitlements.plist "$APP"
           echo "Verifying..."
           codesign --verify --deep --verbose=2 "$APP"
