@@ -32,6 +32,7 @@ import (
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/executil"
 	"github.com/cdknorow/coral/internal/startup"
+	"github.com/cdknorow/coral/internal/tracking"
 )
 
 //go:embed icon.png
@@ -207,6 +208,12 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 
 	url := fmt.Sprintf("http://localhost:%d", port)
 
+	// Kill any orphaned coral-app from previous sessions
+	killOrphanedCoralApp()
+
+	// Anonymous install/upgrade tracking (non-blocking)
+	tracking.TrackInstallAsync()
+
 	// Run systray (blocks until quit)
 	systray.Run(func() {
 		systray.SetTemplateIcon(iconData, iconData)
@@ -233,12 +240,15 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 				case <-mShutdown.ClickedCh:
 					go func() {
 						killed := killAllAgents(url)
+						killCoralApp()
 						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						defer cancel()
 						httpServer.Shutdown(shutdownCtx)
 						beeep.Notify("Coral", fmt.Sprintf("Shut down %d agent(s) and dashboard server.", killed), "")
+						systray.Quit()
 					}()
 				case <-mQuit.ClickedCh:
+					killCoralApp()
 					func() {
 						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						defer cancel()
@@ -258,10 +268,7 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		}()
 	}, func() {
 		// onExit — kill coral-app subprocess and stop server
-		if coralAppProcess != nil {
-			coralAppProcess.Signal(syscall.SIGTERM)
-			coralAppProcess = nil
-		}
+		killCoralApp()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		httpServer.Shutdown(shutdownCtx)
@@ -387,6 +394,41 @@ func readPID(dataDir string) int {
 
 // coralAppProcess tracks the running coral-app subprocess.
 var coralAppProcess *os.Process
+
+// killCoralApp sends SIGTERM, waits briefly, then SIGKILL if still alive.
+func killCoralApp() {
+	if coralAppProcess == nil {
+		return
+	}
+	p := coralAppProcess
+	coralAppProcess = nil
+	p.Signal(syscall.SIGTERM)
+	// Give WKWebView time to exit cleanly
+	time.Sleep(500 * time.Millisecond)
+	if err := p.Signal(syscall.Signal(0)); err == nil {
+		// Still alive — force kill
+		log.Println("coral-app did not exit after SIGTERM, sending SIGKILL")
+		p.Kill()
+	}
+}
+
+// killOrphanedCoralApp finds and kills any stale coral-app processes from previous sessions.
+func killOrphanedCoralApp() {
+	out, err := exec.Command("pgrep", "-f", "coral-app").Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid == os.Getpid() {
+			continue
+		}
+		if proc, err := os.FindProcess(pid); err == nil {
+			log.Printf("killing orphaned coral-app (PID %d)", pid)
+			proc.Signal(syscall.SIGTERM)
+		}
+	}
+}
 
 // launchCoralApp launches coral-app or brings the existing one to front.
 // Returns an error if coral-app is not found or fails to start.

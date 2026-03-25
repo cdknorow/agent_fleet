@@ -56,6 +56,8 @@ export function updateTerminalTheme() {
 let _pendingContent = null;
 let _xtermSelecting = false;
 let _userScrolledUp = false;
+let _resizing = false;
+let _resizeTimer = null;
 
 // Track which session_id the terminal WS is currently connected to,
 // and a generation counter to suppress stale onclose reconnects.
@@ -203,6 +205,7 @@ export function createTerminal(containerEl) {
     const xtermEl = containerEl;
     let _scrollUpCount = 0;
     xtermEl.addEventListener("wheel", (e) => {
+        if (_resizing) return; // Don't trigger scroll pause during resize
         if (e.deltaY < 0) {
             // Scrolling up — pause after a couple of ticks to avoid accidental triggers
             _scrollUpCount++;
@@ -314,7 +317,11 @@ export function createTerminal(containerEl) {
         if (_resizeObserver) _resizeObserver.disconnect();
         _resizeObserver = new ResizeObserver(() => {
             if (fitAddon && containerEl.offsetWidth > 0 && containerEl.offsetHeight > 0) {
+                _resizing = true;
+                clearTimeout(_resizeTimer);
                 fitAddon.fit();
+                if (!_userScrolledUp && terminal) terminal.scrollToBottom();
+                _resizeTimer = setTimeout(() => { _resizing = false; }, 300);
             }
         });
         _resizeObserver.observe(containerEl);
@@ -422,6 +429,10 @@ export function connectTerminalWs(name, agentType, sessionId) {
             _restarting = false;
             _setSessionEndedOverlay(false);
             // Buffer the update if user has text selected or scrolled up
+            // But auto-resume if the pause was caused by a resize (buffer reflow)
+            if (_resizing && _userScrolledUp && !_xtermSelecting) {
+                resumeScroll();
+            }
             if (_xtermSelecting || _userScrolledUp) {
                 _pendingContent = data.content;
                 return;

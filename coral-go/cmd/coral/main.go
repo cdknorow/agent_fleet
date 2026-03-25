@@ -15,6 +15,7 @@ import (
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/executil"
 	"github.com/cdknorow/coral/internal/startup"
+	"github.com/cdknorow/coral/internal/tracking"
 )
 
 func main() {
@@ -50,6 +51,9 @@ func main() {
 		log.Fatalf("Failed to start: %v", err)
 	}
 	defer rs.Close()
+
+	// Anonymous install/upgrade tracking (non-blocking)
+	tracking.TrackInstallAsync()
 
 	// Open browser unless --no-browser
 	if !*noBrowser {

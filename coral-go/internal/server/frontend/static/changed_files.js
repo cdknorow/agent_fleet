@@ -1,7 +1,7 @@
 /* Changed files panel — load and render per-agent file diffs */
 
 import { state } from './state.js';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, showToast } from './utils.js';
 
 let _currentFiles = [];
 let _searchTimeout = null;
@@ -100,14 +100,30 @@ export async function searchRepoFiles(query) {
 function _renderSearchResults(files) {
     const container = document.getElementById('files-search-results');
     if (!container) return;
-    if (files.length === 0) {
+
+    const query = (document.getElementById('files-search-input')?.value || '').trim();
+    const hasExactMatch = files.some(f => f === query);
+    const looksLikePath = query.includes('/') || query.includes('.');
+
+    let html = '';
+
+    // Show "Create <path>" option when query looks like a file path and no exact match
+    if (query && looksLikePath && !hasExactMatch) {
+        const escapedQuery = escapeHtml(query).replace(/'/g, "\\'");
+        html += `<div class="file-item file-create-option" onclick="_createFile('${escapedQuery}')" style="color:var(--accent);font-weight:500">
+            <span style="margin-right:6px;font-size:16px">+</span>
+            <div class="file-path-wrap">Create ${escapeHtml(query)}</div>
+        </div>`;
+    }
+
+    if (files.length === 0 && !html) {
         container.style.display = '';
         container.innerHTML = '<div class="file-empty">No matches</div>';
         return;
     }
+
     const starred = new Set(_getStarredFiles());
-    container.style.display = '';
-    container.innerHTML = files.slice(0, 50).map(filepath => {
+    html += files.slice(0, 50).map(filepath => {
         const { dir, name } = splitPath(filepath);
         const escapedPath = escapeHtml(filepath).replace(/'/g, "\\'");
         const isStarred = starred.has(filepath);
@@ -123,6 +139,9 @@ function _renderSearchResults(files) {
             <div class="file-action-btns">${previewBtn}</div>
         </div>`;
     }).join('');
+
+    container.style.display = '';
+    container.innerHTML = html;
 }
 
 export function initFileSearch() {
@@ -344,6 +363,37 @@ export function openFileEdit(filepath) {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
     _openInlinePane(filepath, 'edit');
 }
+
+/** Create a new file via the API and open it in the editor. */
+// Exposed on window for onclick in rendered search results.
+window._createFile = async function(filePath) {
+    if (!filePath) return;
+    const s = state.currentSession;
+    if (!s || s.type !== 'live') return;
+
+    try {
+        const qs = new URLSearchParams({ filepath: filePath, session_id: s.session_id || '' });
+        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(s.name)}/file-content?${qs}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '' }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+            showToast(data.error, true);
+            return;
+        }
+        // Clear search, open the new file in editor, refresh file list
+        const searchInput = document.getElementById('files-search-input');
+        if (searchInput) searchInput.value = '';
+        const searchResults = document.getElementById('files-search-results');
+        if (searchResults) searchResults.style.display = 'none';
+        openFileEdit(filePath);
+        refreshChangedFiles();
+    } catch (e) {
+        showToast('Failed to create file', true);
+    }
+};
 
 async function _openInlinePane(filepath, initialView) {
     // On mobile, use a full-screen overlay instead of the sidebar pane
@@ -665,7 +715,7 @@ window._closeInlinePreview = function() {
         panel.innerHTML = `
             <div class="changed-files-header" id="changed-files-header">
                 <div class="files-search-row">
-                    <input type="search" id="files-search-input" class="files-search-input" placeholder="Search files..." autocomplete="off">
+                    <input type="search" id="files-search-input" class="files-search-input" placeholder="Search or create files..." autocomplete="off">
                     <button class="refresh-files-btn" onclick="refreshChangedFiles()" title="Refresh git diff">&#x21bb;</button>
                 </div>
                 <span class="changed-files-title" id="changed-files-title">Loading...</span>

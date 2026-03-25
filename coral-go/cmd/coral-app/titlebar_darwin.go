@@ -43,6 +43,9 @@ static void setupWindowDrag(NSWindow *window) {
         @try {
             NSWindow *w = event.window;
             if (!w || !w.contentView) return event;
+            // Only handle events on the key window — clicking a background
+            // window to focus it should pass through without arming a drag.
+            if (![w isKeyWindow]) return event;
             NSPoint loc = event.locationInWindow;
             CGFloat windowHeight = w.contentView.frame.size.height;
             if (loc.y > windowHeight - dragZoneHeight) {
@@ -76,8 +79,8 @@ static void setupWindowDrag(NSWindow *window) {
         @try {
             if (_titleBarDragArmed && _titleBarMouseDown) {
                 NSWindow *w = event.window;
-                if (!w) {
-                    NSLog(@"[TITLEBAR] drag aborted: event.window is nil");
+                if (!w || !w.contentView || ![w isKeyWindow]) {
+                    NSLog(@"[TITLEBAR] drag aborted: window nil/invalid/not key");
                     _titleBarDragArmed = NO;
                     _titleBarMouseDown = nil;
                     return event;
@@ -91,6 +94,12 @@ static void setupWindowDrag(NSWindow *window) {
                     _titleBarDragArmed = NO;
                     NSEvent *dragEvent = _titleBarMouseDown;
                     _titleBarMouseDown = nil;
+                    // Unzoom before dragging — performWindowDragWithEvent crashes
+                    // with EXC_BAD_ACCESS on a zoomed/full-screen window.
+                    if ([w isZoomed]) {
+                        NSLog(@"[TITLEBAR] window is zoomed, unzooming first");
+                        [w zoom:nil];
+                    }
                     [w performWindowDragWithEvent:dragEvent];
                     NSLog(@"[TITLEBAR] performWindowDragWithEvent completed");
                 }

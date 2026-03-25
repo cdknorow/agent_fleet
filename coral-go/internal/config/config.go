@@ -16,6 +16,12 @@ var SkipLicense string
 // For example, "forDropbox" enables demo edition limits.
 var Edition string
 
+// PostHogKey is set at build time via ldflags for install tracking.
+var PostHogKey string
+
+// Version is set at build time via ldflags.
+var Version string
+
 // Config holds all server configuration values.
 type Config struct {
 	// Database

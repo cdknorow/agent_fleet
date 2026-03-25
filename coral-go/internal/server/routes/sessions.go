@@ -2158,9 +2158,35 @@ func (h *SessionsHandler) SaveFileContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 	realWorkdir, _ := filepath.EvalSymlinks(workdir)
-	realPath, _ := filepath.EvalSymlinks(fullPath)
-	if !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+
+	// For new files, EvalSymlinks fails because the path doesn't exist yet.
+	// Check the parent directory instead, which must already exist or will be created.
+	realPath, evalErr := filepath.EvalSymlinks(fullPath)
+	if evalErr != nil {
+		// File doesn't exist — resolve via parent dir + filename
+		parentDir := filepath.Dir(fullPath)
+		realParent, parentErr := filepath.EvalSymlinks(parentDir)
+		if parentErr != nil {
+			// Parent doesn't exist either — resolve via workdir prefix check on the absolute path
+			// This is safe because filepath.Abs already resolved ".." components
+			if !strings.HasPrefix(fullPath, realWorkdir+string(os.PathSeparator)) {
+				writeJSON(w, http.StatusOK, map[string]string{"error": "Path traversal not allowed"})
+				return
+			}
+		} else {
+			if !strings.HasPrefix(realParent, realWorkdir) {
+				writeJSON(w, http.StatusOK, map[string]string{"error": "Path traversal not allowed"})
+				return
+			}
+		}
+	} else if !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
 		writeJSON(w, http.StatusOK, map[string]string{"error": "Path traversal not allowed"})
+		return
+	}
+
+	// Create parent directories for new files
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
 		return
 	}
 
