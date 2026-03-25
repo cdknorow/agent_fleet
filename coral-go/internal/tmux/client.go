@@ -206,18 +206,10 @@ func (c *Client) SendKeys(ctx context.Context, agentName, command, agentType, se
 
 // SendKeysToTarget sends a command to a specific tmux target.
 func (c *Client) SendKeysToTarget(ctx context.Context, target, command string) error {
-	if strings.Contains(command, "\n") {
-		// Multi-line: wrap in bracket paste
-		if err := c.sendBracketPasted(ctx, target, command); err != nil {
-			return err
-		}
-	} else {
-		// Single-line: send as literal text.
-		// Note: send-keys -l does NOT trigger bracketed paste wrapping —
-		// tested on tmux 3.6a. The shell receives characters directly.
-		if _, err := c.run(ctx, "send-keys", "-t", target, "-l", command); err != nil {
-			return fmt.Errorf("send-keys failed: %w", err)
-		}
+	// Send as literal text — tmux send-keys -l handles both single and
+	// multi-line text without needing bracket paste wrapping.
+	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", command); err != nil {
+		return fmt.Errorf("send-keys failed: %w", err)
 	}
 
 	// Brief pause for tmux to deliver keystrokes
