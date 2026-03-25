@@ -99,17 +99,18 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 		}
 	}
 
-	// Check if port is available
+	// Bind the port now and keep the listener open to avoid a TOCTOU race
+	// (another process grabbing the port between check and serve).
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("port %d is already in use: %w", cfg.Port, err)
 	}
-	ln.Close()
 
 	// Open database
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
+		ln.Close()
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
@@ -120,9 +121,13 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 	srv := server.New(cfg, db, backend, terminal)
 	srv.RestoreSleepingBoards()
 
-	addr = fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	// Reconcile orphaned live sessions: if the app was killed without
+	// cleanly sleeping sessions, they remain in live_sessions with
+	// is_sleeping=0 but no actual process running. Detect these and
+	// mark them as sleeping so the user can wake them.
+	reconcileOrphanedSessions(ctx, db, agentRT)
+
 	httpServer := &http.Server{
-		Addr:         addr,
 		Handler:      srv.Router(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 0, // Disabled for WebSocket/SSE
@@ -132,14 +137,14 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 	// Start all background services
 	startBackgroundServices(ctx, db, cfg, srv, agentRT)
 
-	// Start HTTP server in background goroutine
+	// Start HTTP server in background goroutine using the already-bound listener
 	onErr := opts.OnServerError
 	if onErr == nil {
 		onErr = func(err error) { log.Printf("[FATAL] Server error: %v", err) }
 	}
 	go func() {
 		log.Printf("Coral dashboard: http://localhost:%d", cfg.Port)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			onErr(err)
 		}
 	}()
@@ -150,6 +155,49 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 		DB:         db,
 		Backend:    backend,
 	}, nil
+}
+
+// reconcileOrphanedSessions checks all non-sleeping live sessions against
+// the runtime to see if their processes are actually running. Any session
+// that exists in the DB but has no running process is marked as sleeping
+// so the user can wake it from the UI.
+func reconcileOrphanedSessions(ctx context.Context, db *store.DB, agentRT background.AgentRuntime) {
+	ss := store.NewSessionStore(db)
+
+	liveSessions, err := ss.GetAllLiveSessions(ctx)
+	if err != nil {
+		log.Printf("[startup] failed to read live sessions for reconciliation: %v", err)
+		return
+	}
+
+	// Ask the runtime which sessions are actually running
+	agents, err := agentRT.ListAgents(ctx)
+	if err != nil {
+		log.Printf("[startup] failed to list running agents for reconciliation: %v", err)
+		return
+	}
+	alive := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		alive[a.SessionID] = true
+	}
+
+	orphaned := 0
+	for _, ls := range liveSessions {
+		if ls.IsSleeping == 1 {
+			continue
+		}
+		if alive[ls.SessionID] {
+			continue
+		}
+		if err := ss.SetSessionSleeping(ctx, ls.SessionID, true); err != nil {
+			log.Printf("[startup] failed to mark orphaned session %s as sleeping: %v", ls.SessionID[:8], err)
+			continue
+		}
+		orphaned++
+	}
+	if orphaned > 0 {
+		log.Printf("[startup] Marked %d orphaned session(s) as sleeping", orphaned)
+	}
 }
 
 func selectBackend(backendType, logDir string) (ptymanager.TerminalBackend, background.AgentRuntime, ptymanager.SessionTerminal) {
@@ -265,5 +313,9 @@ func startBackgroundServices(ctx context.Context, db *store.DB, cfg *config.Conf
 	safeGo(ctx, "batch_summarizer", func() { batchSummarizer.Run(ctx) })
 	srv.SetSummarizeFn(summarizeFn)
 
-	log.Printf("Started 8 background services (git poller, indexer, idle detector, webhook dispatcher, scheduler, board notifier, remote board poller, batch summarizer)")
+	// Session reconciler — periodically detects crashed agents and marks them sleeping
+	reconciler := background.NewSessionReconciler(sessStore, agentRT, 30*time.Second)
+	safeGo(ctx, "session_reconciler", func() { reconciler.Run(ctx) })
+
+	log.Printf("Started 9 background services (git poller, indexer, idle detector, webhook dispatcher, scheduler, board notifier, remote board poller, batch summarizer, session reconciler)")
 }

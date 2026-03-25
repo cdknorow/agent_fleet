@@ -25,6 +25,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -169,6 +170,11 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	// Write PID
 	writePID(dataDir)
 	defer removePID(dataDir)
+
+	// Ignore SIGHUP — macOS sends it during sleep/wake transitions and when
+	// the controlling terminal closes. Without this, the default Go behavior
+	// kills the process.
+	signal.Ignore(syscall.SIGHUP)
 
 	// Setup signal handling
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -410,15 +416,22 @@ func readPID(dataDir string) int {
 }
 
 // coralAppProcess tracks the running coral-app subprocess.
-var coralAppProcess *os.Process
+// Protected by coralAppMu.
+var (
+	coralAppProcess *os.Process
+	coralAppMu      sync.Mutex
+)
 
 // killCoralApp sends SIGTERM, waits briefly, then SIGKILL if still alive.
 func killCoralApp() {
-	if coralAppProcess == nil {
-		return
-	}
+	coralAppMu.Lock()
 	p := coralAppProcess
 	coralAppProcess = nil
+	coralAppMu.Unlock()
+
+	if p == nil {
+		return
+	}
 	p.Signal(syscall.SIGTERM)
 	// Give WKWebView time to exit cleanly
 	time.Sleep(500 * time.Millisecond)
@@ -431,7 +444,7 @@ func killCoralApp() {
 
 // killOrphanedCoralApp finds and kills any stale coral-app processes from previous sessions.
 func killOrphanedCoralApp() {
-	out, err := exec.Command("pgrep", "-f", "coral-app").Output()
+	out, err := exec.Command("pgrep", "-x", "coral-app").Output()
 	if err != nil || len(out) == 0 {
 		return
 	}
@@ -450,6 +463,9 @@ func killOrphanedCoralApp() {
 // launchCoralApp launches coral-app or brings the existing one to front.
 // Returns an error if coral-app is not found or fails to start.
 func launchCoralApp(url string) error {
+	coralAppMu.Lock()
+	defer coralAppMu.Unlock()
+
 	// If already running, bring it to front
 	if coralAppProcess != nil {
 		// Check if still alive (signal 0 = no-op, just checks existence)
@@ -473,16 +489,34 @@ func launchCoralApp(url string) error {
 	}
 	coralAppProcess = cmd.Process
 
-	// Reap the process in background so we don't leak zombies
-	go cmd.Wait()
+	// Reap the process in background and clear the reference when it exits
+	go func() {
+		cmd.Wait()
+		coralAppMu.Lock()
+		if coralAppProcess == cmd.Process {
+			coralAppProcess = nil
+			log.Println("coral-app process exited")
+		}
+		coralAppMu.Unlock()
+	}()
 
 	return nil
 }
 
 // findCoralApp looks for the coral-app binary next to the executable, then in PATH.
+// On macOS, it resolves symlinks to handle App Translocation, where the OS
+// moves quarantined apps to a random /private/var/folders path at runtime.
 func findCoralApp() string {
 	exe, err := os.Executable()
 	if err == nil {
+		// Resolve symlinks to handle macOS App Translocation
+		resolved, resolveErr := filepath.EvalSymlinks(exe)
+		if resolveErr == nil {
+			if resolved != exe {
+				log.Printf("[WARN] App Translocation detected: exe=%s resolved=%s", exe, resolved)
+			}
+			exe = resolved
+		}
 		candidate := filepath.Join(filepath.Dir(exe), "coral-app")
 		if runtime.GOOS == "windows" {
 			candidate += ".exe"
@@ -498,6 +532,7 @@ func findCoralApp() string {
 }
 
 // raiseCoralApp brings the running coral-app window to the front.
+// Caller must hold coralAppMu.
 func raiseCoralApp() {
 	if coralAppProcess == nil {
 		return
@@ -515,10 +550,14 @@ func raiseCoralApp() {
 
 // isInsideAppBundle detects if the binary is running inside a macOS .app bundle
 // by checking if the executable path contains ".app/Contents/MacOS/".
+// Resolves symlinks to handle App Translocation.
 func isInsideAppBundle() bool {
 	exe, err := os.Executable()
 	if err != nil {
 		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
 	}
 	return strings.Contains(exe, ".app/Contents/MacOS/")
 }

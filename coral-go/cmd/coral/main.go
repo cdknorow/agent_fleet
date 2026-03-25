@@ -73,6 +73,11 @@ func main() {
 	cfg.Host = *host
 	cfg.Port = *port
 
+	// Ignore SIGHUP — macOS sends it during sleep/wake transitions and when
+	// the controlling terminal closes. Without this, the default Go behavior
+	// kills the process.
+	signal.Ignore(syscall.SIGHUP)
+
 	// Graceful shutdown on SIGINT/SIGTERM
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

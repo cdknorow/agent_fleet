@@ -32,7 +32,15 @@ import (
 
 var debugMode bool
 
+// webviewInstance holds the webview reference for signal-triggered shutdown.
+// Set after webview creation so the signal handler can call Terminate()
+// instead of os.Exit, allowing deferred cleanup (webview.Destroy) to run.
+var webviewInstance webview.WebView
+
 func main() {
+	// macOS requires Cocoa calls on the main thread
+	runtime.LockOSThread()
+
 	url := flag.String("url", "http://localhost:8420", "Coral server URL")
 	title := flag.String("title", "Coral", "Window title")
 	width := flag.Int("width", 1200, "Window width")
@@ -55,15 +63,24 @@ func main() {
 		}
 	}()
 
-	// Catch signals for clean shutdown logging
+	// Ignore SIGHUP — macOS sends it during sleep/wake transitions
+	signal.Ignore(syscall.SIGHUP)
+
+	// Catch SIGTERM/SIGINT for clean shutdown — terminate the webview event
+	// loop so deferred Destroy() runs, preventing leaked WKWebView processes.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGABRT)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		sig := <-sigCh
-		log.Printf("[FATAL] received signal: %v", sig)
-		log.Printf("[FATAL] goroutines: %d", runtime.NumGoroutine())
-		log.Printf("[FATAL] stack trace:\n%s", debug.Stack())
-		os.Exit(1)
+		log.Printf("[SHUTDOWN] received signal: %v", sig)
+		log.Printf("[SHUTDOWN] goroutines: %d", runtime.NumGoroutine())
+		if w := webviewInstance; w != nil {
+			log.Println("[SHUTDOWN] terminating webview event loop")
+			w.Terminate()
+		} else {
+			log.Println("[SHUTDOWN] no webview yet, exiting")
+			os.Exit(1)
+		}
 	}()
 
 	log.Printf("[STARTUP] coral-app starting pid=%d", os.Getpid())
@@ -93,6 +110,7 @@ func main() {
 	log.Printf("[WEBVIEW] creating webview (devtools=%v)", debugMode)
 	// In debug mode, enable DevTools (pass true to webview.New)
 	w := webview.New(debugMode)
+	webviewInstance = w
 	log.Println("[WEBVIEW] webview created successfully")
 	defer func() {
 		log.Println("[WEBVIEW] destroying webview")
