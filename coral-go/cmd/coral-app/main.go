@@ -37,9 +37,15 @@ var debugMode bool
 // instead of os.Exit, allowing deferred cleanup (webview.Destroy) to run.
 var webviewInstance webview.WebView
 
-func main() {
-	// macOS requires Cocoa calls on the main thread
+// init locks the main goroutine to OS thread 0 before any scheduling.
+// This must happen in init(), not main(), because Go may reschedule the
+// main goroutine to a different OS thread before main() runs. macOS
+// Cocoa/WKWebView requires thread 0.
+func init() {
 	runtime.LockOSThread()
+}
+
+func main() {
 
 	url := flag.String("url", "http://localhost:8420", "Coral server URL")
 	title := flag.String("title", "Coral", "Window title")
