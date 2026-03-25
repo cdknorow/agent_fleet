@@ -138,19 +138,27 @@ window._handleTeamFolderImport = async function(input) {
     let orchestrator = null;
     const agents = [];
 
+    let folderName = '';
     for (const file of files) {
         if (!file.name.endsWith('.md')) continue;
         const path = file.webkitRelativePath || file.name;
         const text = await file.text();
         const { meta, body } = parseFrontmatter(text);
 
-        if (path.match(/SKILL\.md$/i)) {
-            orchestrator = { name: meta.name || 'Orchestrator', prompt: body };
-        } else if (path.match(/agents\//i)) {
+        // Extract top-level folder name for team board name
+        if (!folderName && path.includes('/')) {
+            folderName = path.split('/')[0];
+        }
+
+        if (file.name.match(/^SKILL\.md$/i)) {
+            orchestrator = { name: 'Orchestrator', description: meta.description || '', prompt: body };
+        } else if (path.match(/\/agents\//i) || file.name !== 'SKILL.md') {
             const name = meta.name || file.name.replace(/\.md$/, '').replace(/-/g, ' ');
             agents.push({ name, prompt: body });
         }
     }
+
+    console.log('[coral] Import parsed:', { orchestrator, agents: agents.map(a => a.name), folderName });
 
     if (!orchestrator && agents.length === 0) {
         const { showToast } = await import('./utils.js');
@@ -158,16 +166,35 @@ window._handleTeamFolderImport = async function(input) {
         return;
     }
 
+    // Set team board name from folder name if empty
+    const boardNameInput = document.getElementById('team-board-name');
+    if (boardNameInput && !boardNameInput.value.trim() && folderName) {
+        boardNameInput.value = folderName.replace(/-/g, ' ');
+        if (window._validateTeamName) window._validateTeamName();
+    }
+
     // Clear existing agents and populate
     const list = document.getElementById('team-agents-list');
     if (list) list.innerHTML = '';
 
+    // Fetch default prompts from settings for orchestrator/worker board instructions
+    let defaults = {};
+    try {
+        const res = await fetch('/api/settings/default-prompts');
+        defaults = await res.json();
+    } catch { /* use empty defaults */ }
+    const orchSuffix = (defaults.default_prompt_orchestrator || 'Coordinate with the team via the message board.').replace('{board_name}', folderName || 'team');
+    const workerSuffix = (defaults.default_prompt_worker || 'Coordinate with the team via the message board.').replace('{board_name}', folderName || 'team');
+
     if (orchestrator) {
-        const prompt = orchestrator.prompt + '\n\nCoordinate with the team via the message board.';
+        // Strip the name/title heading from the prompt body
+        let body = orchestrator.prompt.replace(/^#\s+.*\n*/m, '').trim();
+        const prompt = `You are the Orchestrator. For this session here is the skill you will use:\n\n${body}\n\n${orchSuffix}`;
         if (window._addTeamAgent) window._addTeamAgent(orchestrator.name, prompt);
     }
     for (const agent of agents) {
-        const prompt = agent.prompt + '\n\nCoordinate with the team via the message board.';
+        let body = agent.prompt.replace(/^#\s+.*\n*/m, '').trim();
+        const prompt = `For this session here is the skill you will use:\n\n${body}\n\n${workerSuffix}`;
         if (window._addTeamAgent) window._addTeamAgent(agent.name, prompt);
     }
 

@@ -1241,6 +1241,7 @@ function _truncatePrompt(text, maxLen) {
 }
 
 function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities) {
+    console.log('[coral] _addTeamAgent internal:', { defaultName, promptLen: (defaultPrompt||'').length });
     _teamAgentCounter++;
     const idx = _teamAgentCounter;
     const list = document.getElementById("team-agents-list");
@@ -1431,8 +1432,9 @@ function _addPresetAgent(name) {
     if (picker) picker.style.display = "none";
 }
 window._addPresetAgent = _addPresetAgent;
-window._addTeamAgent = () => {
-    _addTeamAgent("", "");
+window._addTeamAgent = (name, prompt) => {
+    console.log('[coral] window._addTeamAgent called with:', { name, promptLen: (prompt||'').length });
+    _addTeamAgent(name || "", prompt || "");
     const picker = document.getElementById("team-agent-picker");
     if (picker) picker.style.display = "none";
 };
