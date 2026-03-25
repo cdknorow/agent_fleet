@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -331,4 +332,138 @@ func TestWSTerminal_RejectsMissingPane(t *testing.T) {
 	// If accepted, it should close quickly with an error status
 	_, _, err = conn.Read(ctx)
 	assert.Error(t, err, "should close when pane not found")
+}
+
+// ── WebSocket Origin Validation Tests ────────────────────────────────
+
+// TestWSAcceptOptions_LocalhostPatterns verifies that wsAcceptOptions always
+// includes localhost variants so local browser connections are accepted.
+func TestWSAcceptOptions_LocalhostPatterns(t *testing.T) {
+	_, handler := setupTestServer(t)
+
+	r := &http.Request{
+		Host:   "localhost:8450",
+		Header: http.Header{},
+	}
+
+	opts := handler.wsAcceptOptions(r)
+	require.NotNil(t, opts)
+
+	patterns := opts.OriginPatterns
+	assert.Contains(t, patterns, "localhost")
+	assert.Contains(t, patterns, "localhost:*")
+	assert.Contains(t, patterns, "127.0.0.1")
+	assert.Contains(t, patterns, "127.0.0.1:*")
+	assert.Contains(t, patterns, "[::1]")
+	assert.Contains(t, patterns, "[::1]:*")
+}
+
+// TestWSAcceptOptions_RemoteHostIncluded verifies that when accessed via
+// a remote IP/hostname, that host is added to the allowed origin patterns.
+func TestWSAcceptOptions_RemoteHostIncluded(t *testing.T) {
+	_, handler := setupTestServer(t)
+
+	r := &http.Request{
+		Host:   "192.168.1.5:8450",
+		Header: http.Header{},
+	}
+
+	opts := handler.wsAcceptOptions(r)
+	require.NotNil(t, opts)
+
+	// The request host should be added to patterns for same-origin remote access
+	assert.Contains(t, opts.OriginPatterns, "192.168.1.5:8450",
+		"remote request host should be in allowed origin patterns")
+}
+
+// TestWSAcceptOptions_EvilOriginNotInPatterns verifies that arbitrary external
+// origins are NOT included in the allowed patterns.
+func TestWSAcceptOptions_EvilOriginNotInPatterns(t *testing.T) {
+	_, handler := setupTestServer(t)
+
+	r := &http.Request{
+		Host:   "192.168.1.5:8450",
+		Header: http.Header{"Origin": {"http://evil.com"}},
+	}
+
+	opts := handler.wsAcceptOptions(r)
+	require.NotNil(t, opts)
+
+	// evil.com should NOT be in the patterns
+	for _, p := range opts.OriginPatterns {
+		assert.NotContains(t, p, "evil.com",
+			"evil.com should never appear in allowed origin patterns")
+	}
+}
+
+// TestWSAcceptOptions_DifferentIPNotInPatterns verifies that a different
+// IP address (not matching the request Host) is not in allowed patterns.
+func TestWSAcceptOptions_DifferentIPNotInPatterns(t *testing.T) {
+	_, handler := setupTestServer(t)
+
+	r := &http.Request{
+		Host:   "192.168.1.5:8450",
+		Header: http.Header{},
+	}
+
+	opts := handler.wsAcceptOptions(r)
+	require.NotNil(t, opts)
+
+	// A different IP should NOT be in patterns
+	for _, p := range opts.OriginPatterns {
+		assert.NotContains(t, p, "192.168.1.99",
+			"different IP should not be in allowed origin patterns")
+	}
+}
+
+// TestWSCoral_RejectsCrossOrigin verifies that a WebSocket connection from
+// a cross-origin (evil.com) is rejected by the server.
+func TestWSCoral_RejectsCrossOrigin(t *testing.T) {
+	server, _ := setupTestServer(t)
+
+	wsURL := "ws" + server.URL[4:] + "/ws/coral"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Try to connect with a cross-origin header
+	opts := &websocket.DialOptions{
+		HTTPHeader: http.Header{
+			"Origin": {"http://evil.com"},
+		},
+	}
+
+	conn, _, err := websocket.Dial(ctx, wsURL, opts)
+	if err != nil {
+		// Expected: connection rejected due to origin check
+		t.Log("Cross-origin WebSocket correctly rejected:", err)
+		return
+	}
+	defer conn.CloseNow()
+	t.Error("expected cross-origin WebSocket connection to be rejected")
+}
+
+// TestWSCoral_AcceptsLocalhostOrigin verifies that a WebSocket connection
+// from localhost origin is accepted.
+func TestWSCoral_AcceptsLocalhostOrigin(t *testing.T) {
+	server, _ := setupTestServer(t)
+
+	wsURL := "ws" + server.URL[4:] + "/ws/coral"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// httptest.NewServer binds to 127.0.0.1, so same-origin should work
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	require.NoError(t, err, "localhost origin WebSocket should be accepted")
+	defer conn.CloseNow()
+
+	// Should receive initial coral_update
+	var msg map[string]json.RawMessage
+	err = wsjson.Read(ctx, conn, &msg)
+	require.NoError(t, err)
+
+	var msgType string
+	json.Unmarshal(msg["type"], &msgType)
+	assert.Equal(t, "coral_update", msgType)
+
+	conn.Close(websocket.StatusNormalClosure, "done")
 }

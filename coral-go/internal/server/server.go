@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
@@ -180,13 +181,22 @@ func (s *Server) buildRouter() chi.Router {
 	// 127.0.0.1 and bypass auth.IsLocalhost(). Coral is a desktop app with no
 	// reverse proxy, so RealIP is not needed.
 
-	// CORS: only allow localhost origins, matching the Python reference.
-	// Even when bound to 0.0.0.0, we must not allow arbitrary origins
-	// with credentials — that would let any website make authenticated
-	// requests to a user's Coral instance.
+	// CORS: allow localhost origins and same-origin requests (where the
+	// Origin host matches the request Host). This lets remote users who
+	// access the server directly by IP/hostname work correctly, while
+	// still blocking cross-site requests from unrelated origins.
 	r.Use(cors.Handler(cors.Options{
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			return isLocalhostOrigin(origin)
+			if isLocalhostOrigin(origin) {
+				return true
+			}
+			// Allow same-origin: the browser's Origin should match the Host
+			// the user navigated to. This covers remote access via IP/hostname.
+			parsed, err := url.Parse(origin)
+			if err == nil && parsed.Host == r.Host {
+				return true
+			}
+			return false
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},

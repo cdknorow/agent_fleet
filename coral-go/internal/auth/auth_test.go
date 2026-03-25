@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -357,12 +358,23 @@ func TestSetSessionCookie_Attributes(t *testing.T) {
 	assert.Equal(t, int(sessionMaxAge.Seconds()), c.MaxAge)
 }
 
-func TestSetSessionCookie_SecureOnRemote(t *testing.T) {
+func TestSetSessionCookie_SecureOnTLS(t *testing.T) {
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "https://192.168.1.100/", nil)
+	r.TLS = &tls.ConnectionState{} // simulate TLS
 	r.RemoteAddr = "192.168.1.100:12345"
 	SetSessionCookie(w, r, "test-token-456")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
-	assert.True(t, cookies[0].Secure, "non-localhost requests should set Secure")
+	assert.True(t, cookies[0].Secure, "TLS requests should set Secure")
+}
+
+func TestSetSessionCookie_NotSecureOnPlainHTTP(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "http://192.168.1.100/", nil)
+	r.RemoteAddr = "192.168.1.100:12345"
+	SetSessionCookie(w, r, "test-token-789")
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.False(t, cookies[0].Secure, "plain HTTP requests should not set Secure")
 }

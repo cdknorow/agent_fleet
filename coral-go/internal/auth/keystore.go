@@ -203,7 +203,7 @@ func ExtractSessionCookie(r *http.Request) string {
 // a non-localhost remote address (implying a reverse proxy / HTTPS
 // frontend), so the cookie won't leak over plain HTTP.
 func SetSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
-	secure := r.TLS != nil || !IsLocalhost(r)
+	secure := r.TLS != nil
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,

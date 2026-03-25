@@ -19,22 +19,29 @@ import (
 	"github.com/cdknorow/coral/internal/board"
 )
 
-// wsAcceptOptions returns WebSocket accept options with origin validation
-// matching the CORS middleware policy. The nhooyr.io/websocket library
-// automatically allows same-origin requests (where Origin host matches the
-// request Host). OriginPatterns adds cross-origin exceptions for localhost
-// variants so that, e.g., a page served on http://localhost:8420 can open
-// a WebSocket to a server bound on 0.0.0.0:8420.
-func (h *SessionsHandler) wsAcceptOptions() *websocket.AcceptOptions {
+// wsAcceptOptions returns WebSocket accept options with origin validation.
+// The nhooyr.io/websocket library automatically allows same-origin requests
+// (where Origin host matches the request Host). OriginPatterns adds
+// cross-origin exceptions for localhost variants and the actual request host
+// so that remote access (where the browser's Origin may differ from the
+// bound address) works correctly.
+func (h *SessionsHandler) wsAcceptOptions(r *http.Request) *websocket.AcceptOptions {
+	patterns := []string{
+		"localhost",
+		"localhost:*",
+		"127.0.0.1",
+		"127.0.0.1:*",
+		"[::1]",
+		"[::1]:*",
+	}
+	// When bound to 0.0.0.0, the request Host (e.g. 192.168.1.5:8450)
+	// won't match the library's same-origin check. Add the request host
+	// as an allowed origin so remote access works.
+	if host := r.Host; host != "" {
+		patterns = append(patterns, host)
+	}
 	return &websocket.AcceptOptions{
-		OriginPatterns: []string{
-			"localhost",
-			"localhost:*",
-			"127.0.0.1",
-			"127.0.0.1:*",
-			"[::1]",
-			"[::1]:*",
-		},
+		OriginPatterns: patterns,
 	}
 }
 
@@ -50,7 +57,7 @@ func (h *SessionsHandler) WSCoral(w http.ResponseWriter, r *http.Request) {
 	if debugEnabled() {
 		slog.Info("[debug] ws/coral connection from", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"))
 	}
-	conn, err := websocket.Accept(w, r, h.wsAcceptOptions())
+	conn, err := websocket.Accept(w, r, h.wsAcceptOptions(r))
 	if err != nil {
 		slog.Debug("ws/coral accept failed", "error", err)
 		return
@@ -336,7 +343,7 @@ func (h *SessionsHandler) WSTerminal(w http.ResponseWriter, r *http.Request) {
 		slog.Info("[debug] ws/terminal connect", "name", name, "agent_type", agentType, "session_id", sessionID, "remote", r.RemoteAddr)
 	}
 
-	conn, err := websocket.Accept(w, r, h.wsAcceptOptions())
+	conn, err := websocket.Accept(w, r, h.wsAcceptOptions(r))
 	if err != nil {
 		slog.Debug("ws/terminal accept failed", "error", err)
 		return
@@ -556,6 +563,16 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	if logPath != "" {
 		if info, err := os.Stat(logPath); err == nil {
 			lastMtime = info.ModTime()
+		} else if os.IsNotExist(err) {
+			// Log file missing (deleted or server restarted). Recreate it
+			// and restart pipe-pane so the polling loop has a file to watch.
+			if err := os.WriteFile(logPath, []byte{}, 0644); err == nil {
+				h.terminal.StopLogging(ctx, target)
+				h.terminal.StartLogging(ctx, target, logPath)
+				if debugEnabled() {
+					slog.Info("[debug] ws/terminal repaired missing log file", "path", logPath, "target", target)
+				}
+			}
 		}
 	}
 
