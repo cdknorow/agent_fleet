@@ -625,16 +625,22 @@ const activationPage = `<!DOCTYPE html>
 </html>`
 
 func isLocalhostOrigin(origin string) bool {
-	// Match http(s)://localhost:PORT or http(s)://127.0.0.1:PORT
-	if len(origin) < 16 {
-		return false
-	}
+	// Match http(s)://localhost or http(s)://127.0.0.1, optionally followed
+	// by a port (:1234) or path (/...). Rejects tricky subdomains like
+	// localhost.evil.com by requiring the character after the hostname to be
+	// ':', '/', or end-of-string.
 	for _, prefix := range []string{
 		"http://localhost", "https://localhost",
 		"http://127.0.0.1", "https://127.0.0.1",
 	} {
 		if len(origin) >= len(prefix) && origin[:len(prefix)] == prefix {
-			return true
+			if len(origin) == len(prefix) {
+				return true
+			}
+			next := origin[len(prefix)]
+			if next == ':' || next == '/' {
+				return true
+			}
 		}
 	}
 	return false

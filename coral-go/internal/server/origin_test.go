@@ -31,13 +31,10 @@ func TestIsLocalhostOrigin(t *testing.T) {
 		{"http://192.168.1.99:8450", false},
 		{"http://10.0.0.1:8450", false},
 
-		// Blocked: tricky variations
-		{"http://localhost.evil.com", true}, // prefix match — see note below
-		{"http://127.0.0.1.evil.com", true}, // prefix match — see note below
-		// NOTE: isLocalhostOrigin uses prefix matching, so "localhost.evil.com"
-		// would match. This is a known limitation but is mitigated by the
-		// browser not sending such Origins for legitimate localhost requests.
-		// The CORS same-origin check is the primary defense for non-localhost.
+		// Blocked: tricky subdomain variations
+		{"http://localhost.evil.com", false},
+		{"http://127.0.0.1.evil.com", false},
+		{"http://localhostevil.com", false},
 
 		// Edge cases
 		{"", false},
