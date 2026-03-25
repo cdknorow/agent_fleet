@@ -27,6 +27,7 @@ export function initSidebarResize() {
         if (!dragging) return;
         const newWidth = Math.min(Math.max(e.clientX, 200), window.innerWidth * 0.5);
         sidebar.style.width = newWidth + "px";
+        fitTerminal();
     });
 
     document.addEventListener("mouseup", () => {
@@ -73,6 +74,7 @@ export function initTaskBarResize() {
         const newWidth = rect.right - e.clientX;
         const clamped = Math.min(Math.max(newWidth, 280), window.innerWidth * 0.5);
         taskBar.style.width = clamped + "px";
+        fitTerminal();
     });
 
     document.addEventListener("mouseup", () => {
@@ -118,6 +120,7 @@ export function initCommandPaneResize() {
         const newHeight = rect.bottom - e.clientY;
         const clamped = Math.min(Math.max(newHeight, 80), rect.height * 0.6);
         pane.style.height = clamped + "px";
+        fitTerminal();
     });
 
     document.addEventListener("mouseup", () => {

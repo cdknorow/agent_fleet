@@ -147,6 +147,9 @@ export async function selectLiveSession(name, agentType, sessionId) {
         const tmuxName = agentData ? (agentData.tmux_session || name) : name;
         dbg('terminal WS using tmux_session:', tmuxName, '(agent name:', name, ')');
         connectTerminalWs(tmuxName, agentType, sessionId);
+        // Fit terminal after session switch — the container may already be
+        // visible at the right size so ResizeObserver won't fire.
+        setTimeout(fitTerminal, 50);
     } else {
         dbg('switching to capture mode, disposing terminal');
         document.getElementById("xterm-container").style.display = "none";

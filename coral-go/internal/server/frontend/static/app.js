@@ -719,7 +719,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     // Re-sync after sidebar/task-bar drag ends (the panels change available width)
     document.addEventListener("mouseup", () => {
-        setTimeout(syncPaneWidth, 50);
+        setTimeout(() => { fitTerminal(); syncPaneWidth(); }, 50);
     });
 
     // Restore session from URL hash
