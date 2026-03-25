@@ -19,6 +19,10 @@ coral-go/coral-hook-task-sync
 coral-go/cmd/db-compare/db-compare
 *.exe
 
+# Frontend bundle backup (created during build, restored after)
+coral-go/internal/server/frontend/static/_src/
+coral-go/internal/server/frontend/static/app.js.map
+
 # Large video files (use GitHub Releases for distribution)
 icons/history.mp4
 icons/main_loop.mp4

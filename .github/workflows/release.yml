@@ -209,6 +209,11 @@ jobs:
             echo "Warning: no .icns found, app will have no icon"
           fi
 
+      - name: Bundle frontend JS/CSS
+        run: |
+          brew install esbuild
+          bash scripts/bundle-frontend.sh
+
       - name: Create Coral.app bundle
         run: |
           VERSION="${GITHUB_REF_NAME#v}"

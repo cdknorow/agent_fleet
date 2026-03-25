@@ -32,6 +32,11 @@ fi
 rm -rf "$APP_DIR" "$DIST_DIR/coral-arm64" "$DIST_DIR/coral-amd64"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$DIST_DIR"
 
+# Bundle frontend JS/CSS (minify + combine) before Go embed picks them up
+if [ -f "$PROJECT_DIR/scripts/bundle-frontend.sh" ]; then
+    bash "$PROJECT_DIR/scripts/bundle-frontend.sh"
+fi
+
 cd "$GO_DIR"
 
 # Build arm64
@@ -142,6 +147,11 @@ if [ "${SMOKE_TEST:-}" = "1" ]; then
     if [ -f "$SCRIPT_DIR_TEST/test-macos-app.sh" ]; then
         bash "$SCRIPT_DIR_TEST/test-macos-app.sh" "$APP_DIR"
     fi
+fi
+
+# Restore original JS sources (so working tree stays clean for development)
+if [ -f "$PROJECT_DIR/scripts/bundle-frontend.sh" ]; then
+    bash "$PROJECT_DIR/scripts/bundle-frontend.sh" --restore
 fi
 
 echo ""

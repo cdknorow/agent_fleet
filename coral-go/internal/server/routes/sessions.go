@@ -2177,7 +2177,9 @@ func (h *SessionsHandler) SaveFileContent(w http.ResponseWriter, r *http.Request
 				return
 			}
 		} else {
-			if !strings.HasPrefix(realParent, realWorkdir) {
+			// Append separator to both sides to prevent prefix collisions
+			// (e.g. /home/user/project vs /home/user/project-evil)
+			if !strings.HasPrefix(realParent+string(os.PathSeparator), realWorkdir+string(os.PathSeparator)) {
 				writeJSON(w, http.StatusOK, map[string]string{"error": "Path traversal not allowed"})
 				return
 			}
