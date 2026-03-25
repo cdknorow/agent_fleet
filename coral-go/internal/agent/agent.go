@@ -25,6 +25,7 @@ func GetCLIName(boardType string) string {
 // LaunchParams holds all parameters for building a launch command.
 type LaunchParams struct {
 	SessionID       string
+	SessionName     string // tmux session name (e.g. "claude-<uuid>"), used for CORAL_SESSION_NAME
 	ProtocolPath    string
 	ResumeSessionID string
 	Flags           []string

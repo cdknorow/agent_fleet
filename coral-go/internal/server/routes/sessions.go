@@ -1196,6 +1196,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 
 	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
+		SessionName:     newSessionName,
 		ProtocolPath:    h.protocolPath(),
 		Flags:           allFlags,
 		WorkingDir:      pane.CurrentPath,
@@ -1306,6 +1307,7 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 
 	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
+		SessionName:     newSessionName,
 		ProtocolPath:    h.protocolPath(),
 		ResumeSessionID: body.SessionID,
 		WorkingDir:      pane.CurrentPath,
@@ -1905,6 +1907,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 
 	launchParams := agent.LaunchParams{
 		SessionID:       sessionID,
+		SessionName:     sessionName,
 		ProtocolPath:    h.protocolPath(),
 		ResumeSessionID: resumeSessionID,
 		Flags:           flags,
@@ -2457,6 +2460,7 @@ func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.Liv
 
 	launchParams := agent.LaunchParams{
 		SessionID:       ls.SessionID,
+		SessionName:     sessionName,
 		ProtocolPath:    h.protocolPath(),
 		ResumeSessionID: ls.SessionID,
 		Flags:           flags,

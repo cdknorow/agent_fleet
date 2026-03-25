@@ -49,6 +49,10 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 		parts = append(parts, fmt.Sprintf(`GEMINI_SYSTEM_MD="%s"`, sysFile))
 	}
 
+	if params.SessionName != "" {
+		parts = append(parts, fmt.Sprintf(`CORAL_SESSION_NAME="%s"`, params.SessionName))
+	}
+
 	parts = append(parts, bin)
 
 	if len(params.Flags) > 0 {

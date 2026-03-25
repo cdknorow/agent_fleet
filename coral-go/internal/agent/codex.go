@@ -30,6 +30,10 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 	}
 	var parts []string
 
+	if params.SessionName != "" {
+		parts = append(parts, fmt.Sprintf(`CORAL_SESSION_NAME="%s"`, params.SessionName))
+	}
+
 	if params.ResumeSessionID != "" {
 		parts = append(parts, bin, "resume", "--session", params.ResumeSessionID)
 	} else {

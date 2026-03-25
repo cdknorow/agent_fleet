@@ -70,6 +70,20 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 		merged["permissions"] = permMap
 	}
 
+	// Set CORAL_SESSION_NAME in env so coral-board and hooks can identify this agent.
+	// This is the authoritative source — tmux display-message is unreliable when
+	// multiple sessions share the same tmux socket.
+	{
+		envMap, _ := merged["env"].(map[string]interface{})
+		if envMap == nil {
+			envMap = make(map[string]interface{})
+		}
+		if params.SessionName != "" {
+			envMap["CORAL_SESSION_NAME"] = params.SessionName
+		}
+		merged["env"] = envMap
+	}
+
 	// If running inside a .app bundle, add the MacOS dir to PATH in env settings
 	// so that coral hooks (coral-hook-task-sync, etc.) can be found.
 	if macosDir := appBundleMacOSDir(); macosDir != "" {
