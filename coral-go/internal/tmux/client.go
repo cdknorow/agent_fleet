@@ -428,30 +428,6 @@ func (c *Client) ClearHistory(ctx context.Context, target string) error {
 	return err
 }
 
-// Bracket paste mode escape sequences
-var (
-	bracketPasteStart = []string{"-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "30", "-H", "7e"}
-	bracketPasteEnd   = []string{"-H", "1b", "-H", "5b", "-H", "32", "-H", "30", "-H", "31", "-H", "7e"}
-)
-
-
-func (c *Client) sendBracketPasted(ctx context.Context, target, text string) error {
-	args := append([]string{"send-keys", "-t", target}, bracketPasteStart...)
-	if _, err := c.run(ctx, args...); err != nil {
-		return fmt.Errorf("bracket paste start failed: %w", err)
-	}
-
-	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", text); err != nil {
-		return fmt.Errorf("send-keys failed: %w", err)
-	}
-
-	args = append([]string{"send-keys", "-t", target}, bracketPasteEnd...)
-	if _, err := c.run(ctx, args...); err != nil {
-		return fmt.Errorf("bracket paste end failed: %w", err)
-	}
-
-	return nil
-}
 
 // SendTerminalInputToTarget sends raw terminal input data to a resolved tmux target.
 // Handles control characters, escape sequences, and multi-line text.
@@ -489,9 +465,9 @@ func (c *Client) SendTerminalInputToTarget(ctx context.Context, target, data str
 		return err
 	}
 
-	// Multi-line text: wrap in bracket paste
+	// Multi-line text: use tmux paste-buffer -p (bracket paste aware)
 	if strings.ContainsAny(data, "\n\r") {
-		return c.sendBracketPasted(ctx, target, data)
+		return c.pasteToTarget(ctx, target, data)
 	}
 
 	// Single-line literal text
