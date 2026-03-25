@@ -23,13 +23,16 @@ static NSWindow *findAppWindow() {
             if ([w isVisible]) { window = w; break; }
         }
     }
+    NSLog(@"[TITLEBAR] findAppWindow: %@", window ? @"found" : @"nil");
     return window;
 }
 
 static void setupWindowDrag(NSWindow *window) {
+    NSLog(@"[TITLEBAR] setupWindowDrag: configuring window %@", window);
     window.titlebarAppearsTransparent = YES;
     window.titleVisibility = NSWindowTitleHidden;
     window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    NSLog(@"[TITLEBAR] window style configured (transparent titlebar, full-size content)");
 
     // Height of the app's top bar that should be draggable.
     CGFloat dragZoneHeight = 42;
@@ -44,10 +47,10 @@ static void setupWindowDrag(NSWindow *window) {
             CGFloat windowHeight = w.contentView.frame.size.height;
             if (loc.y > windowHeight - dragZoneHeight) {
                 if (event.clickCount == 2) {
-                    // Double-click: respect System Preferences "Double-click
-                    // a window's title bar to" setting (zoom or minimize).
+                    NSLog(@"[TITLEBAR] double-click detected at y=%.0f (zone=%.0f-%.0f)", loc.y, windowHeight - dragZoneHeight, windowHeight);
                     NSString *action = [[NSUserDefaults standardUserDefaults]
                         stringForKey:@"AppleActionOnDoubleClick"];
+                    NSLog(@"[TITLEBAR] AppleActionOnDoubleClick=%@", action ?: @"(nil/zoom)");
                     if ([action isEqualToString:@"Minimize"]) {
                         [w miniaturize:nil];
                     } else {
@@ -61,6 +64,7 @@ static void setupWindowDrag(NSWindow *window) {
                 _titleBarDragArmed = YES;
             }
         } @catch (NSException *e) {
+            NSLog(@"[TITLEBAR] EXCEPTION in mouseDown: %@ — %@", e.name, e.reason);
             _titleBarDragArmed = NO;
             _titleBarMouseDown = nil;
         }
@@ -73,6 +77,7 @@ static void setupWindowDrag(NSWindow *window) {
             if (_titleBarDragArmed && _titleBarMouseDown) {
                 NSWindow *w = event.window;
                 if (!w) {
+                    NSLog(@"[TITLEBAR] drag aborted: event.window is nil");
                     _titleBarDragArmed = NO;
                     _titleBarMouseDown = nil;
                     return event;
@@ -82,13 +87,16 @@ static void setupWindowDrag(NSWindow *window) {
                 CGFloat dx = cur.x - start.x;
                 CGFloat dy = cur.y - start.y;
                 if (dx * dx + dy * dy > 9) {
+                    NSLog(@"[TITLEBAR] initiating window drag (dx=%.1f dy=%.1f)", dx, dy);
                     _titleBarDragArmed = NO;
                     NSEvent *dragEvent = _titleBarMouseDown;
                     _titleBarMouseDown = nil;
                     [w performWindowDragWithEvent:dragEvent];
+                    NSLog(@"[TITLEBAR] performWindowDragWithEvent completed");
                 }
             }
         } @catch (NSException *e) {
+            NSLog(@"[TITLEBAR] EXCEPTION in mouseDragged: %@ — %@", e.name, e.reason);
             _titleBarDragArmed = NO;
             _titleBarMouseDown = nil;
         }
@@ -101,19 +109,28 @@ static void setupWindowDrag(NSWindow *window) {
         _titleBarMouseDown = nil;
         return event;
     }];
+
+    NSLog(@"[TITLEBAR] all event monitors installed");
 }
 
 void configureTitlebar() {
+    NSLog(@"[TITLEBAR] configureTitlebar called");
     dispatch_async(dispatch_get_main_queue(), ^{
         NSWindow *window = findAppWindow();
         if (window) {
+            NSLog(@"[TITLEBAR] window found on first attempt");
             setupWindowDrag(window);
         } else {
-            // Retry once if window isn't ready yet.
+            NSLog(@"[TITLEBAR] window not found, retrying in 500ms");
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC),
                            dispatch_get_main_queue(), ^{
                 NSWindow *w = findAppWindow();
-                if (w) setupWindowDrag(w);
+                if (w) {
+                    NSLog(@"[TITLEBAR] window found on retry");
+                    setupWindowDrag(w);
+                } else {
+                    NSLog(@"[TITLEBAR] ERROR: window still nil after retry — titlebar drag disabled");
+                }
             });
         }
     });

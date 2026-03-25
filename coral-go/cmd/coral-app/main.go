@@ -20,7 +20,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"syscall"
 	"time"
 
 	webview "github.com/webview/webview_go"
@@ -34,50 +38,80 @@ func main() {
 	width := flag.Int("width", 1200, "Window width")
 	height := flag.Int("height", 800, "Window height")
 	wait := flag.Bool("wait", false, "Wait for server to be ready before opening")
-	debug := flag.Bool("debug", false, "Enable debug logging to ~/.coral/app.log")
+	debugFlag := flag.Bool("debug", false, "Enable debug logging to ~/.coral/app.log")
 	flag.Parse()
 
-	debugMode = *debug || os.Getenv("CORAL_DEBUG") == "1"
+	debugMode = *debugFlag || os.Getenv("CORAL_DEBUG") == "1"
 
-	if debugMode {
-		setupDebugLogging()
-		log.Println("coral-app starting in debug mode")
-		log.Printf("  url=%s title=%s size=%dx%d wait=%v", *url, *title, *width, *height, *wait)
-	}
+	// Always log to file so we catch crashes — debug mode adds JS console redirect
+	setupDebugLogging()
+
+	// Global panic recovery — log the stack trace before crashing
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[FATAL] panic recovered: %v", r)
+			log.Printf("[FATAL] stack trace:\n%s", debug.Stack())
+			os.Exit(1)
+		}
+	}()
+
+	// Catch signals for clean shutdown logging
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGABRT)
+	go func() {
+		sig := <-sigCh
+		log.Printf("[FATAL] received signal: %v", sig)
+		log.Printf("[FATAL] goroutines: %d", runtime.NumGoroutine())
+		log.Printf("[FATAL] stack trace:\n%s", debug.Stack())
+		os.Exit(1)
+	}()
+
+	log.Printf("[STARTUP] coral-app starting pid=%d", os.Getpid())
+	log.Printf("[STARTUP] args=%v", os.Args)
+	log.Printf("[STARTUP] go=%s os=%s arch=%s goroutines=%d", runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumGoroutine())
+	log.Printf("[STARTUP] url=%s title=%s size=%dx%d wait=%v debug=%v", *url, *title, *width, *height, *wait, debugMode)
 
 	// Optionally wait for the server to be ready
 	if *wait {
-		if debugMode {
-			log.Printf("Waiting for server at %s...", *url)
-		}
+		log.Printf("[STARTUP] waiting for server at %s...", *url)
 		if !waitForServer(*url, 15*time.Second) {
+			log.Printf("[STARTUP] server not responding after 15s — exiting")
 			fmt.Fprintf(os.Stderr, "Server at %s is not responding. Is Coral running?\n", *url)
 			os.Exit(1)
 		}
-		if debugMode {
-			log.Println("Server is ready")
-		}
+		log.Println("[STARTUP] server is ready")
 	}
 
-	if debugMode {
-		log.Println("Creating webview (debug=true for DevTools)")
-	}
-
-	// Show in Dock before creating the webview window
+	log.Println("[WEBVIEW] calling showInDock()")
 	showInDock()
+	log.Println("[WEBVIEW] showInDock() dispatched")
 
+	log.Println("[WEBVIEW] installing Edit menu")
+	installEditMenu()
+	log.Println("[WEBVIEW] Edit menu dispatched")
+
+	log.Printf("[WEBVIEW] creating webview (devtools=%v)", debugMode)
 	// In debug mode, enable DevTools (pass true to webview.New)
 	w := webview.New(debugMode)
-	defer w.Destroy()
+	log.Println("[WEBVIEW] webview created successfully")
+	defer func() {
+		log.Println("[WEBVIEW] destroying webview")
+		w.Destroy()
+		log.Println("[WEBVIEW] webview destroyed")
+	}()
 
+	log.Printf("[WEBVIEW] setting title=%q size=%dx%d", *title, *width, *height)
 	w.SetTitle(*title)
 	w.SetSize(*width, *height, webview.HintNone)
 
 	// Configure native title bar (macOS: transparent, content extends into title bar)
+	log.Println("[WEBVIEW] setting up native titlebar")
 	setupNativeTitlebar()
+	log.Println("[WEBVIEW] titlebar setup complete")
 
 	// Inject native app flag so frontend can adjust styling (title bar padding, drag regions)
 	// Also intercept external links and open them in the system browser.
+	log.Println("[WEBVIEW] injecting native app JS (class flags, external link handler)")
 	w.Init(`window.__CORAL_APP__ = true; document.addEventListener('DOMContentLoaded', function() {
 		document.body.classList.add('native-app');
 		if (navigator.platform && navigator.platform.indexOf('Mac') !== -1) document.body.classList.add('native-macos');
@@ -97,6 +131,7 @@ func main() {
 	}, true);`)
 
 	// Bind JS console.log to Go logger in debug mode
+	log.Println("[WEBVIEW] setting up JS console redirect and WS monitoring")
 	if debugMode {
 		w.Bind("_coralLog", func(level, msg string) {
 			log.Printf("[JS %s] %s", level, msg)
@@ -150,17 +185,13 @@ func main() {
 		log.Printf("Navigating to %s", *url)
 	}
 
+	log.Printf("[WEBVIEW] navigating to %s", *url)
 	w.Navigate(*url)
 
-	if debugMode {
-		log.Println("Starting webview event loop")
-	}
-
+	log.Printf("[WEBVIEW] starting event loop (goroutines=%d)", runtime.NumGoroutine())
 	w.Run()
-
-	if debugMode {
-		log.Println("Webview closed")
-	}
+	log.Printf("[WEBVIEW] event loop exited (goroutines=%d)", runtime.NumGoroutine())
+	log.Println("[SHUTDOWN] coral-app exiting normally")
 }
 
 // setupDebugLogging redirects log output to ~/.coral/app.log.

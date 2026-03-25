@@ -38,6 +38,6 @@ void setupEditMenu() {
 */
 import "C"
 
-func init() {
+func installEditMenu() {
 	C.setupEditMenu()
 }

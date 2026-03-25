@@ -179,6 +179,10 @@ export function setBoardAccentColor(boardName) {
 let _boardChatTimer = null;
 let _boardChatLastId = {};
 let _activeBoardChat = null;
+let _boardChatMessages = [];
+let _boardChatTotal = 0;
+let _boardChatOffset = 0;
+const _BOARD_CHAT_PAGE = 50;
 
 export function showBoardChatTab(boardName) {
     _activeBoardChat = boardName;
@@ -220,6 +224,12 @@ export function showBoardChatTab(boardName) {
         const h = parseInt(savedH, 10);
         if (pane && h >= 80) pane.style.height = h + 'px';
     }
+
+    // Reset pagination state for new board
+    _boardChatMessages = [];
+    _boardChatTotal = 0;
+    _boardChatOffset = 0;
+    _boardChatLastId[boardName] = null;
 
     _loadBoardPanelChat(boardName);
     _checkBoardPauseState(boardName);
@@ -268,39 +278,94 @@ async function _loadBoardPanelChat(boardName) {
     const msgsEl = document.getElementById('board-panel-msgs');
     if (!msgsEl) return;
     try {
-        const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/messages/all?limit=30&format=dashboard`);
-        const data = await resp.json();
-        const messages = Array.isArray(data) ? data : (data.messages || []);
-        if (messages.length === 0) {
+        // First call: get total count and load latest page
+        const countResp = await fetch(`/api/board/${encodeURIComponent(boardName)}/messages/all?limit=1&offset=0&format=dashboard`);
+        const countData = await countResp.json();
+        const total = countData.total || (Array.isArray(countData) ? countData.length : 0);
+
+        if (total === 0) {
             msgsEl.innerHTML = '<div class="board-chat-empty">No messages yet</div>';
+            _boardChatMessages = [];
+            _boardChatTotal = 0;
             return;
         }
-        const lastId = messages[messages.length - 1]?.id;
-        const isInitialLoad = msgsEl.children.length === 0 || !_boardChatLastId[boardName];
-        if (lastId === _boardChatLastId[boardName] && msgsEl.children.length > 0) return;
-        _boardChatLastId[boardName] = lastId;
 
-        const wasAtBottom = isInitialLoad || msgsEl.scrollTop >= msgsEl.scrollHeight - msgsEl.clientHeight - 20;
-        msgsEl.innerHTML = messages.map((m, i) => {
-            const agent = m.job_title || m.sender_name || 'Unknown';
-            const color = _getBoardChatColor(agent);
-            const prevAgent = i > 0 ? (messages[i - 1].job_title || messages[i - 1].sender_name || 'Unknown') : null;
-            const sameAsPrev = agent === prevAgent;
-            const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
-            const isLeader = /orchestrator/i.test(agent) || m.session_id === 'dashboard';
-            const alignClass = isLeader ? ' board-msg-left' : ' board-msg-right';
-            const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
-            
-            return `<div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid rgba(${r},${g},${b},0.55); border-bottom:2px solid rgba(${r},${g},${b},0.3)">
-                <div class="mb-message-header">
-                    <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
-                    <span class="mb-message-time">${_formatTime(m.created_at)}</span>
-                </div>
-                <div class="mb-message-body">${_renderMd(m.content)}</div>
-            </div>`;
-        }).join('');
-        if (wasAtBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
+        // Check if new messages arrived
+        if (_boardChatTotal === total && _boardChatMessages.length > 0) return;
+
+        // Load the latest page
+        const startOffset = Math.max(0, total - _BOARD_CHAT_PAGE);
+        const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/messages/all?limit=${_BOARD_CHAT_PAGE}&offset=${startOffset}&format=dashboard`);
+        const data = await resp.json();
+        const messages = Array.isArray(data) ? data : (data.messages || []);
+
+        _boardChatMessages = messages;
+        _boardChatTotal = total;
+        _boardChatOffset = startOffset;
+
+        _renderBoardPanelMessages(msgsEl, true);
     } catch { /* ignore */ }
+}
+
+async function _loadEarlierBoardChat() {
+    if (!_activeBoardChat || _boardChatOffset <= 0) return;
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (!msgsEl) return;
+    try {
+        const newOffset = Math.max(0, _boardChatOffset - _BOARD_CHAT_PAGE);
+        const fetchCount = _boardChatOffset - newOffset;
+        const resp = await fetch(`/api/board/${encodeURIComponent(_activeBoardChat)}/messages/all?limit=${fetchCount}&offset=${newOffset}&format=dashboard`);
+        const data = await resp.json();
+        const messages = Array.isArray(data) ? data : (data.messages || []);
+
+        // Save scroll height to preserve position after prepending
+        const prevScrollHeight = msgsEl.scrollHeight;
+
+        _boardChatMessages = [...messages, ..._boardChatMessages];
+        _boardChatOffset = newOffset;
+
+        _renderBoardPanelMessages(msgsEl, false);
+
+        // Restore scroll position so user stays where they were
+        msgsEl.scrollTop = msgsEl.scrollHeight - prevScrollHeight;
+    } catch { /* ignore */ }
+}
+window._loadEarlierBoardChat = _loadEarlierBoardChat;
+
+function _renderBoardPanelMessages(msgsEl, scrollToBottom) {
+    const messages = _boardChatMessages;
+    const wasAtBottom = scrollToBottom || msgsEl.scrollTop >= msgsEl.scrollHeight - msgsEl.clientHeight - 20;
+
+    // "Load Earlier" button
+    let loadEarlierHtml = '';
+    if (_boardChatOffset > 0) {
+        const remaining = _boardChatOffset;
+        loadEarlierHtml = `<div style="text-align:center;padding:6px 0 8px">
+            <button class="btn btn-small" onclick="_loadEarlierBoardChat()" style="font-size:11px;color:var(--text-muted)">
+                ▲ Load ${Math.min(remaining, _BOARD_CHAT_PAGE)} earlier (${remaining} remaining)
+            </button>
+        </div>`;
+    }
+
+    msgsEl.innerHTML = loadEarlierHtml + messages.map((m, i) => {
+        const agent = m.job_title || m.sender_name || 'Unknown';
+        const color = _getBoardChatColor(agent);
+        const prevAgent = i > 0 ? (messages[i - 1].job_title || messages[i - 1].sender_name || 'Unknown') : null;
+        const sameAsPrev = agent === prevAgent;
+        const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
+        const isLeader = /orchestrator/i.test(agent) || m.session_id === 'dashboard';
+        const alignClass = isLeader ? ' board-msg-left' : ' board-msg-right';
+        const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
+
+        return `<div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid rgba(${r},${g},${b},0.55); border-bottom:2px solid rgba(${r},${g},${b},0.3)">
+            <div class="mb-message-header">
+                <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
+                <span class="mb-message-time">${_formatTime(m.created_at)}</span>
+            </div>
+            <div class="mb-message-body">${_renderMd(m.content)}</div>
+        </div>`;
+    }).join('');
+    if (wasAtBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
 }
 
 async function _sendBoardChat(boardName) {
