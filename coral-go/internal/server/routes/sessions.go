@@ -28,6 +28,7 @@ import (
 	"github.com/cdknorow/coral/internal/pulse"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
+	"github.com/cdknorow/coral/internal/tracking"
 )
 
 // SessionsHandler handles all live session API endpoints.
@@ -1422,6 +1423,7 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			body.AgentType, body.BoardName, body.DisplayName)
 	}
 
+	tracking.TrackEvent("session_launched", nil)
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -1500,6 +1502,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	tracking.TrackEvent("team_launched", map[string]string{"agent_count": fmt.Sprintf("%d", len(launched))})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "board": body.BoardName, "agents": launched})
 }
 
