@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -146,8 +147,19 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	logFile := filepath.Join(dataDir, "tray.log")
 	if lf, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		log.SetOutput(lf)
+		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	}
-	log.Println("coral-tray starting in foreground mode")
+
+	// Global panic recovery — log the full stack trace before exiting
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[FATAL] panic in coral-tray: %v\n%s", r, debug.Stack())
+			os.Exit(1)
+		}
+	}()
+
+	log.Printf("[STARTUP] coral-tray starting pid=%d go=%s os=%s arch=%s",
+		os.Getpid(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
 
 	if debugMode {
 		os.Setenv("CORAL_DEBUG", "1")
@@ -229,6 +241,11 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		mQuit := systray.AddMenuItem("Quit — Exit Coral", "Exit the tray app")
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[CRASH] systray event loop panicked: %v\n%s", r, debug.Stack())
+				}
+			}()
 			for {
 				select {
 				case <-mOpenApp.ClickedCh:
