@@ -205,11 +205,18 @@ func (c *Client) SendKeys(ctx context.Context, agentName, command, agentType, se
 }
 
 // SendKeysToTarget sends a command to a specific tmux target.
+// Multi-line text uses tmux paste-buffer -p which respects the pane's
+// bracketed paste mode — if the shell has it enabled, tmux wraps the
+// paste in \e[200~...\e[201~; otherwise it sends raw text.
 func (c *Client) SendKeysToTarget(ctx context.Context, target, command string) error {
-	// Send as literal text — tmux send-keys -l handles both single and
-	// multi-line text without needing bracket paste wrapping.
-	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", command); err != nil {
-		return fmt.Errorf("send-keys failed: %w", err)
+	if strings.Contains(command, "\n") {
+		if err := c.pasteToTarget(ctx, target, command); err != nil {
+			return err
+		}
+	} else {
+		if _, err := c.run(ctx, "send-keys", "-t", target, "-l", command); err != nil {
+			return fmt.Errorf("send-keys failed: %w", err)
+		}
 	}
 
 	// Brief pause for tmux to deliver keystrokes
@@ -218,6 +225,28 @@ func (c *Client) SendKeysToTarget(ctx context.Context, target, command string) e
 	// Send Enter
 	if _, err := c.run(ctx, "send-keys", "-t", target, "Enter"); err != nil {
 		return fmt.Errorf("send Enter failed: %w", err)
+	}
+	return nil
+}
+
+// pasteToTarget loads text into a tmux buffer and pastes it into the target pane.
+// Uses paste-buffer -p which respects the pane's bracketed paste mode setting.
+func (c *Client) pasteToTarget(ctx context.Context, target, text string) error {
+	// Load text into tmux buffer via stdin
+	args := []string{"load-buffer", "-"}
+	socketPath := c.SocketPath
+	if socketPath != "" {
+		args = append([]string{"-S", socketPath}, args...)
+	}
+	cmd := exec.CommandContext(ctx, c.TmuxBin, args...)
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("load-buffer failed: %w", err)
+	}
+
+	// Paste buffer into the target pane (-p = bracket paste aware)
+	if _, err := c.run(ctx, "paste-buffer", "-t", target, "-p"); err != nil {
+		return fmt.Errorf("paste-buffer failed: %w", err)
 	}
 	return nil
 }
