@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -228,7 +229,11 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if latestEvents == nil {
 		latestEvents = map[string][2]string{}
 	}
-	latestGoals, _ := h.ts.GetLatestGoals(ctx, sessionIDs)
+	var latestGoals map[string]string
+	latestGoals, err = h.ts.GetLatestGoals(ctx, sessionIDs)
+	if err != nil {
+		slog.Warn("failed to get latest goals", "error", err)
+	}
 	if latestGoals == nil {
 		latestGoals = map[string]string{}
 	}
@@ -236,7 +241,10 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Fetch board subscriptions keyed by tmux session name
 	var boardSubs map[string]*board.Subscriber
 	if h.bs != nil {
-		boardSubs, _ = h.bs.GetAllSubscriptions(ctx)
+		boardSubs, err = h.bs.GetAllSubscriptions(ctx)
+		if err != nil {
+			slog.Warn("failed to get board subscriptions", "error", err)
+		}
 	}
 	if boardSubs == nil {
 		boardSubs = map[string]*board.Subscriber{}
@@ -245,7 +253,10 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Fetch board unread counts
 	var allUnread map[string]int
 	if h.bs != nil {
-		allUnread, _ = h.bs.GetAllUnreadCounts(ctx)
+		allUnread, err = h.bs.GetAllUnreadCounts(ctx)
+		if err != nil {
+			slog.Warn("failed to get board unread counts", "error", err)
+		}
 	}
 	if allUnread == nil {
 		allUnread = map[string]int{}
@@ -630,10 +641,18 @@ func (h *SessionsHandler) Info(w http.ResponseWriter, r *http.Request) {
 	// Look up git state by session_id first, then by name
 	var git *store.GitSnapshot
 	if sessionID != "" {
-		git, _ = h.gs.GetLatestGitStateBySession(ctx, sessionID)
+		var gitErr error
+		git, gitErr = h.gs.GetLatestGitStateBySession(ctx, sessionID)
+		if gitErr != nil {
+			slog.Warn("failed to get git state by session", "session_id", sessionID, "error", gitErr)
+		}
 	}
 	if git == nil {
-		git, _ = h.gs.GetLatestGitState(ctx, name)
+		var gitErr error
+		git, gitErr = h.gs.GetLatestGitState(ctx, name)
+		if gitErr != nil {
+			slog.Warn("failed to get git state by name", "agent_name", name, "error", gitErr)
+		}
 	}
 	if git != nil {
 		result["git_branch"] = git.Branch
@@ -722,7 +741,9 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	base := gitutil.GetDiffBase(ctx, workdir)
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--numstat").Output()
 	fileMap := make(map[string]store.ChangedFile)
-	if err == nil {
+	if err != nil {
+		slog.Warn("git diff --numstat failed", "agent_name", name, "workdir", workdir, "error", err)
+	} else {
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if line == "" {
 				continue
@@ -740,7 +761,9 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	// Include untracked files
 	untrackedSet := make(map[string]bool)
 	untrackedOut, err := exec.CommandContext(ctx, "git", "-C", workdir, "ls-files", "--others", "--exclude-standard").Output()
-	if err == nil {
+	if err != nil {
+		slog.Warn("git ls-files (untracked) failed", "agent_name", name, "workdir", workdir, "error", err)
+	} else {
 		for _, f := range strings.Split(strings.TrimSpace(string(untrackedOut)), "\n") {
 			if f == "" {
 				continue
@@ -755,7 +778,9 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	// Build tracked file set (one batch call instead of per-file git ls-files)
 	trackedSet := make(map[string]bool)
 	trackedOut, err := exec.CommandContext(ctx, "git", "-C", workdir, "ls-files").Output()
-	if err == nil {
+	if err != nil {
+		slog.Warn("git ls-files (tracked) failed", "agent_name", name, "workdir", workdir, "error", err)
+	} else {
 		for _, f := range strings.Split(strings.TrimSpace(string(trackedOut)), "\n") {
 			if f != "" {
 				trackedSet[f] = true
@@ -798,7 +823,9 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 			}
 			adds := 0
 			data, err := os.ReadFile(fullPath)
-			if err == nil {
+			if err != nil {
+				slog.Warn("failed to read file for line count", "path", fullPath, "error", err)
+			} else {
 				adds = strings.Count(string(data), "\n") + 1
 			}
 			fileMap[rel] = store.ChangedFile{Filepath: rel, Additions: adds, Deletions: 0, Status: "??"}
@@ -848,7 +875,9 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	base := gitutil.GetDiffBase(ctx, workdir)
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--", fp).Output()
 	diffText := ""
-	if err == nil {
+	if err != nil {
+		slog.Warn("git diff failed", "agent_name", name, "filepath", fp, "error", err)
+	} else {
 		diffText = string(out)
 	}
 
@@ -1051,6 +1080,8 @@ func (h *SessionsHandler) Kill(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 
+	slog.Info("killing agent", "agent_name", name, "session_id", body.SessionID, "agent_type", body.AgentType)
+
 	// Use a background context for DB operations so they complete even if
 	// the HTTP request context is cancelled (e.g., during tmux command failures).
 	bgCtx := context.Background()
@@ -1247,6 +1278,8 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 		errNotFound(w, "Pane not found")
 		return
 	}
+
+	slog.Info("resuming agent", "agent_name", name, "session_id", body.SessionID, "agent_type", agentType)
 
 	// Prepare resume files
 	agent.TryPrepareResume(agentImpl, body.SessionID, pane.CurrentPath)
@@ -1681,7 +1714,9 @@ func (h *SessionsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.DetailJSON != nil {
 		djBytes, err := json.Marshal(body.DetailJSON)
-		if err == nil {
+		if err != nil {
+			slog.Warn("failed to marshal detail_json", "error", err)
+		} else {
 			s := string(djBytes)
 			event.DetailJSON = &s
 		}
@@ -2023,7 +2058,7 @@ func (h *SessionsHandler) GetFileContent(w http.ResponseWriter, r *http.Request)
 	fp := r.URL.Query().Get("filepath")
 	sessionID := r.URL.Query().Get("session_id")
 
-	if fp == "" {
+	if fp == "" || strings.HasPrefix(fp, "-") || strings.ContainsAny(fp, "\x00") {
 		writeJSON(w, http.StatusOK, map[string]string{"error": "filepath is required"})
 		return
 	}
@@ -2041,7 +2076,7 @@ func (h *SessionsHandler) GetFileContent(w http.ResponseWriter, r *http.Request)
 	}
 	realWorkdir, _ := filepath.EvalSymlinks(workdir)
 	realPath, _ := filepath.EvalSymlinks(fullPath)
-	if !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
 		writeJSON(w, http.StatusOK, map[string]string{"error": "Path traversal not allowed"})
 		return
 	}

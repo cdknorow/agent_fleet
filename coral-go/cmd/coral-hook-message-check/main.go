@@ -7,17 +7,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/cdknorow/coral/internal/hooks"
 )
 
 func main() {
-	defer func() { recover() }() // Never block the agent
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[CRASH] hook panicked: %v\n%s", r, debug.Stack())
+		}
+	}()
 
 	// Read and discard stdin (hook protocol requires it)
 	io.ReadAll(os.Stdin)

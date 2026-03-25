@@ -19,7 +19,7 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
@@ -39,6 +39,20 @@
     <false/>
     <key>NSProcessIsServer</key>
     <true/>
+    <!-- Jetsam/memory pressure: declare a 200MB memory budget so the kernel
+         knows our expected footprint and is less aggressive about killing us.
+         Without this, LSUIElement apps get lowest jetsam priority. -->
+    <key>JetsamMemoryLimit</key>
+    <dict>
+        <key>ActiveSoftMemoryLimit</key>
+        <integer>200</integer>
+        <key>InactiveHardMemoryLimit</key>
+        <integer>200</integer>
+    </dict>
+    <!-- Tell launchd this is an interactive process that should stay alive,
+         not a background daemon that can be killed freely. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
 </dict>

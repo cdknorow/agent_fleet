@@ -111,7 +111,7 @@ func (n *BoardNotifier) RunOnce(ctx context.Context) error {
 		sessionName := fmt.Sprintf("%s-%s", agent.AgentType, agent.SessionID)
 		err = n.runtime.SendInput(ctx, sessionName, nudge)
 		if err != nil {
-			n.logger.Debug("failed to nudge agent", "agent", agent.AgentName, "error", err)
+			n.logger.Warn("failed to nudge agent", "agent", agent.AgentName, "error", err)
 			continue
 		}
 

@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/httputil"
 	"github.com/cdknorow/coral/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -52,7 +51,7 @@ func (h *BoardRemotesHandler) AddSubscription(w http.ResponseWriter, r *http.Req
 	}
 
 	// SSRF validation: ensure the remote server URL doesn't resolve to private/reserved IPs
-	if _, err := resolveAndValidateURL(req.RemoteServer); err != nil {
+	if _, err := httputil.ResolveAndValidateURL(req.RemoteServer); err != nil {
 		errBadRequest(w, err.Error())
 		return
 	}
@@ -185,7 +184,7 @@ func (h *BoardRemotesHandler) proxyGet(ctx context.Context, remoteServer, path s
 	}
 
 	// Resolve and validate IP to prevent SSRF + DNS rebinding
-	resolvedIP, err := resolveAndValidateURL(remoteServer)
+	resolvedIP, err := httputil.ResolveAndValidateURL(remoteServer)
 	if err != nil {
 		return nil, http.StatusForbidden, err
 	}
@@ -233,76 +232,4 @@ func (h *BoardRemotesHandler) proxyGet(ctx context.Context, remoteServer, path s
 	return body, http.StatusOK, nil
 }
 
-// --- SSRF Validation ---
-
-// resolveAndValidateURL resolves a URL's hostname and validates it doesn't target internal networks.
-// Returns the first safe resolved IP, or an error if unsafe/unresolvable.
-func resolveAndValidateURL(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL")
-	}
-
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("URL scheme must be http or https")
-	}
-
-	hostname := parsed.Hostname()
-	if hostname == "" {
-		return "", fmt.Errorf("URL missing hostname")
-	}
-
-	port := parsed.Port()
-	if port == "" {
-		port = "80"
-	}
-	portNum, err := strconv.Atoi(port)
-	if err != nil || portNum < 1 || portNum > 65535 {
-		return "", fmt.Errorf("invalid port")
-	}
-
-	addrs, err := net.LookupHost(hostname)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve hostname: %w", err)
-	}
-
-	// Check ALL resolved IPs — if any are blocked, reject
-	for _, addr := range addrs {
-		ip := net.ParseIP(addr)
-		if ip == nil {
-			return "", fmt.Errorf("invalid IP address resolved")
-		}
-		if isIPBlocked(ip) {
-			return "", fmt.Errorf("remote server URL resolves to a private or reserved IP address")
-		}
-	}
-
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("no addresses resolved for hostname")
-	}
-
-	return addrs[0], nil
-}
-
-// isIPBlocked checks if an IP address is private, reserved, or otherwise unsafe for SSRF.
-func isIPBlocked(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-		return true
-	}
-
-	// CGNAT range (100.64.0.0/10)
-	_, cgnat, _ := net.ParseCIDR("100.64.0.0/10")
-	if cgnat.Contains(ip) {
-		return true
-	}
-
-	// Documentation ranges
-	for _, cidr := range []string{"192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"} {
-		_, network, _ := net.ParseCIDR(cidr)
-		if network.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
-}
+// SSRF validation uses httputil.ResolveAndValidateURL and httputil.IsIPBlocked.

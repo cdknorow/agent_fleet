@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -189,6 +190,7 @@ func reconcileOrphanedSessions(ctx context.Context, db *store.DB, agentRT backgr
 		if alive[ls.SessionID] {
 			continue
 		}
+		slog.Warn("detected crashed agent, marking as sleeping", "session_id", ls.SessionID, "agent_name", ls.AgentName)
 		if err := ss.SetSessionSleeping(ctx, ls.SessionID, true); err != nil {
 			log.Printf("[startup] failed to mark orphaned session %s as sleeping: %v", ls.SessionID[:8], err)
 			continue

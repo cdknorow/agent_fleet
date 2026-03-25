@@ -71,7 +71,9 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	}
 
 	// Clear old log
-	os.WriteFile(logFile, nil, 0644)
+	if err := os.WriteFile(logFile, nil, 0644); err != nil {
+		slog.Warn("failed to clear agent log file", "path", logFile, "error", err)
+	}
 
 	// Build the launch command (empty for terminal sessions)
 	var launchCmd string
@@ -89,6 +91,11 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	}
 
 	// Spawn agent session via the runtime
+	if resumeSessionID != "" {
+		slog.Info("resuming agent", "session_id", sessionID, "agent_type", agentType, "agent_name", folderName, "resume_from", resumeSessionID)
+	} else {
+		slog.Info("spawning agent", "session_id", sessionID, "agent_type", agentType, "agent_name", folderName, "workdir", workingDir)
+	}
 	if err := l.runtime.SpawnAgent(ctx, sessionName, workingDir, logFile, launchCmd); err != nil {
 		return nil, fmt.Errorf("spawn agent failed: %w", err)
 	}

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/cdknorow/coral/internal/httputil"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -81,11 +83,19 @@ func (p *RemoteBoardPoller) RunOnce(ctx context.Context) error {
 			continue
 		}
 
+		// SSRF protection: validate remote server URL doesn't resolve to internal IPs
+		if _, err := httputil.ResolveAndValidateURL(sub.RemoteServer); err != nil {
+			p.logger.Warn("remote board subscription blocked by SSRF check",
+				"server", sub.RemoteServer, "session_id", sub.SessionID, "error", err)
+			continue
+		}
+
 		// Check unread on remote server
 		url := fmt.Sprintf("%s/api/board/%s/messages/check?session_id=%s",
 			sub.RemoteServer, sub.Project, sub.SessionID)
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
+			p.logger.Warn("failed to create remote poll request", "server", sub.RemoteServer, "error", err)
 			continue
 		}
 		resp, err := p.client.Do(req)
@@ -96,7 +106,11 @@ func (p *RemoteBoardPoller) RunOnce(ctx context.Context) error {
 		var data struct {
 			Unread int `json:"unread"`
 		}
-		json.NewDecoder(resp.Body).Decode(&data)
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
+			p.logger.Warn("failed to decode remote poll response", "server", sub.RemoteServer, "error", err)
+			resp.Body.Close()
+			continue
+		}
 		resp.Body.Close()
 
 		if data.Unread == 0 {

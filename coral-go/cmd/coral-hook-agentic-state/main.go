@@ -7,14 +7,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/cdknorow/coral/internal/hooks"
 )
 
 func main() {
-	defer func() { recover() }() // Never block the agent
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[CRASH] hook panicked: %v\n%s", r, debug.Stack())
+		}
+	}()
 
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {

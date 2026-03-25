@@ -84,11 +84,16 @@ func (p *GitPoller) PollOnce(ctx context.Context) error {
 	for workdir, dirAgents := range dirToAgents {
 		workdir = gitutil.ResolveGitRoot(ctx, workdir)
 		gitInfo, err := queryGit(ctx, workdir)
-		if err != nil || gitInfo == nil {
+		if err != nil {
+			p.logger.Warn("git query failed", "workdir", workdir, "error", err)
+			continue
+		}
+		if gitInfo == nil {
 			continue
 		}
 		changedFiles, err := queryChangedFiles(ctx, workdir)
 		if err != nil {
+			p.logger.Warn("git changed files query failed", "workdir", workdir, "error", err)
 			changedFiles = nil
 		}
 

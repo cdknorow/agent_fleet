@@ -17,7 +17,9 @@ var (
 
 	allowedExtensions = map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
-		".webp": true, ".bmp": true, ".svg": true, ".tiff": true,
+		".webp": true, ".bmp": true, ".tiff": true,
+		// SVG intentionally excluded: SVG files can contain embedded JavaScript,
+		// creating a stored XSS risk if served inline.
 	}
 
 	contentTypeToExt = map[string]string{
@@ -26,7 +28,7 @@ var (
 		"image/gif":     ".gif",
 		"image/webp":    ".webp",
 		"image/bmp":     ".bmp",
-		"image/svg+xml": ".svg",
+		// "image/svg+xml" excluded: XSS risk
 		"image/tiff":    ".tiff",
 	}
 

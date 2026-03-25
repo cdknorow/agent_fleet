@@ -176,6 +176,18 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	// kills the process.
 	signal.Ignore(syscall.SIGHUP)
 
+	// Catch SIGABRT — CGO/Mach exception crashes on macOS send SIGABRT
+	// before terminating. Log the stack trace so we have post-mortem data.
+	abrtCh := make(chan os.Signal, 1)
+	signal.Notify(abrtCh, syscall.SIGABRT)
+	go func() {
+		<-abrtCh
+		log.Printf("[FATAL] received SIGABRT (possible CGO/Mach crash)")
+		log.Printf("[FATAL] goroutines: %d", runtime.NumGoroutine())
+		log.Printf("[FATAL] stack trace:\n%s", debug.Stack())
+		os.Exit(1)
+	}()
+
 	// Setup signal handling
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -210,6 +222,29 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	defer rs.Close()
 	httpServer := rs.HTTPServer
 
+	// Heartbeat — write timestamp+PID to ~/.coral/heartbeat every 10s.
+	// This is the only way to detect SIGKILL (which can't be caught).
+	// Post-mortem, the last heartbeat timestamp shows when the process died.
+	go func() {
+		heartbeatPath := filepath.Join(dataDir, "heartbeat")
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		writeHeartbeat := func() {
+			data := fmt.Sprintf("%d %d\n", time.Now().Unix(), os.Getpid())
+			os.WriteFile(heartbeatPath, []byte(data), 0644)
+		}
+		writeHeartbeat() // Write immediately on start
+		for {
+			select {
+			case <-ctx.Done():
+				os.Remove(heartbeatPath)
+				return
+			case <-ticker.C:
+				writeHeartbeat()
+			}
+		}
+	}()
+
 	// Open dashboard (try native app first, fall back to browser)
 	if !noBrowser {
 		go func() {
@@ -237,6 +272,11 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		systray.SetTemplateIcon(iconData, iconData)
 		systray.SetTitle("")
 		systray.SetTooltip("Coral Dashboard")
+
+		// Set activation policy to Accessory (not Prohibited from LSUIElement).
+		// This raises Jetsam priority so macOS is less likely to kill us under
+		// memory pressure, while still hiding from the Dock.
+		hideTrayFromDock()
 
 		systray.AddSeparator() // workaround: macOS clips the first item on some configurations
 		mOpenApp := systray.AddMenuItem("Open in App", "Open Coral in native window")
