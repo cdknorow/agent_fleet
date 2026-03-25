@@ -135,15 +135,24 @@ func (s *Store) Subscribe(ctx context.Context, project, sessionID, jobTitle stri
 		receiveMode = "mentions"
 	}
 	now := nowUTC()
+
+	// Carry forward last_read_id from any existing subscription with the same
+	// role (job_title) on this project. This preserves the read cursor when an
+	// agent restarts with a new session_id.
+	var carryForwardCursor int64
+	_ = s.db.GetContext(ctx, &carryForwardCursor,
+		"SELECT COALESCE(MAX(last_read_id), 0) FROM board_subscribers WHERE project = ? AND job_title = ?",
+		project, jobTitle)
+
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, subscribed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(project, session_id) DO UPDATE SET
 		     job_title = excluded.job_title,
 		     webhook_url = excluded.webhook_url,
 		     origin_server = excluded.origin_server,
 		     receive_mode = excluded.receive_mode`,
-		project, sessionID, jobTitle, webhookURL, originServer, receiveMode, now)
+		project, sessionID, jobTitle, webhookURL, originServer, receiveMode, carryForwardCursor, now)
 	if err != nil {
 		return nil, err
 	}

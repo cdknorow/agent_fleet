@@ -35,6 +35,7 @@ static void setupWindowDrag(NSWindow *window) {
     CGFloat dragZoneHeight = 42;
 
     // Arm drag when mouse goes down in the title bar region.
+    // Double-click toggles zoom (maximize/restore), matching native macOS behavior.
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) {
         @try {
             NSWindow *w = event.window;
@@ -42,6 +43,20 @@ static void setupWindowDrag(NSWindow *window) {
             NSPoint loc = event.locationInWindow;
             CGFloat windowHeight = w.contentView.frame.size.height;
             if (loc.y > windowHeight - dragZoneHeight) {
+                if (event.clickCount == 2) {
+                    // Double-click: respect System Preferences "Double-click
+                    // a window's title bar to" setting (zoom or minimize).
+                    NSString *action = [[NSUserDefaults standardUserDefaults]
+                        stringForKey:@"AppleActionOnDoubleClick"];
+                    if ([action isEqualToString:@"Minimize"]) {
+                        [w miniaturize:nil];
+                    } else {
+                        [w zoom:nil];
+                    }
+                    _titleBarDragArmed = NO;
+                    _titleBarMouseDown = nil;
+                    return event;
+                }
                 _titleBarMouseDown = event;
                 _titleBarDragArmed = YES;
             }
