@@ -155,8 +155,8 @@ Commands:
   subscribers                  List board subscribers
   leave                        Unsubscribe from board
   delete                       Delete board and messages
-  export [--output FILE] [--format markdown|html] [--merge FILE]
-                               Export chat (auto-detects html from .html ext)
+  export [--output FILE] [--format json|markdown|html] [--merge FILE]
+                               Export chat (auto-detects format from extension)
 
 Environment:
   CORAL_URL   Server URL (default http://localhost:8420)
@@ -380,10 +380,30 @@ func cmdDelete() {
 
 // exportEntry is a unified message for export, sortable by timestamp.
 type exportEntry struct {
-	Timestamp string // ISO-ish timestamp for sorting
-	Role      string
-	Content   string
-	Source    string // "board" or "side-chat"
+	Timestamp string `json:"timestamp"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Source    string `json:"source"` // "board" or "side-chat"
+}
+
+// exportData is the canonical JSON structure for a board export.
+type exportData struct {
+	Project     string            `json:"project"`
+	ExportedAt  string            `json:"exported_at"`
+	Subscribers []exportSubscriber `json:"subscribers"`
+	Messages    []exportEntry     `json:"messages"`
+	Stats       exportStats       `json:"stats"`
+}
+
+type exportSubscriber struct {
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+}
+
+type exportStats struct {
+	Total    int `json:"total"`
+	Board    int `json:"board"`
+	SideChat int `json:"side_chat"`
 }
 
 // parseMergeFile reads a side-chat markdown file with entries in the format:
@@ -468,6 +488,8 @@ func cmdExport() {
 	if format == "markdown" && outputFile != "" {
 		if strings.HasSuffix(outputFile, ".html") || strings.HasSuffix(outputFile, ".htm") {
 			format = "html"
+		} else if strings.HasSuffix(outputFile, ".json") {
+			format = "json"
 		}
 	}
 
@@ -524,11 +546,20 @@ func cmdExport() {
 
 	// Get subscribers for context
 	subsResp, _ := http.Get(serverURL + "/api/board/" + st.Project + "/subscribers")
-	var subscribers []map[string]any
+	var rawSubs []map[string]any
 	if subsResp != nil {
 		subsData, _ := io.ReadAll(subsResp.Body)
 		subsResp.Body.Close()
-		json.Unmarshal(subsData, &subscribers)
+		json.Unmarshal(subsData, &rawSubs)
+	}
+	var subs []exportSubscriber
+	for _, s := range rawSubs {
+		sid, _ := s["session_id"].(string)
+		role, _ := s["job_title"].(string)
+		if role == "" {
+			role = sid
+		}
+		subs = append(subs, exportSubscriber{SessionID: sid, Role: role})
 	}
 
 	// Count by source
@@ -541,11 +572,29 @@ func cmdExport() {
 		}
 	}
 
+	// Build canonical export data
+	export := exportData{
+		Project:     st.Project,
+		ExportedAt:  time.Now().Format(time.RFC3339),
+		Subscribers: subs,
+		Messages:    entries,
+		Stats: exportStats{
+			Total:    len(entries),
+			Board:    boardCount,
+			SideChat: sideCount,
+		},
+	}
+
 	var buf bytes.Buffer
-	if format == "html" {
-		renderHTML(&buf, st.Project, entries, subscribers, boardCount, sideCount, mergeFile != "")
-	} else {
-		renderMarkdown(&buf, st.Project, entries, subscribers, boardCount, sideCount, mergeFile != "")
+	switch format {
+	case "json":
+		enc := json.NewEncoder(&buf)
+		enc.SetIndent("", "  ")
+		enc.Encode(export)
+	case "html":
+		renderHTML(&buf, &export)
+	default:
+		renderMarkdown(&buf, &export)
 	}
 
 	if outputFile != "" {
@@ -559,30 +608,25 @@ func cmdExport() {
 	}
 }
 
-func renderMarkdown(buf *bytes.Buffer, project string, entries []exportEntry, subscribers []map[string]any, boardCount, sideCount int, hasMerge bool) {
-	buf.WriteString(fmt.Sprintf("# Board Chat Export: %s\n\n", project))
-	buf.WriteString(fmt.Sprintf("**Exported**: %s\n", time.Now().Format("2006-01-02 15:04:05")))
-	buf.WriteString(fmt.Sprintf("**Messages**: %d\n", len(entries)))
-	if hasMerge {
-		buf.WriteString(fmt.Sprintf("**Board messages**: %d | **Side-chat messages**: %d\n", boardCount, sideCount))
+func renderMarkdown(buf *bytes.Buffer, d *exportData) {
+	buf.WriteString(fmt.Sprintf("# Board Chat Export: %s\n\n", d.Project))
+	buf.WriteString(fmt.Sprintf("**Exported**: %s\n", d.ExportedAt))
+	buf.WriteString(fmt.Sprintf("**Messages**: %d\n", d.Stats.Total))
+	if d.Stats.SideChat > 0 {
+		buf.WriteString(fmt.Sprintf("**Board messages**: %d | **Side-chat messages**: %d\n", d.Stats.Board, d.Stats.SideChat))
 	}
 
-	if len(subscribers) > 0 {
-		buf.WriteString(fmt.Sprintf("**Subscribers**: %d\n\n", len(subscribers)))
+	if len(d.Subscribers) > 0 {
+		buf.WriteString(fmt.Sprintf("**Subscribers**: %d\n\n", len(d.Subscribers)))
 		buf.WriteString("| Agent | Role |\n|-------|------|\n")
-		for _, s := range subscribers {
-			sid, _ := s["session_id"].(string)
-			role, _ := s["job_title"].(string)
-			if role == "" {
-				role = sid
-			}
-			buf.WriteString(fmt.Sprintf("| %s | %s |\n", sid, role))
+		for _, s := range d.Subscribers {
+			buf.WriteString(fmt.Sprintf("| %s | %s |\n", s.SessionID, s.Role))
 		}
 	}
 
 	buf.WriteString("\n---\n\n## Messages\n\n")
 
-	for _, e := range entries {
+	for _, e := range d.Messages {
 		tag := ""
 		if e.Source == "side-chat" {
 			tag = " 💬 SIDE CHAT"
@@ -611,13 +655,13 @@ func agentColor(name string) string {
 	return fmt.Sprintf("hsl(%d, 60%%, 45%%)", hue)
 }
 
-func renderHTML(buf *bytes.Buffer, project string, entries []exportEntry, subscribers []map[string]any, boardCount, sideCount int, hasMerge bool) {
+func renderHTML(buf *bytes.Buffer, d *exportData) {
 	buf.WriteString(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Board Chat Export: ` + htmlEscape(project) + `</title>
+<title>Board Chat Export: ` + htmlEscape(d.Project) + `</title>
 <style>
   :root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --side-chat: #1a1a2e; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -647,32 +691,28 @@ func renderHTML(buf *bytes.Buffer, project string, entries []exportEntry, subscr
 <body>
 <div class="container">
 `)
-	buf.WriteString(fmt.Sprintf("<h1>%s</h1>\n", htmlEscape(project)))
+	buf.WriteString(fmt.Sprintf("<h1>%s</h1>\n", htmlEscape(d.Project)))
 	buf.WriteString("<div class=\"stats\">\n")
-	buf.WriteString(fmt.Sprintf("  <span>Exported: %s</span>\n", time.Now().Format("2006-01-02 15:04:05")))
-	buf.WriteString(fmt.Sprintf("  <span>Messages: %d</span>\n", len(entries)))
-	if hasMerge {
-		buf.WriteString(fmt.Sprintf("  <span>Board: %d</span>\n", boardCount))
-		buf.WriteString(fmt.Sprintf("  <span>Side-chat: %d</span>\n", sideCount))
+	buf.WriteString(fmt.Sprintf("  <span>Exported: %s</span>\n", d.ExportedAt))
+	buf.WriteString(fmt.Sprintf("  <span>Messages: %d</span>\n", d.Stats.Total))
+	if d.Stats.SideChat > 0 {
+		buf.WriteString(fmt.Sprintf("  <span>Board: %d</span>\n", d.Stats.Board))
+		buf.WriteString(fmt.Sprintf("  <span>Side-chat: %d</span>\n", d.Stats.SideChat))
 	}
 	buf.WriteString("</div>\n")
 
-	if len(subscribers) > 0 {
+	if len(d.Subscribers) > 0 {
 		buf.WriteString("<details class=\"subscribers\">\n")
-		buf.WriteString(fmt.Sprintf("  <summary>%d Subscribers</summary>\n", len(subscribers)))
+		buf.WriteString(fmt.Sprintf("  <summary>%d Subscribers</summary>\n", len(d.Subscribers)))
 		buf.WriteString("  <div class=\"sub-grid\">\n")
-		for _, s := range subscribers {
-			role, _ := s["job_title"].(string)
-			if role == "" {
-				role, _ = s["session_id"].(string)
-			}
-			buf.WriteString(fmt.Sprintf("    <div class=\"sub-chip\"><span class=\"role\">%s</span></div>\n", htmlEscape(role)))
+		for _, s := range d.Subscribers {
+			buf.WriteString(fmt.Sprintf("    <div class=\"sub-chip\"><span class=\"role\">%s</span></div>\n", htmlEscape(s.Role)))
 		}
 		buf.WriteString("  </div>\n</details>\n")
 	}
 
 	buf.WriteString("<div class=\"messages\">\n")
-	for _, e := range entries {
+	for _, e := range d.Messages {
 		cls := "msg"
 		if e.Source == "side-chat" {
 			cls = "msg side-chat"
