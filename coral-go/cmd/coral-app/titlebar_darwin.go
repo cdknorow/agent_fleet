@@ -36,29 +36,46 @@ static void setupWindowDrag(NSWindow *window) {
 
     // Arm drag when mouse goes down in the title bar region.
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) {
-        NSWindow *w = event.window;
-        if (!w || !w.contentView) return event;
-        NSPoint loc = event.locationInWindow;
-        CGFloat windowHeight = w.contentView.frame.size.height;
-        if (loc.y > windowHeight - dragZoneHeight) {
-            _titleBarMouseDown = event;
-            _titleBarDragArmed = YES;
+        @try {
+            NSWindow *w = event.window;
+            if (!w || !w.contentView) return event;
+            NSPoint loc = event.locationInWindow;
+            CGFloat windowHeight = w.contentView.frame.size.height;
+            if (loc.y > windowHeight - dragZoneHeight) {
+                _titleBarMouseDown = event;
+                _titleBarDragArmed = YES;
+            }
+        } @catch (NSException *e) {
+            _titleBarDragArmed = NO;
+            _titleBarMouseDown = nil;
         }
         return event;
     }];
 
     // Once the mouse has moved more than 3px, initiate a native window drag.
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDragged handler:^NSEvent *(NSEvent *event) {
-        if (_titleBarDragArmed && _titleBarMouseDown) {
-            NSPoint cur   = event.locationInWindow;
-            NSPoint start = _titleBarMouseDown.locationInWindow;
-            CGFloat dx = cur.x - start.x;
-            CGFloat dy = cur.y - start.y;
-            if (dx * dx + dy * dy > 9) {
-                _titleBarDragArmed = NO;
-                [event.window performWindowDragWithEvent:_titleBarMouseDown];
-                _titleBarMouseDown = nil;
+        @try {
+            if (_titleBarDragArmed && _titleBarMouseDown) {
+                NSWindow *w = event.window;
+                if (!w) {
+                    _titleBarDragArmed = NO;
+                    _titleBarMouseDown = nil;
+                    return event;
+                }
+                NSPoint cur   = event.locationInWindow;
+                NSPoint start = _titleBarMouseDown.locationInWindow;
+                CGFloat dx = cur.x - start.x;
+                CGFloat dy = cur.y - start.y;
+                if (dx * dx + dy * dy > 9) {
+                    _titleBarDragArmed = NO;
+                    NSEvent *dragEvent = _titleBarMouseDown;
+                    _titleBarMouseDown = nil;
+                    [w performWindowDragWithEvent:dragEvent];
+                }
             }
+        } @catch (NSException *e) {
+            _titleBarDragArmed = NO;
+            _titleBarMouseDown = nil;
         }
         return event;
     }];
