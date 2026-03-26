@@ -144,6 +144,23 @@ func TestGetDiffBase_DefaultMode_IsBranchPoint(t *testing.T) {
 	assert.Equal(t, resultExplicit, resultEmpty, "empty mode should default to branch_point")
 }
 
+func TestGetDiffBase_MainHead_OnMainBranch(t *testing.T) {
+	dir := createTestRepo(t)
+	ctx := context.Background()
+
+	result := GetDiffBase(ctx, dir, "main_head")
+	assert.Equal(t, "main", result, "should return 'main' when on main branch and main exists")
+}
+
+func TestGetDiffBase_MainHead_OnFeatureBranch(t *testing.T) {
+	dir := createTestRepoWithBranch(t)
+	ctx := context.Background()
+
+	// On feature branch, main_head should still return "main"
+	result := GetDiffBase(ctx, dir, "main_head")
+	assert.Equal(t, "main", result, "should return 'main' even when on feature branch")
+}
+
 func TestGetDiffBase_NotAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

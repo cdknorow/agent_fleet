@@ -16,6 +16,7 @@ import (
 
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/executil"
+	"github.com/cdknorow/coral/internal/license"
 	"github.com/cdknorow/coral/internal/startup"
 	"github.com/cdknorow/coral/internal/tracking"
 )
@@ -71,6 +72,12 @@ func main() {
 
 	if *devMode {
 		cfg.DevMode = true
+	}
+
+	// Check EULA acceptance (terminal prompt on first launch)
+	if !cfg.DevMode && !license.CheckAndPromptEULA(license.TerminalEULADialog) {
+		fmt.Fprintln(os.Stderr, "Terms of Service must be accepted to use Coral.")
+		os.Exit(0)
 	}
 
 	// Ignore SIGHUP — macOS sends it during sleep/wake transitions and when

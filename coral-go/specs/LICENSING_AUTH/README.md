@@ -249,13 +249,25 @@ CREATE TABLE active_sessions (
 );
 ```
 
-### Plan Limits
+### Plan Limits (Finalized)
 
-| Plan | Concurrent Sessions | Teams | Agents | Price |
-|------|-------------------|-------|--------|-------|
-| Solo | 1 machine | 2 | 10 | $X/mo |
-| Pro | 3 machines | Unlimited | Unlimited | $Y/mo |
-| Team | N seats | Unlimited | Unlimited | $Z/seat/mo |
+| Plan | Machines | Teams | Agents | Price |
+|------|----------|-------|--------|-------|
+| 14-Day Trial | 1 | Unlimited | Unlimited | Free ($0 LS SKU) |
+| Pro | 1 | Unlimited | Unlimited | ~~$99/yr~~ $49/yr (launch) |
+| Team | N seats | Unlimited | Unlimited | TBD |
+
+**Trial:** Full Pro features for 14 days. Requires $0 Lemon Squeezy activation
+(captures email, prevents anonymous multi-copy abuse). 1 machine activation.
+Trial starts on first activation, not on download. No second trial for the
+same Lemon Squeezy customer.
+
+**Pro:** $99/year regular price, $49/year introductory launch special (50% off).
+1 machine activation. Unlimited teams and agents.
+
+**Team:** Seat-based pricing TBD. Shared server with Google OAuth.
+
+**Managed Service:** Contact sales (no self-serve pricing yet).
 
 ---
 
@@ -336,6 +348,66 @@ coral --host 0.0.0.0 --port 443 --tls-cert cert.pem --tls-key key.pem
 - Only email, name, and avatar stored from Google
 - No access to user's Google Drive, Gmail, or other data
 - Scope is minimal: `openid email profile`
+
+---
+
+## EULA Acceptance
+
+### Architecture
+
+Cross-platform, modular EULA system that gates app usage until the user accepts
+the Terms of Service.
+
+**Shared logic (`internal/license/eula.go`):**
+- `EULAText` const — full TOS text
+- `IsEULAAccepted()` — checks for `~/.coral/.eula-accepted` marker file
+- `WriteEULAMarker()` — writes marker on acceptance
+- `CheckAndPromptEULA(showDialog)` — injectable dialog pattern
+- `TerminalEULADialog()` — stdin-based prompt (type 'accept')
+
+**Platform-specific dialogs:**
+- macOS native app (`cmd/coral-app/eula_darwin.go`): Cocoa NSAlert with
+  scrollable NSTextView
+- Non-macOS native app (`cmd/coral-app/eula_other.go`): delegates to
+  `TerminalEULADialog`
+- Server standalone (`cmd/coral/main.go`): `TerminalEULADialog` (all platforms,
+  skipped in dev mode)
+
+### Flow
+
+1. On first launch, check for `~/.coral/.eula-accepted`
+2. If not found: show platform-appropriate dialog (Cocoa on macOS native,
+   terminal on server/Linux)
+3. Accept → write marker file, continue launching
+4. Decline → exit with message
+5. Subsequent launches skip the dialog (marker exists)
+
+### Design Decisions
+
+- Marker file (not DB) so it persists across reinstalls and DB resets
+- Shared package without build tags so both server and native app binaries can
+  use it
+- Injectable `showDialog` function allows platform-specific UI without
+  conditionals
+- Dev mode (`--dev`) skips EULA check for developer convenience
+- TOS text hardcoded as Go const (requires rebuild to update — acceptable for
+  release cadence)
+- macOS Cocoa dialog runs directly on main thread (no `dispatch_sync` — called
+  from `main()` which is already on thread 0 via `init()/runtime.LockOSThread()`)
+
+---
+
+## In-App Activation Page
+
+When license is required and not yet activated, the server serves a
+self-contained activation page (`server.go` `activationPage` const) that shows:
+
+1. **Pricing cards:** 14-Day Pro Trial (free, LS checkout link) and Pro
+   (~~$99/yr~~ $49/yr, LS checkout link with promo code U4NZY1NW)
+2. **License key input form** for users who already have a key
+3. **Link back to coralai.ai**
+
+The page is gated — all routes redirect to it until a valid license is activated.
 
 ---
 

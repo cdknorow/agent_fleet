@@ -32,7 +32,8 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 	}
 
 	if params.ResumeSessionID != "" {
-		parts = append(parts, bin, "resume", "--session", params.ResumeSessionID)
+		// codex resume takes session ID as a positional argument, not --session flag
+		parts = append(parts, bin, "resume", params.ResumeSessionID)
 	} else {
 		parts = append(parts, bin)
 	}

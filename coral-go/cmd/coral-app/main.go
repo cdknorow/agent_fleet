@@ -60,6 +60,13 @@ func main() {
 	// Always log to file so we catch crashes — debug mode adds JS console redirect
 	setupDebugLogging()
 
+	// Check EULA acceptance before proceeding. On macOS, this shows a native
+	// Cocoa dialog on first launch. If the user declines, the app exits.
+	if !checkAndShowEULA() {
+		fmt.Fprintln(os.Stderr, "Terms of Service must be accepted to use Coral.")
+		os.Exit(0)
+	}
+
 	// Global panic recovery — log the stack trace before crashing
 	defer func() {
 		if r := recover(); r != nil {

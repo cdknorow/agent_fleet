@@ -520,82 +520,166 @@ const activationPage = `<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     min-height: 100vh;
+    padding: 24px;
   }
-  .card {
+  .page { max-width: 780px; width: 100%; }
+  .page-header { text-align: center; margin-bottom: 32px; }
+  .page-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+  .page-header p { color: #8b949e; font-size: 15px; }
+
+  /* Pricing cards */
+  .pricing-row { display: flex; gap: 16px; margin-bottom: 24px; }
+  .price-card {
+    flex: 1;
     background: #161b22;
     border: 1px solid #30363d;
     border-radius: 12px;
-    padding: 48px;
-    max-width: 440px;
-    width: 100%;
+    padding: 28px 24px;
+    position: relative;
+  }
+  .price-card.featured { border-color: #58a6ff; }
+  .price-badge {
+    position: absolute; top: -10px; right: 16px;
+    background: #58a6ff; color: #fff;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 10px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .price-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .price-desc { color: #8b949e; font-size: 13px; margin-bottom: 16px; }
+  .price-amount { font-size: 32px; font-weight: 800; margin-bottom: 4px; }
+  .price-amount .strike { text-decoration: line-through; color: #484f58; font-size: 20px; font-weight: 500; margin-right: 6px; }
+  .price-note { color: #8b949e; font-size: 12px; margin-bottom: 16px; }
+  .price-features { list-style: none; margin-bottom: 20px; }
+  .price-features li {
+    font-size: 13px; color: #c9d1d9;
+    padding: 4px 0 4px 22px;
+    position: relative;
+  }
+  .price-features li::before {
+    content: '\2713'; color: #3fb950; font-weight: 700;
+    position: absolute; left: 0;
+  }
+  .price-btn {
+    display: block; width: 100%; text-align: center;
+    padding: 10px; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    text-decoration: none; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    border: none;
+  }
+  .price-btn-primary { background: #58a6ff; color: #fff; }
+  .price-btn-primary:hover { background: #4090e0; }
+  .price-btn-secondary { background: transparent; color: #58a6ff; border: 1px solid #30363d; }
+  .price-btn-secondary:hover { border-color: #58a6ff; }
+
+  /* Activation card */
+  .activate-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 32px 48px;
     text-align: center;
   }
-  .card h1 {
-    font-size: 24px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-  .card p {
-    color: #8b949e;
-    margin-bottom: 24px;
-    font-size: 14px;
-    line-height: 1.5;
-  }
-  .input-group { position: relative; margin-bottom: 16px; }
+  .activate-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .activate-card .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .input-group { position: relative; margin-bottom: 12px; }
   .input-group input {
     width: 100%;
-    padding: 12px 16px;
+    padding: 11px 16px;
     background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 8px;
     color: #e1e4e8;
-    font-size: 15px;
+    font-size: 14px;
     font-family: monospace;
     letter-spacing: 1px;
     outline: none;
     transition: border-color 0.2s;
   }
   .input-group input:focus { border-color: #58a6ff; }
-  button {
+  .activate-btn {
     width: 100%;
-    padding: 12px;
+    padding: 11px;
     background: #238636;
     color: #fff;
     border: none;
     border-radius: 8px;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.2s;
   }
-  button:hover { background: #2ea043; }
-  button:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
-  .error {
-    color: #f85149;
-    font-size: 13px;
-    margin-top: 12px;
-    display: none;
-  }
-  .success {
-    color: #3fb950;
-    font-size: 13px;
-    margin-top: 12px;
-    display: none;
+  .activate-btn:hover { background: #2ea043; }
+  .activate-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+  .error { color: #f85149; font-size: 13px; margin-top: 10px; display: none; }
+  .success { color: #3fb950; font-size: 13px; margin-top: 10px; display: none; }
+
+  .footer-link { text-align: center; margin-top: 20px; }
+  .footer-link a { color: #8b949e; font-size: 13px; text-decoration: none; }
+  .footer-link a:hover { color: #58a6ff; }
+
+  @media (max-width: 600px) {
+    .pricing-row { flex-direction: column; }
+    .activate-card { padding: 24px; }
   }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>Coral</h1>
-  <p>Enter your license key to activate Coral.</p>
-  <form id="activate-form">
-    <div class="input-group">
-      <input type="text" id="license-key" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false" required>
+<div class="page">
+  <div class="page-header">
+    <h1>Coral</h1>
+    <p>Your AI agent team, running locally.</p>
+  </div>
+
+  <div class="pricing-row">
+    <div class="price-card">
+      <h3>14-Day Pro Trial</h3>
+      <p class="price-desc">Full access, no credit card required</p>
+      <div class="price-amount">Free</div>
+      <p class="price-note">1 machine activation via instant trial key</p>
+      <ul class="price-features">
+        <li>Full Pro features for 14 days</li>
+        <li>Unlimited teams &amp; agents</li>
+        <li>Claude &amp; Codex support</li>
+        <li>Real-time dashboard</li>
+      </ul>
+      <a href="https://store.coralai.ai/checkout/buy/59b4153c-d389-44f4-8a03-cf840261844e" class="price-btn price-btn-secondary" target="_blank">Start Free Trial</a>
     </div>
-    <button type="submit" id="submit-btn">Activate License</button>
-  </form>
-  <div class="error" id="error-msg"></div>
-  <div class="success" id="success-msg"></div>
+
+    <div class="price-card featured">
+      <div class="price-badge">Launch Special</div>
+      <h3>Pro</h3>
+      <p class="price-desc">For individual developers</p>
+      <div class="price-amount"><span class="strike">$99/yr</span> $49/yr</div>
+      <p class="price-note">Limited time launch pricing</p>
+      <ul class="price-features">
+        <li>1 machine activation</li>
+        <li>Unlimited teams &amp; agents</li>
+        <li>Scheduled jobs &amp; webhooks</li>
+        <li>Priority updates for one year</li>
+      </ul>
+      <a href="https://store.coralai.ai/checkout/buy/44df39dc-9891-4094-8b77-f73c1d2596ae" class="price-btn price-btn-primary" target="_blank">Get Coral Pro</a>
+      <p style="font-size:11px;color:#484f58;margin-top:8px;text-align:center;">Use code <strong style="color:#8b949e;">U4NZY1NW</strong> at checkout</p>
+    </div>
+  </div>
+
+  <div class="activate-card">
+    <h3>Already have a license key?</h3>
+    <p class="subtitle">Enter your key below to activate Coral.</p>
+    <form id="activate-form">
+      <div class="input-group">
+        <input type="text" id="license-key" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false" required>
+      </div>
+      <button type="submit" id="submit-btn" class="activate-btn">Activate License</button>
+    </form>
+    <div class="error" id="error-msg"></div>
+    <div class="success" id="success-msg"></div>
+  </div>
+
+  <div class="footer-link">
+    <a href="https://coralai.ai" target="_blank">Visit coralai.ai</a>
+  </div>
 </div>
 <script>
   const form = document.getElementById('activate-form');

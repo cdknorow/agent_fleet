@@ -420,7 +420,12 @@ func (s *Store) CheckUnread(ctx context.Context, project, sessionID string) (int
 			fmt.Sprintf("%%@%s%%", sessionID),
 		}
 		if sub.JobTitle != "" {
+			// Match @JobTitle anywhere in the message
 			patterns = append(patterns, fmt.Sprintf("%%@%s%%", sub.JobTitle))
+			// Match "JobTitle:" at the start of a message (without @)
+			patterns = append(patterns, fmt.Sprintf("%s:%%", sub.JobTitle))
+			// Match "JobTitle:" after a newline (without @)
+			patterns = append(patterns, fmt.Sprintf("%%\n%s:%%", sub.JobTitle))
 		}
 
 		whereClauses := make([]string, len(patterns))
