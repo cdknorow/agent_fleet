@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	activateEndpoint = "https://api.lemonsqueezy.com/v1/licenses/activate"
-	validateEndpoint = "https://api.lemonsqueezy.com/v1/licenses/validate"
+	activateEndpoint   = "https://api.lemonsqueezy.com/v1/licenses/activate"
+	validateEndpoint   = "https://api.lemonsqueezy.com/v1/licenses/validate"
+	deactivateEndpoint = "https://api.lemonsqueezy.com/v1/licenses/deactivate"
 )
 
 const (
@@ -173,6 +174,44 @@ func (m *Manager) Activate(key string) error {
 		Valid:         true,
 	}
 	return m.save()
+}
+
+// Deactivate deactivates the license on Lemon Squeezy and clears local state.
+// This frees up the machine slot so the license can be used on another machine.
+func (m *Manager) Deactivate() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cache == nil {
+		return fmt.Errorf("no active license")
+	}
+
+	// Call LS deactivate API
+	resp, err := m.callAPI(deactivateEndpoint, m.cache.LicenseKey, m.cache.InstanceID)
+	if err != nil {
+		return fmt.Errorf("failed to reach license server: %w", err)
+	}
+
+	if resp.Error != "" {
+		return fmt.Errorf("%s", resp.Error)
+	}
+
+	// Clear local state
+	m.cache = nil
+	os.Remove(m.filePath)
+	return nil
+}
+
+// Revoke marks the license as invalid locally. Used when a webhook
+// notifies us that the license was revoked or subscription cancelled.
+func (m *Manager) Revoke() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cache != nil {
+		m.cache.Valid = false
+		m.save()
+	}
 }
 
 // GetInfo returns the cached license info (nil if not activated).

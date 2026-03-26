@@ -23,6 +23,12 @@
     gap: 8px;
 }
 
+/* Rotate coral logo so open part faces down */
+img[src*="favicon.png"],
+img[src*="coral.png"] {
+    transform: rotate(90deg);
+}
+
 .top-bar-title {
     display: inline-flex;
     align-items: center;
