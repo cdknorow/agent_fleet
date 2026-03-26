@@ -41,6 +41,7 @@
     width: 420px;
     min-width: 280px;
     max-width: 50vw;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
     background: var(--bg-secondary);
@@ -157,7 +158,8 @@
 .agentic-panel.active {
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: 150px;
+    overflow-y: auto;
 }
 
 /* ── Collapsible Panel ─────────────────────────────────────── */
