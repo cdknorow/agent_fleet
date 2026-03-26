@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-chi/chi/v5"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
@@ -583,6 +584,10 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	lastCursorX, lastCursorY := -1, -1
 	paneGoneNotified := false
 
+	// cachedTarget holds the resolved tmux pane target. Only re-resolved
+	// when pane-gone is detected (saves 1 subprocess per capture).
+	cachedTarget := target
+
 	doCapture := func() {
 		now := time.Now()
 		if now.Sub(lastCaptureTime) < minCaptureInterval {
@@ -590,21 +595,18 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		}
 		lastCaptureTime = now
 
-		targetMu.Lock()
-		currentTarget := target
-		targetMu.Unlock()
-
-		if currentTarget == "" {
+		// Use cached target — only re-resolve on first call or after pane-gone
+		if cachedTarget == "" {
 			newTarget, _ := h.terminal.FindTarget(ctx, name, agentType, sessionID)
 			if newTarget != "" {
+				cachedTarget = newTarget
 				targetMu.Lock()
 				target = newTarget
-				currentTarget = newTarget
 				targetMu.Unlock()
 			}
 		}
 
-		if currentTarget == "" {
+		if cachedTarget == "" {
 			if !paneGoneNotified {
 				wsjson.Write(ctx, conn, map[string]any{"type": "terminal_closed"})
 				paneGoneNotified = true
@@ -615,7 +617,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		// Query cursor position and alternate screen mode in one call
 		cursorX, cursorY := -1, -1
 		altScreen := false
-		if infoOut, err := h.terminal.DisplayMessage(ctx, currentTarget, "#{cursor_x},#{cursor_y},#{alternate_on}"); err == nil {
+		if infoOut, err := h.terminal.DisplayMessage(ctx, cachedTarget, "#{cursor_x},#{cursor_y},#{alternate_on}"); err == nil {
 			parts := strings.SplitN(strings.TrimSpace(infoOut), ",", 3)
 			if len(parts) >= 3 {
 				cursorX, _ = strconv.Atoi(parts[0])
@@ -625,7 +627,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		}
 
 		// Use visible-only capture when a TUI app is using the alternate screen buffer
-		content, _ := h.terminal.CaptureRawOutput(ctx, currentTarget, 200, altScreen)
+		content, _ := h.terminal.CaptureRawOutput(ctx, cachedTarget, 200, altScreen)
 		if content != "" {
 			paneGoneNotified = false
 			if content != lastContent || cursorX != lastCursorX || cursorY != lastCursorY {
@@ -653,10 +655,26 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	// Initial snapshot
 	doCapture()
 
-	// Use a ticker instead of time.After to avoid creating a new timer every
-	// iteration (reduces GC pressure with many concurrent WebSocket clients).
-	statTicker := time.NewTicker(100 * time.Millisecond)
-	defer statTicker.Stop()
+	// Try fsnotify for event-driven capture (zero CPU when idle, lower latency
+	// when active). Falls back to stat polling if fsnotify is unavailable.
+	var fileEvents <-chan fsnotify.Event
+	if logPath != "" {
+		if watcher, err := fsnotify.NewWatcher(); err == nil {
+			defer watcher.Close()
+			if err := watcher.Add(logPath); err == nil {
+				fileEvents = watcher.Events
+			}
+		}
+	}
+
+	// Keepalive/fallback ticker: 5s when using fsnotify (just a heartbeat),
+	// 100ms when falling back to stat polling.
+	pollInterval := 100 * time.Millisecond
+	if fileEvents != nil {
+		pollInterval = 5 * time.Second
+	}
+	pollTicker := time.NewTicker(pollInterval)
+	defer pollTicker.Stop()
 	slowTicker := time.NewTicker(3 * time.Second)
 	defer slowTicker.Stop()
 
@@ -670,6 +688,8 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 			case <-inputEvent:
 			case <-slowTicker.C:
 			}
+			// Clear cached target to force re-resolution
+			cachedTarget = ""
 			targetMu.Lock()
 			target = ""
 			targetMu.Unlock()
@@ -677,30 +697,47 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 			continue
 		}
 
-		// Check if log file changed (cheap stat syscall ~0.01ms)
-		fileChanged := false
-		if logPath != "" {
-			if info, err := os.Stat(logPath); err == nil {
-				if info.ModTime() != lastMtime {
-					lastMtime = info.ModTime()
-					fileChanged = true
+		if fileEvents != nil {
+			// Event-driven mode (fsnotify)
+			select {
+			case <-ctx.Done():
+				conn.Close(websocket.StatusNormalClosure, "")
+				return
+			case event := <-fileEvents:
+				if event.Op&fsnotify.Write != 0 {
+					doCapture()
+				}
+			case <-inputEvent:
+				doCapture()
+			case <-pollTicker.C:
+				// Keepalive heartbeat — catches edge cases fsnotify might miss
+				doCapture()
+			}
+		} else {
+			// Stat polling fallback
+			fileChanged := false
+			if logPath != "" {
+				if info, err := os.Stat(logPath); err == nil {
+					if info.ModTime() != lastMtime {
+						lastMtime = info.ModTime()
+						fileChanged = true
+					}
 				}
 			}
-		}
 
-		if fileChanged {
-			doCapture()
-		}
+			if fileChanged {
+				doCapture()
+			}
 
-		// Wait for input event or next stat check
-		select {
-		case <-ctx.Done():
-			conn.Close(websocket.StatusNormalClosure, "")
-			return
-		case <-inputEvent:
-			doCapture()
-		case <-statTicker.C:
-			// Periodic stat check — also serves as heartbeat
+			select {
+			case <-ctx.Done():
+				conn.Close(websocket.StatusNormalClosure, "")
+				return
+			case <-inputEvent:
+				doCapture()
+			case <-pollTicker.C:
+				// Periodic stat check — also serves as heartbeat
+			}
 		}
 	}
 
