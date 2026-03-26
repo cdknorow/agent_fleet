@@ -133,11 +133,17 @@ func main() {
 	setupNativeTitlebar()
 	log.Println("[WEBVIEW] titlebar setup complete")
 
-	// Inject native app flag — the frontend platform layer (platform/detect.js)
-	// reads this flag and handles all native behavior: body classes, health check,
-	// link intercept, and WebKit workarounds. See platform/native.js for details.
-	log.Println("[WEBVIEW] injecting native app flag")
-	w.Init(`window.__CORAL_APP__ = true;`)
+	// Inject native app flag and body classes BEFORE page load. WKWebView requires
+	// -webkit-app-region: drag to be present when the top bar first renders — adding
+	// the .native-app class later via DOMContentLoaded doesn't enable drag regions.
+	// The platform layer (platform/native.js) handles everything else at DOMContentLoaded.
+	log.Println("[WEBVIEW] injecting native app flag and body classes")
+	w.Init(`window.__CORAL_APP__ = true;
+		document.addEventListener('DOMContentLoaded', function() {
+			document.body.classList.add('native-app');
+			if (navigator.platform && navigator.platform.indexOf('Mac') !== -1) document.body.classList.add('native-macos');
+			if (navigator.platform && navigator.platform.indexOf('Win') !== -1) document.body.classList.add('native-windows');
+		});`)
 
 	// Bind JS console.log to Go logger in debug mode
 	log.Println("[WEBVIEW] setting up JS console redirect and WS monitoring")

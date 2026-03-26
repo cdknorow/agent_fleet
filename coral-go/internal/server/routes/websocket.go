@@ -660,9 +660,11 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	var fileEvents <-chan fsnotify.Event
 	if logPath != "" {
 		if watcher, err := fsnotify.NewWatcher(); err == nil {
-			defer watcher.Close()
 			if err := watcher.Add(logPath); err == nil {
+				defer watcher.Close()
 				fileEvents = watcher.Events
+			} else {
+				watcher.Close() // Close immediately — no point keeping an idle watcher
 			}
 		}
 	}

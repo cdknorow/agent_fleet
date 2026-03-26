@@ -6,6 +6,8 @@ import { platform } from './detect.js';
 export function initNative() {
     if (!platform.isNative) return;
 
+    // Body classes may already be applied by coral-app/main.go w.Init()
+    // (needed early for -webkit-app-region: drag). classList.add is idempotent.
     document.body.classList.add('native-app');
     if (platform.isMacOS)   document.body.classList.add('native-macos');
     if (platform.isWindows) document.body.classList.add('native-windows');

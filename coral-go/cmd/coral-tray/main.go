@@ -242,15 +242,15 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 		defer ticker.Stop()
 		resourceLogCounter := 0
 		writeHeartbeat := func() {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			data := fmt.Sprintf("%d %d %d %d\n",
-				time.Now().Unix(), os.Getpid(), m.Sys, runtime.NumGoroutine())
+			data := fmt.Sprintf("%d %d\n", time.Now().Unix(), os.Getpid())
 			os.WriteFile(heartbeatPath, []byte(data), 0644)
 
-			// Log resource usage every ~5 minutes (30 ticks × 10s)
+			// Log resource usage every ~5 minutes (30 ticks × 10s).
+			// ReadMemStats is a stop-the-world call — only run it here.
 			resourceLogCounter++
 			if resourceLogCounter%30 == 0 {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
 				log.Printf("[HEALTH] goroutines=%d heap_alloc=%dMB sys=%dMB",
 					runtime.NumGoroutine(), m.HeapAlloc/1024/1024, m.Sys/1024/1024)
 			}
