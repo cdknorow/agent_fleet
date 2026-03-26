@@ -656,7 +656,7 @@ const activationPage = `<!DOCTYPE html>
       <ul class="price-features">
         <li>1 machine activation</li>
         <li>Unlimited teams &amp; agents</li>
-        <li>Scheduled jobs &amp; webhooks</li>
+        <li>Search chat history</li>
         <li>Priority updates for one year</li>
       </ul>
       <a href="https://store.coralai.ai/checkout/buy/44df39dc-9891-4094-8b77-f73c1d2596ae" class="price-btn price-btn-primary" target="_blank">Get Coral Pro</a>
