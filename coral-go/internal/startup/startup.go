@@ -116,7 +116,7 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 	}
 
 	// Select terminal backend and agent runtime
-	backend, agentRT, terminal := selectBackend(opts.BackendType, cfg.LogDir)
+	backend, agentRT, terminal := selectBackend(opts.BackendType, cfg.LogDir, cfg.CoralDir())
 
 	// Build the HTTP server
 	srv := server.New(cfg, db, backend, terminal)
@@ -202,13 +202,13 @@ func reconcileOrphanedSessions(ctx context.Context, db *store.DB, agentRT backgr
 	}
 }
 
-func selectBackend(backendType, logDir string) (ptymanager.TerminalBackend, background.AgentRuntime, ptymanager.SessionTerminal) {
+func selectBackend(backendType, logDir, coralDir string) (ptymanager.TerminalBackend, background.AgentRuntime, ptymanager.SessionTerminal) {
 	if backendType == "pty" {
 		ptyBackend := ptymanager.NewPTYBackend()
 		log.Println("Using native PTY terminal backend")
 		return ptyBackend, background.NewPTYRuntime(ptyBackend), ptymanager.NewPTYSessionTerminal(ptyBackend)
 	}
-	tmuxClient := tmux.NewClient()
+	tmuxClient := tmux.NewClient(coralDir)
 	tmuxBackend := ptymanager.NewTmuxBackend(tmuxClient, logDir)
 	log.Println("Using tmux terminal backend")
 	return tmuxBackend, background.NewTmuxRuntime(tmuxClient), ptymanager.NewTmuxSessionTerminal(tmuxClient)

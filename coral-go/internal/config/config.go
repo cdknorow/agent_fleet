@@ -24,6 +24,10 @@ var Version string
 
 // Config holds all server configuration values.
 type Config struct {
+	// coralDir is the root data directory for all Coral state.
+	// Set by Load() from --home flag, CORAL_DATA_DIR, or ~/.coral.
+	coralDir string
+
 	// Database
 	DBPath          string
 	DBBusyTimeoutMS int
@@ -69,20 +73,28 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables with sensible defaults.
-func Load() *Config {
+// If dataDir is non-empty, it overrides all other data directory settings
+// (CORAL_DATA_DIR, CORAL_DIR, ~/.coral). Pass "" to use the default.
+func Load(dataDir ...string) *Config {
 	homeDir, _ := os.UserHomeDir()
 	coralDir := filepath.Join(homeDir, ".coral")
 	logDir := os.TempDir()
 
-	// Allow overriding the data directory.
-	// CORAL_DATA_DIR takes precedence (matches Python), CORAL_DIR as fallback alias.
-	if envDir := os.Getenv("CORAL_DATA_DIR"); envDir != "" {
+	// CLI --home flag takes highest precedence
+	if len(dataDir) > 0 && dataDir[0] != "" {
+		coralDir = dataDir[0]
+	} else if envDir := os.Getenv("CORAL_DATA_DIR"); envDir != "" {
+		// CORAL_DATA_DIR takes precedence (matches Python), CORAL_DIR as fallback alias.
 		coralDir = envDir
 	} else if envDir := os.Getenv("CORAL_DIR"); envDir != "" {
 		coralDir = envDir
 	}
 
+	// Ensure data directory exists
+	os.MkdirAll(coralDir, 0755)
+
 	cfg := &Config{
+		coralDir:        coralDir,
 		DBPath:          filepath.Join(coralDir, "sessions.db"),
 		DBBusyTimeoutMS: 5000,
 
@@ -141,9 +153,10 @@ func (c *Config) LicenseRequired() bool {
 	return !c.DevMode && SkipLicense != "true"
 }
 
-// CoralDir returns the ~/.coral directory path.
+// CoralDir returns the root data directory for all Coral state.
+// Controlled by --home flag, CORAL_DATA_DIR env var, or defaults to ~/.coral.
 func (c *Config) CoralDir() string {
-	return filepath.Dir(c.DBPath)
+	return c.coralDir
 }
 
 func envOrDefault(key, fallback string) string {

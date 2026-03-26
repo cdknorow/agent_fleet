@@ -41,8 +41,10 @@ type Client struct {
 }
 
 // NewClient creates a new tmux Client.
-// Uses ~/.coral/tmux.sock as the fixed socket with fallback to the default socket.
-func NewClient() *Client {
+// coralDir is the root data directory (e.g. ~/.coral). The tmux socket is
+// placed at <coralDir>/tmux.sock. Pass "" to use CORAL_TMUX_SOCKET env var
+// or fall back to ~/.coral/tmux.sock.
+func NewClient(coralDir ...string) *Client {
 	c := &Client{TmuxBin: "tmux", FallbackToDefault: true, sessionSockets: make(map[string]string)}
 
 	// Find tmux binary if not on PATH (native app may not have /opt/homebrew/bin)
@@ -55,7 +57,9 @@ func NewClient() *Client {
 		}
 	}
 
-	if sp := os.Getenv("CORAL_TMUX_SOCKET"); sp != "" {
+	if len(coralDir) > 0 && coralDir[0] != "" {
+		c.SocketPath = filepath.Join(coralDir[0], "tmux.sock")
+	} else if sp := os.Getenv("CORAL_TMUX_SOCKET"); sp != "" {
 		c.SocketPath = sp
 	} else {
 		home, _ := os.UserHomeDir()

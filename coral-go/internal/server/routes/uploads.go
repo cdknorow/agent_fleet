@@ -13,7 +13,9 @@ import (
 )
 
 var (
-	uploadDir = filepath.Join(mustHomeDir(), ".coral", "uploads")
+	// uploadDir is set by InitUploadDir() from server startup.
+	// Falls back to ~/.coral/uploads if not initialized.
+	uploadDir = ""
 
 	allowedExtensions = map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
@@ -34,6 +36,12 @@ var (
 
 	maxFileSize int64 = 20 * 1024 * 1024 // 20 MB
 )
+
+// InitUploadDir sets the upload directory based on the coral data directory.
+// Must be called during server initialization before handling upload requests.
+func InitUploadDir(coralDir string) {
+	uploadDir = filepath.Join(coralDir, "uploads")
+}
 
 func mustHomeDir() string {
 	home, _ := os.UserHomeDir()

@@ -61,6 +61,9 @@ type templateData struct {
 // New creates a Server with all routes registered.
 // If backend is nil, the server will use tmux-based terminal management.
 func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, terminal ptymanager.SessionTerminal) *Server {
+	// Initialize upload directory from config
+	routes.InitUploadDir(cfg.CoralDir())
+
 	// Open the board store (separate SQLite DB)
 	boardStore, err := board.NewStore(filepath.Join(cfg.CoralDir(), "messageboard.db"))
 	if err != nil {

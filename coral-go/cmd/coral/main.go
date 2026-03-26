@@ -20,16 +20,11 @@ import (
 	"github.com/cdknorow/coral/internal/tracking"
 )
 
-// setupCrashLogging redirects log output to ~/.coral/coral.log so that panics
+// setupCrashLogging redirects log output to <coralDir>/coral.log so that panics
 // and errors are captured even when the server runs in the background.
-func setupCrashLogging() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	logDir := filepath.Join(home, ".coral")
-	os.MkdirAll(logDir, 0755)
-	logFile := filepath.Join(logDir, "coral.log")
+func setupCrashLogging(coralDir string) {
+	os.MkdirAll(coralDir, 0755)
+	logFile := filepath.Join(coralDir, "coral.log")
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
@@ -39,7 +34,6 @@ func setupCrashLogging() {
 }
 
 func main() {
-	setupCrashLogging()
 
 	// Global panic recovery — log the full stack trace before exiting
 	defer func() {
@@ -52,11 +46,10 @@ func main() {
 	log.Printf("[STARTUP] coral server starting pid=%d go=%s os=%s arch=%s",
 		os.Getpid(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
 
-	cfg := config.Load()
-
-	// CLI flags override config
-	host := flag.String("host", cfg.Host, "Host to bind to")
-	port := flag.Int("port", cfg.Port, "Port to bind to")
+	// Parse --home early so config.Load() can use it
+	homeDir := flag.String("home", "", "Data directory (default: ~/.coral)")
+	host := flag.String("host", "", "Host to bind to")
+	port := flag.Int("port", 0, "Port to bind to")
 	noBrowser := flag.Bool("no-browser", false, "Don't open the browser on startup")
 	devMode := flag.Bool("dev", false, "Development mode: skip license check")
 	defaultBackend := "tmux"
@@ -66,12 +59,19 @@ func main() {
 	backendFlag := flag.String("backend", defaultBackend, "Terminal backend: pty or tmux")
 	flag.Parse()
 
+	cfg := config.Load(*homeDir)
+	setupCrashLogging(cfg.CoralDir())
+
+	if *host != "" {
+		cfg.Host = *host
+	}
+	if *port != 0 {
+		cfg.Port = *port
+	}
+
 	if *devMode {
 		cfg.DevMode = true
 	}
-
-	cfg.Host = *host
-	cfg.Port = *port
 
 	// Ignore SIGHUP — macOS sends it during sleep/wake transitions and when
 	// the controlling terminal closes. Without this, the default Go behavior
@@ -91,6 +91,7 @@ func main() {
 	defer rs.Close()
 
 	// Anonymous install/upgrade tracking (non-blocking)
+	tracking.SetCoralDir(cfg.CoralDir())
 	tracking.TrackInstallAsync()
 
 	// Open browser unless --no-browser

@@ -287,6 +287,7 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	killOrphanedCoralApp()
 
 	// Anonymous install/upgrade tracking (non-blocking)
+	tracking.SetCoralDir(dataDir)
 	tracking.TrackInstallAsync()
 
 	// Run systray (blocks until quit)
