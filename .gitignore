@@ -2,6 +2,7 @@ src/coral.egg-info/
 *pycache*
 dist/
 build/
+*.DS_Store
 *.egg-info/
 *.egg
 site/
