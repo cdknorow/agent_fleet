@@ -11,6 +11,7 @@ export async function loadAgentTasks(agentName, sessionId) {
         if (sid) params.set("session_id", sid);
         const qs = params.toString() ? `?${params}` : "";
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/tasks${qs}`);
+        if (!resp.ok) throw new Error(`tasks fetch failed: ${resp.status}`);
         state.currentAgentTasks = await resp.json();
     } catch (e) {
         state.currentAgentTasks = [];

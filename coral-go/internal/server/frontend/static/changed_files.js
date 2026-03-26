@@ -180,6 +180,7 @@ export async function loadChangedFiles(agentName, sessionId) {
         if (sid) params.set("session_id", sid);
         const qs = params.toString() ? `?${params}` : "";
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/files${qs}`);
+        if (!resp.ok) throw new Error(`files fetch failed: ${resp.status}`);
         const data = await resp.json();
         _currentFiles = data.files || [];
     } catch (e) {

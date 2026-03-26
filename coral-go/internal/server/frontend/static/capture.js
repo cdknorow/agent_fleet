@@ -70,8 +70,12 @@ export function renderCaptureText(el, text) {
 export async function refreshCapture() {
     if (!state.currentSession || state.currentSession.type !== "live") return;
 
-    // Skip polling when the tab is not visible
-    if (document.hidden) return;
+    // Skip polling when the tab is not visible — but always allow the first
+    // call so data is populated on initial session select. WKWebView can
+    // report document.hidden=true during initial load before the window is
+    // fully visible, which would leave the agentic state panel blank.
+    if (document.hidden && refreshCapture._hasRun) return;
+    refreshCapture._hasRun = true;
 
     try {
         const params = new URLSearchParams();
@@ -81,6 +85,7 @@ export async function refreshCapture() {
 
         // Single batch endpoint replaces separate capture + tasks + events calls
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(state.currentSession.name)}/poll${qs}`);
+        if (!resp.ok) throw new Error(`poll failed: ${resp.status}`);
         const data = await resp.json();
 
         // ── Capture ──

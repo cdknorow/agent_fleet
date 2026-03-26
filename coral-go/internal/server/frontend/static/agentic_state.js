@@ -108,6 +108,7 @@ export async function loadAgentEvents(agentName, sessionId) {
         const sid = sessionId || (state.currentSession && state.currentSession.session_id);
         if (sid) params.set("session_id", sid);
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/events?${params}`);
+        if (!resp.ok) throw new Error(`events fetch failed: ${resp.status}`);
         state.currentAgentEvents = await resp.json();
     } catch (e) {
         state.currentAgentEvents = [];

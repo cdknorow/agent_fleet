@@ -79,7 +79,16 @@ const VIEW_DISPLAY = {
 export function showView(activeId) {
     for (const id of VIEW_IDS) {
         const el = document.getElementById(id);
-        if (el) el.style.display = id === activeId ? VIEW_DISPLAY[id] : "none";
+        if (!el) continue;
+        if (id === activeId) {
+            el.style.display = VIEW_DISPLAY[id];
+            // Force WKWebView layout recalculation — without this, nested
+            // flex containers (e.g. agentic-state panel) can collapse to 0
+            // height when transitioning from display:none to display:flex.
+            void el.offsetHeight;
+        } else {
+            el.style.display = "none";
+        }
     }
 }
 

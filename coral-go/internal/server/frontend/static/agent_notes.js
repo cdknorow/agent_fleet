@@ -16,6 +16,7 @@ export async function loadAgentNotes(agentName, sessionId) {
         if (sid) params.set("session_id", sid);
         const qs = params.toString() ? `?${params}` : "";
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/notes${qs}`);
+        if (!resp.ok) throw new Error(`notes fetch failed: ${resp.status}`);
         const notes = await resp.json();
         if (notes.length > 0) {
             _noteId = notes[0].id;
