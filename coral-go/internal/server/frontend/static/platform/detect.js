@@ -7,7 +7,7 @@
 
 export const platform = {
     isNative:  false,
-    isBrowser: true,
+    get isBrowser() { return !this.isNative; },
     isMacOS:   false,
     isWindows: false,
     isLinux:   false,
@@ -28,7 +28,6 @@ export const platform = {
 
     init() {
         this.isNative  = !!window.__CORAL_APP__;
-        this.isBrowser = !this.isNative;
         this.isMacOS   = navigator.platform?.includes('Mac');
         this.isWindows = navigator.platform?.includes('Win');
         this.isLinux   = navigator.platform?.includes('Linux');

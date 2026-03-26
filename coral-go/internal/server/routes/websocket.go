@@ -584,10 +584,6 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	lastCursorX, lastCursorY := -1, -1
 	paneGoneNotified := false
 
-	// cachedTarget holds the resolved tmux pane target. Only re-resolved
-	// when pane-gone is detected (saves 1 subprocess per capture).
-	cachedTarget := target
-
 	doCapture := func() {
 		now := time.Now()
 		if now.Sub(lastCaptureTime) < minCaptureInterval {
@@ -595,18 +591,22 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		}
 		lastCaptureTime = now
 
-		// Use cached target — only re-resolve on first call or after pane-gone
-		if cachedTarget == "" {
+		targetMu.Lock()
+		currentTarget := target
+		targetMu.Unlock()
+
+		// Only re-resolve when target is empty (first call or after pane-gone)
+		if currentTarget == "" {
 			newTarget, _ := h.terminal.FindTarget(ctx, name, agentType, sessionID)
 			if newTarget != "" {
-				cachedTarget = newTarget
+				currentTarget = newTarget
 				targetMu.Lock()
 				target = newTarget
 				targetMu.Unlock()
 			}
 		}
 
-		if cachedTarget == "" {
+		if currentTarget == "" {
 			if !paneGoneNotified {
 				wsjson.Write(ctx, conn, map[string]any{"type": "terminal_closed"})
 				paneGoneNotified = true
@@ -617,7 +617,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		// Query cursor position and alternate screen mode in one call
 		cursorX, cursorY := -1, -1
 		altScreen := false
-		if infoOut, err := h.terminal.DisplayMessage(ctx, cachedTarget, "#{cursor_x},#{cursor_y},#{alternate_on}"); err == nil {
+		if infoOut, err := h.terminal.DisplayMessage(ctx, currentTarget, "#{cursor_x},#{cursor_y},#{alternate_on}"); err == nil {
 			parts := strings.SplitN(strings.TrimSpace(infoOut), ",", 3)
 			if len(parts) >= 3 {
 				cursorX, _ = strconv.Atoi(parts[0])
@@ -627,7 +627,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 		}
 
 		// Use visible-only capture when a TUI app is using the alternate screen buffer
-		content, _ := h.terminal.CaptureRawOutput(ctx, cachedTarget, 200, altScreen)
+		content, _ := h.terminal.CaptureRawOutput(ctx, currentTarget, 200, altScreen)
 		if content != "" {
 			paneGoneNotified = false
 			if content != lastContent || cursorX != lastCursorX || cursorY != lastCursorY {
@@ -658,13 +658,15 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	// Try fsnotify for event-driven capture (zero CPU when idle, lower latency
 	// when active). Falls back to stat polling if fsnotify is unavailable.
 	var fileEvents <-chan fsnotify.Event
+	var watcherErrors <-chan error
 	if logPath != "" {
 		if watcher, err := fsnotify.NewWatcher(); err == nil {
 			if err := watcher.Add(logPath); err == nil {
 				defer watcher.Close()
 				fileEvents = watcher.Events
+				watcherErrors = watcher.Errors
 			} else {
-				watcher.Close() // Close immediately — no point keeping an idle watcher
+				watcher.Close()
 			}
 		}
 	}
@@ -677,8 +679,6 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	}
 	pollTicker := time.NewTicker(pollInterval)
 	defer pollTicker.Stop()
-	slowTicker := time.NewTicker(3 * time.Second)
-	defer slowTicker.Stop()
 
 	for !isClosed() {
 		if paneGoneNotified {
@@ -688,10 +688,9 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 				conn.Close(websocket.StatusNormalClosure, "")
 				return
 			case <-inputEvent:
-			case <-slowTicker.C:
+			case <-time.After(3 * time.Second):
 			}
-			// Clear cached target to force re-resolution
-			cachedTarget = ""
+			// Clear target to force re-resolution
 			targetMu.Lock()
 			target = ""
 			targetMu.Unlock()
@@ -708,6 +707,10 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 			case event := <-fileEvents:
 				if event.Op&fsnotify.Write != 0 {
 					doCapture()
+				}
+			case watchErr := <-watcherErrors:
+				if watchErr != nil {
+					slog.Warn("fsnotify watcher error", "name", name, "error", watchErr)
 				}
 			case <-inputEvent:
 				doCapture()

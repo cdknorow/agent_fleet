@@ -6,6 +6,8 @@ import { renderTaskList } from './tasks.js';
 import { renderEventTimeline } from './agentic_state.js';
 import { getTerminalCols } from './xterm_renderer.js';
 
+let _refreshCaptureHasRun = false;
+
 /* ── Tmux pane width sync ─────────────────────────────────────────────── */
 
 function measureTerminalColumns() {
@@ -74,8 +76,8 @@ export async function refreshCapture() {
     // call so data is populated on initial session select. WKWebView can
     // report document.hidden=true during initial load before the window is
     // fully visible, which would leave the agentic state panel blank.
-    if (document.hidden && refreshCapture._hasRun) return;
-    refreshCapture._hasRun = true;
+    if (document.hidden && _refreshCaptureHasRun) return;
+    _refreshCaptureHasRun = true;
 
     try {
         const params = new URLSearchParams();
