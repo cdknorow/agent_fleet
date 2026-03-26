@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/cdknorow/coral/internal/board"
@@ -17,6 +18,7 @@ type BoardNotifier struct {
 	logger     *slog.Logger
 	discoverFn func(ctx context.Context) ([]AgentInfo, error)
 	isPausedFn func(project string) bool
+	notifiedMu sync.Mutex
 	notified   map[string]int // session_id -> unread count at last notification
 }
 
@@ -94,11 +96,16 @@ func (n *BoardNotifier) RunOnce(ctx context.Context) error {
 		}
 
 		if unread == 0 {
+			n.notifiedMu.Lock()
 			delete(n.notified, boardSID)
+			n.notifiedMu.Unlock()
 			continue
 		}
 
-		if n.notified[boardSID] == unread {
+		n.notifiedMu.Lock()
+		alreadyNotified := n.notified[boardSID] == unread
+		n.notifiedMu.Unlock()
+		if alreadyNotified {
 			continue
 		}
 
@@ -115,15 +122,19 @@ func (n *BoardNotifier) RunOnce(ctx context.Context) error {
 			continue
 		}
 
+		n.notifiedMu.Lock()
 		n.notified[boardSID] = unread
+		n.notifiedMu.Unlock()
 	}
 
 	// Clean up stale entries
+	n.notifiedMu.Lock()
 	for sid := range n.notified {
 		if !liveBoardIDs[sid] {
 			delete(n.notified, sid)
 		}
 	}
+	n.notifiedMu.Unlock()
 
 	return nil
 }

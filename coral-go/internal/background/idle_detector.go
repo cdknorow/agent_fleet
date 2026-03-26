@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/cdknorow/coral/internal/store"
@@ -20,6 +21,7 @@ type IdleDetector struct {
 	interval     time.Duration
 	logger       *slog.Logger
 	discoverFn   func(ctx context.Context) ([]AgentInfo, error)
+	notifiedMu   sync.Mutex
 	notified     map[string]bool // Track which agents we've already notified
 }
 
@@ -99,7 +101,9 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 	for _, agent := range agents {
 		// Skip sleeping sessions — they are intentionally idle
 		if sleepingSIDs[agent.SessionID] {
+			d.notifiedMu.Lock()
 			delete(d.notified, agent.AgentName)
+			d.notifiedMu.Unlock()
 			continue
 		}
 		evPair, ok := latestEvents[agent.SessionID]
@@ -110,7 +114,9 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 		waiting := latestEv == "notification"
 
 		if !waiting {
+			d.notifiedMu.Lock()
 			delete(d.notified, agent.AgentName)
+			d.notifiedMu.Unlock()
 			continue
 		}
 
@@ -125,7 +131,10 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 			continue
 		}
 
-		if d.notified[agent.AgentName] {
+		d.notifiedMu.Lock()
+		alreadyNotified := d.notified[agent.AgentName]
+		d.notifiedMu.Unlock()
+		if alreadyNotified {
 			continue
 		}
 
@@ -139,7 +148,9 @@ func (d *IdleDetector) RunOnce(ctx context.Context) error {
 				fmt.Sprintf("Agent needs input — waiting for %d minutes", minutes),
 				&agent.SessionID)
 		}
+		d.notifiedMu.Lock()
 		d.notified[agent.AgentName] = true
+		d.notifiedMu.Unlock()
 	}
 
 	return nil
