@@ -88,6 +88,16 @@ func GetDiffBase(ctx context.Context, workdir, mode string) string {
 		return "HEAD"
 	}
 
+	if mode == "main_head" {
+		// Diff against main/master branch HEAD directly
+		for _, branch := range []string{"main", "master"} {
+			if _, err := git(ctx, workdir, "rev-parse", "--verify", branch); err == nil {
+				return branch
+			}
+		}
+		return "HEAD"
+	}
+
 	// Default: branch_point (merge-base)
 	branch, err := git(ctx, workdir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {

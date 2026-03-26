@@ -870,18 +870,6 @@ func (s *SessionStore) UpdateLiveSessionDisplayName(ctx context.Context, session
 	return err
 }
 
-// UpdateGitDiffMode updates the git_diff_mode for a live session.
-func (s *SessionStore) UpdateGitDiffMode(ctx context.Context, sessionID, mode string) error {
-	var val *string
-	if mode != "" {
-		val = &mode
-	}
-	_, err := s.db.ExecContext(ctx,
-		"UPDATE live_sessions SET git_diff_mode = ? WHERE session_id = ?",
-		val, sessionID)
-	return err
-}
-
 // SetIcon sets or clears the emoji icon for a live session.
 func (s *SessionStore) SetIcon(ctx context.Context, sessionID string, icon *string) error {
 	_, err := s.db.ExecContext(ctx,

@@ -822,25 +822,22 @@ window._closeInlinePreview = function() {
 
 /* ── Refresh & Render ──────────────────────────────────────── */
 
+const _diffModes = ['branch_point', 'previous_commit', 'main_head'];
+const _diffModeLabels = { branch_point: 'vs merge-base', previous_commit: 'vs HEAD~1', main_head: 'vs main' };
+
 export async function toggleGitDiffMode() {
-    if (!state.currentSession || state.currentSession.type !== 'live') return;
-
     const current = _getGitDiffMode();
-    const next = current === 'branch_point' ? 'previous_commit' : 'branch_point';
+    const idx = _diffModes.indexOf(current);
+    const next = _diffModes[(idx + 1) % _diffModes.length];
 
-    // Save per-agent
+    // Save to global settings
     try {
-        const name = encodeURIComponent(state.currentSession.name);
-        await fetch(`/api/sessions/live/${name}/git-diff-mode`, {
+        await fetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                session_id: state.currentSession.session_id || '',
-                mode: next,
-            }),
+            body: JSON.stringify({ git_diff_mode: next }),
         });
-        // Cache the mode locally on the session object
-        state.currentSession.git_diff_mode = next;
+        state.settings = { ...state.settings, git_diff_mode: next };
     } catch (e) {
         console.error('Failed to save git diff mode:', e);
         return;
@@ -849,11 +846,8 @@ export async function toggleGitDiffMode() {
     refreshChangedFiles();
 }
 
-/** Get current git diff mode: agent override → user default → 'branch_point' */
 function _getGitDiffMode() {
-    return state.currentSession?.git_diff_mode
-        || (state.settings || {}).git_diff_mode
-        || 'branch_point';
+    return (state.settings || {}).git_diff_mode || 'branch_point';
 }
 
 export async function refreshChangedFiles() {
@@ -901,7 +895,7 @@ export function renderChangedFiles() {
 
     if (titleEl) {
         const diffMode = _getGitDiffMode();
-        const modeLabel = diffMode === 'previous_commit' ? 'vs HEAD~1' : 'vs merge-base';
+        const modeLabel = _diffModeLabels[diffMode] || 'vs merge-base';
         titleEl.innerHTML = `${files.length} file${files.length !== 1 ? 's' : ''} changed <button class="diff-mode-toggle" onclick="toggleGitDiffMode()" title="Click to switch diff mode">${escapeHtml(modeLabel)}</button>`;
     }
     if (countEl) {
@@ -909,7 +903,7 @@ export function renderChangedFiles() {
     }
 
     if (files.length === 0) {
-        list.innerHTML = '<div class="file-empty">No changed files</div>';
+        list.innerHTML = `<div class="file-empty">No changed files<br><button class="diff-mode-toggle" onclick="toggleGitDiffMode()" style="margin-top:8px">Try another diff mode</button></div>`;
         return;
     }
 

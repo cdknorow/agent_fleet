@@ -62,25 +62,14 @@ type lastKnownState struct {
 	Summary string
 }
 
-// getDiffModeForSession resolves the git diff mode using a cascade:
-// agent column → user_settings → default ("branch_point").
-func (h *SessionsHandler) getDiffModeForSession(ctx context.Context, sessionID string) string {
-	// 1. Check per-agent setting
-	if sessionID != "" {
-		ls, err := h.ss.GetLiveSession(ctx, sessionID)
-		if err == nil && ls != nil && ls.GitDiffMode != nil && *ls.GitDiffMode != "" {
-			return *ls.GitDiffMode
-		}
-	}
-	// 2. Fall back to global user setting
+// getDiffMode reads the git_diff_mode from global user settings.
+// Returns "" (default branch_point), "previous_commit", or "main_head".
+func (h *SessionsHandler) getDiffMode(ctx context.Context) string {
 	settings, err := h.ss.GetSettings(ctx)
-	if err == nil {
-		if mode := settings["git_diff_mode"]; mode != "" {
-			return mode
-		}
+	if err != nil {
+		return ""
 	}
-	// 3. Default
-	return ""
+	return settings["git_diff_mode"]
 }
 
 // NewSessionsHandler creates a SessionsHandler with the given dependencies.
@@ -760,7 +749,7 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), body.SessionID))
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffMode(r.Context()))
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--numstat").Output()
 	fileMap := make(map[string]store.ChangedFile)
 	if err != nil {
@@ -894,7 +883,7 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), sessionID))
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffMode(r.Context()))
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--", fp).Output()
 	diffText := ""
 	if err != nil {
@@ -2360,7 +2349,7 @@ func (h *SessionsHandler) GetFileOriginal(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), sessionID))
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffMode(r.Context()))
 
 	// git show <ref>:<path> needs paths relative to the repo root, not the workdir.
 	prefix := gitutil.ShowPrefix(ctx, workdir)
@@ -2491,38 +2480,6 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "icon": icon})
-}
-
-// SetGitDiffMode sets the git diff mode for a live session.
-// PUT /api/sessions/live/{name}/git-diff-mode
-func (h *SessionsHandler) SetGitDiffMode(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		SessionID string `json:"session_id"`
-		Mode      string `json:"mode"` // "branch_point" or "previous_commit"
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		errBadRequest(w, "invalid JSON")
-		return
-	}
-	if body.SessionID == "" {
-		writeJSON(w, http.StatusOK, map[string]string{"error": "session_id is required"})
-		return
-	}
-
-	// Validate mode
-	switch body.Mode {
-	case "branch_point", "previous_commit", "":
-		// valid
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"error": "mode must be 'branch_point' or 'previous_commit'"})
-		return
-	}
-
-	if err := h.ss.UpdateGitDiffMode(r.Context(), body.SessionID, body.Mode); err != nil {
-		errInternalServer(w, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": body.Mode})
 }
 
 // ── Team Sleep/Wake ──────────────────────────────────────────────────────
