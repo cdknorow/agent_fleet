@@ -527,7 +527,6 @@ window._goHome = function() {
 document.addEventListener("DOMContentLoaded", () => {
     // Initialize platform detection and platform-specific behavior
     platform.init();
-    console.log('[CORAL-DEBUG] platform:', { isNative: platform.isNative, isMacOS: platform.isMacOS, engine: platform.engine, hidden: document.hidden });
     if (platform.isNative) {
         initNative();
         if (platform.isMacOS)   initMacOS();

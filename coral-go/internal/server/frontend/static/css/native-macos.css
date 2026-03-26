@@ -8,20 +8,3 @@
 .native-macos .top-bar {
     padding-left: 78px;                 /* Space for macOS window controls */
 }
-
-/* ── WKWebView Layout Fix ─────────────────────────────────── */
-
-/* NSWindowStyleMaskFullSizeContentView makes content extend under the
-   titlebar, which causes WKWebView to report a larger viewport height
-   than what's actually visible. This breaks flex height calculations
-   for nested overflow:hidden containers. Fix: give an explicit height
-   so the layout engine has a concrete value to work from. */
-html.native-macos,
-html.native-macos body {
-    height: 100vh;
-    overflow: hidden;
-}
-
-.native-macos .agentic-panel.active {
-    min-height: 50px;
-}
