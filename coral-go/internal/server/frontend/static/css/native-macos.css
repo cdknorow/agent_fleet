@@ -1,0 +1,23 @@
+/* ============================================================
+   Native macOS — WKWebView-specific CSS.
+   Rules scoped under .native-macos have no effect on other platforms.
+   ============================================================ */
+
+/* ── Traffic Light Buttons ────────────────────────────────── */
+
+.native-macos .top-bar {
+    padding-left: 78px;                 /* Space for macOS window controls */
+}
+
+/* ── WKWebView Layout Fixes ───────────────────────────────── */
+
+/* Prevent overflow:hidden containers from collapsing to 0 height.
+   WKWebView may not establish parent heights before flex children
+   compute their sizes during display:none -> display:flex transitions. */
+.native-macos .agentic-state {
+    min-height: 100px;
+}
+
+.native-macos .agentic-panel {
+    min-height: 50px;
+}

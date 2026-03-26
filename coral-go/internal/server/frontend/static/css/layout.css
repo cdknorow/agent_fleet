@@ -757,25 +757,4 @@ img[src*="coral.png"] {
     background: var(--bg-tertiary);
 }
 
-/* ── Native App (webview window) ──────────────────────────── */
-
-.native-app .top-bar {
-    -webkit-app-region: drag;           /* Make top bar the window drag handle */
-    padding: 6px 12px;
-}
-
-.native-app .top-bar-title {
-    display: none;                      /* Hide logo + title in native app — window already identifies the app */
-}
-
-/* Buttons must be non-draggable so they remain clickable */
-.native-app .top-bar-btn,
-.native-app .top-bar-brand button,
-.native-app .top-bar-actions {
-    -webkit-app-region: no-drag;
-}
-
-/* macOS: extra left padding for traffic light buttons */
-.native-app.native-macos .top-bar {
-    padding-left: 78px;
-}
+/* Native app rules moved to css/native.css and css/native-macos.css */

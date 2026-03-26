@@ -1,0 +1,16 @@
+/* ============================================================
+   Native Windows — WebView2-specific CSS.
+   Rules scoped under .native-windows have no effect on other platforms.
+   ============================================================ */
+
+/* ── Titlebar ─────────────────────────────────────────────── */
+
+.native-windows .top-bar {
+    padding-right: 140px;               /* Space for min/max/close buttons */
+}
+
+/* ── Font Rendering ───────────────────────────────────────── */
+
+.native-windows body {
+    -webkit-font-smoothing: auto;       /* Windows ClearType needs explicit smoothing */
+}

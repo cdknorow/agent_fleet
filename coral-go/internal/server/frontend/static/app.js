@@ -39,6 +39,11 @@ import { showThemeConfigurator, hideThemeConfigurator } from './theme_config.js'
 import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, toggleBoardSleep, deleteBoardMessage, showExportBoardModal, doExportBoard } from './message_board.js';
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
+import { platform } from './platform/detect.js';
+import { initNative } from './platform/native.js';
+import { initMacOS } from './platform/macos.js';
+import { initWindows } from './platform/windows.js';
+import { initBrowser } from './platform/browser.js';
 
 import { checkForUpdates, dismissUpdateToast } from './update_check.js';
 
@@ -519,9 +524,14 @@ window._goHome = function() {
 
 // ── Initialization ────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-    // Detect native webview app (coral-app sets window.__CORAL_APP__)
-    if (window.__CORAL_APP__ || navigator.userAgent.includes('CoralApp')) {
-        document.body.classList.add('native-app');
+    // Initialize platform detection and platform-specific behavior
+    platform.init();
+    if (platform.isNative) {
+        initNative();
+        if (platform.isMacOS)   initMacOS();
+        if (platform.isWindows) initWindows();
+    } else {
+        initBrowser();
     }
 
     // Intercept 401 responses — redirect to auth page

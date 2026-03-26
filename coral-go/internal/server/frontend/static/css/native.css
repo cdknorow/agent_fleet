@@ -1,0 +1,22 @@
+/* ============================================================
+   Native App — shared CSS for all native platforms (macOS, Windows).
+   Rules scoped under .native-app have no effect in browsers.
+   ============================================================ */
+
+/* ── Window Chrome ────────────────────────────────────────── */
+
+.native-app .top-bar {
+    -webkit-app-region: drag;           /* Make top bar the window drag handle */
+    padding: 6px 12px;
+}
+
+.native-app .top-bar-title {
+    display: none;                      /* Hide logo + title — window already identifies the app */
+}
+
+/* Buttons must be non-draggable so they remain clickable */
+.native-app .top-bar-btn,
+.native-app .top-bar-brand button,
+.native-app .top-bar-actions {
+    -webkit-app-region: no-drag;
+}

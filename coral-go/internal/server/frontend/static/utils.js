@@ -1,5 +1,7 @@
 /* Utility functions: HTML escaping and toast notifications */
 
+import { forceReflow } from './platform/macos.js';
+
 // Debug logging — enabled via ?debug=1 URL param or localStorage coral-debug=1
 const _debugEnabled = new URLSearchParams(location.search).has('debug') ||
     localStorage.getItem('coral-debug') === '1';
@@ -85,7 +87,7 @@ export function showView(activeId) {
             // Force WKWebView layout recalculation — without this, nested
             // flex containers (e.g. agentic-state panel) can collapse to 0
             // height when transitioning from display:none to display:flex.
-            void el.offsetHeight;
+            forceReflow(el);
         } else {
             el.style.display = "none";
         }
