@@ -72,10 +72,17 @@ cd coral-go && go run ./cmd/coral-tray/ --foreground --dev --host 127.0.0.1 --po
 cd coral-go && go run ./cmd/coral-tray/ --dev --host 127.0.0.1 --port 8420
 ```
 
-**Launch native app window (connects to running tray):**
+**Launch native app window (connects to running tray or standalone server):**
 ```bash
-cd coral-go && go run ./cmd/coral-app/ --url http://localhost:8420
+cd coral-go && CGO_ENABLED=1 go run -tags webview ./cmd/coral-app/ --url http://localhost:8420
 ```
+
+> **Note:** `coral-app` requires both `CGO_ENABLED=1` and `-tags webview` because
+> it uses CGO for the native webview library and all source files are gated behind
+> the `webview` build tag. Alternatively, use the pre-built binary:
+> ```bash
+> ./installers/dist/Coral.app/Contents/MacOS/coral-app --url http://localhost:8420
+> ```
 
 **Normal usage:** Open `Coral.app` from `/Applications` — it launches both
 `coral-tray` (background) and `coral-app` (window) automatically via
@@ -159,6 +166,21 @@ cd coral-go && go run ./cmd/coral-tray/ --foreground --dev --host 127.0.0.1 --po
 
 # Compare: open http://localhost:8450 in browser vs Coral.app on port 8420
 ```
+
+### Standalone Server + Native Window (no tray)
+
+Run the server without the tray/systray layer, but still use the native app window:
+
+```bash
+# Terminal 1: Standalone server
+cd coral-go && go run ./cmd/coral/ --dev --host 127.0.0.1 --port 8420
+
+# Terminal 2: Native window connecting to standalone server
+cd coral-go && CGO_ENABLED=1 go run -tags webview ./cmd/coral-app/ --url http://localhost:8420
+```
+
+This isolates the systray CGO layer — if the server stays stable here but crashes
+with `coral-tray`, the issue is in the tray/systray code, not the core server.
 
 Use different ports to avoid conflicts. Both share the same `~/.coral/` data
 directory (SQLite, settings, logs) by default — use `--home` to separate if needed.
