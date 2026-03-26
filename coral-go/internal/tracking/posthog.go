@@ -23,12 +23,19 @@ const posthogURL = "https://us.i.posthog.com/capture/"
 var (
 	cachedInstallID string
 	installIDOnce   sync.Once
+	coralDir        string // set by SetCoralDir; falls back to ~/.coral
 )
+
+// SetCoralDir sets the data directory used for tracking state files.
+// Must be called before TrackInstallAsync(). If not called, falls back to ~/.coral.
+func SetCoralDir(dir string) {
+	coralDir = dir
+}
 
 // getInstallID returns the install ID, reading from disk once and caching.
 func getInstallID() string {
 	installIDOnce.Do(func() {
-		idFile := filepath.Join(homeDir(), ".coral", ".install_id")
+		idFile := filepath.Join(resolveCoralDir(), ".install_id")
 		cachedInstallID = readFile(idFile)
 	})
 	return cachedInstallID
@@ -75,11 +82,11 @@ func TrackEvent(eventName string, extraProps map[string]string) {
 }
 
 func trackInstall() {
-	coralDir := filepath.Join(homeDir(), ".coral")
-	os.MkdirAll(coralDir, 0755)
+	dir := resolveCoralDir()
+	os.MkdirAll(dir, 0755)
 
-	idFile := filepath.Join(coralDir, ".install_id")
-	versionFile := filepath.Join(coralDir, ".install_version")
+	idFile := filepath.Join(dir, ".install_id")
+	versionFile := filepath.Join(dir, ".install_version")
 
 	installID := readFile(idFile)
 	storedVersion := readFile(versionFile)
@@ -145,9 +152,13 @@ func readFile(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func homeDir() string {
+// resolveCoralDir returns the data directory for tracking state files.
+func resolveCoralDir() string {
+	if coralDir != "" {
+		return coralDir
+	}
 	h, _ := os.UserHomeDir()
-	return h
+	return filepath.Join(h, ".coral")
 }
 
 func generateUUID() string {

@@ -1124,6 +1124,9 @@ func (h *SessionsHandler) Kill(w http.ResponseWriter, r *http.Request) {
 	// Kill tmux/pty session (may fail if sleeping — that's expected)
 	h.terminal.KillSession(r.Context(), name, body.AgentType, body.SessionID)
 
+	// Clean up board state file so it doesn't accumulate over time
+	removeBoardStateFile(name, h.cfg)
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -1982,11 +1985,7 @@ func (h *SessionsHandler) setupBoardAndPrompt(sessionID, sessionName, agentType,
 // writeBoardStateFile writes the local board state file that coral-board CLI
 // reads to determine which board a session is subscribed to.
 func writeBoardStateFile(sessionName, boardName, role string, cfg *config.Config) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	stateDir := filepath.Join(home, ".coral")
+	stateDir := cfg.CoralDir()
 	os.MkdirAll(stateDir, 0755)
 
 	state := map[string]string{
@@ -2003,6 +2002,13 @@ func writeBoardStateFile(sessionName, boardName, role string, cfg *config.Config
 	if err := os.WriteFile(statePath, data, 0644); err != nil {
 		log.Printf("Failed to write board state file for %s: %v", sessionName, err)
 	}
+}
+
+// removeBoardStateFile deletes the board state file for a session.
+// Called when a session is killed so state files don't accumulate.
+func removeBoardStateFile(sessionName string, cfg *config.Config) {
+	statePath := filepath.Join(cfg.CoralDir(), fmt.Sprintf("board_state_%s.json", sessionName))
+	os.Remove(statePath) // Ignore error — file may not exist
 }
 
 func (h *SessionsHandler) protocolPath() string {
