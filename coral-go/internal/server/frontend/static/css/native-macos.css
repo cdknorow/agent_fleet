@@ -11,13 +11,13 @@
 
 /* ── WKWebView Layout Fixes ───────────────────────────────── */
 
-/* Prevent overflow:hidden containers from collapsing to 0 height.
-   WKWebView may not establish parent heights before flex children
-   compute their sizes during display:none -> display:flex transitions. */
+/* WKWebView flex height fix — use explicit height instead of relying on
+   flex auto-sizing, which can collapse to 0 when parent height isn't
+   established during display:none -> display:flex transitions. */
 .native-macos .agentic-state {
-    min-height: 100px;
+    height: 100%;
 }
 
-.native-macos .agentic-panel {
+.native-macos .agentic-panel.active {
     min-height: 50px;
 }

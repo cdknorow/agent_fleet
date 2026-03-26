@@ -6,12 +6,15 @@ import { platform } from './detect.js';
 export function initNative() {
     if (!platform.isNative) return;
 
-    // Body classes may already be applied by coral-app/main.go w.Init()
-    // (needed early for -webkit-app-region: drag). classList.add is idempotent.
-    document.body.classList.add('native-app');
-    if (platform.isMacOS)   document.body.classList.add('native-macos');
-    if (platform.isWindows) document.body.classList.add('native-windows');
-    if (platform.isLinux)   document.body.classList.add('native-linux');
+    // Apply classes on both <html> and <body> for CSS selector compatibility.
+    // w.Init() applies them on <html> synchronously (before CSS evaluation),
+    // we also add to <body> as a safety net. classList.add is idempotent.
+    for (const el of [document.documentElement, document.body]) {
+        el.classList.add('native-app');
+        if (platform.isMacOS)   el.classList.add('native-macos');
+        if (platform.isWindows) el.classList.add('native-windows');
+        if (platform.isLinux)   el.classList.add('native-linux');
+    }
 
     initHealthCheck();
     initLinkInterceptor();
