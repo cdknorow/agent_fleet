@@ -526,6 +526,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 				Type string `json:"type"`
 				Data string `json:"data"`
 				Cols int    `json:"cols"`
+				Rows int    `json:"rows"`
 			}
 			if err := json.Unmarshal(raw, &msg); err != nil {
 				continue
@@ -544,7 +545,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 				}
 			case "terminal_resize":
 				if msg.Cols >= 10 && currentTarget != "" {
-					h.terminal.ResizeTarget(ctx, currentTarget, msg.Cols)
+					h.terminal.ResizeTarget(ctx, currentTarget, msg.Cols, msg.Rows)
 				}
 			}
 		}
@@ -638,6 +639,9 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 				if cursorX >= 0 {
 					msg["cursor_x"] = cursorX
 					msg["cursor_y"] = cursorY
+				}
+				if altScreen {
+					msg["alt_screen"] = true
 				}
 				if err := wsjson.Write(ctx, conn, msg); err != nil {
 					return
@@ -748,3 +752,4 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 
 	conn.Close(websocket.StatusNormalClosure, "")
 }
+

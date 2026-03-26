@@ -497,6 +497,26 @@
                     <span class="toggle-desc">Show scrollbars in terminal and chat views</span>
                 </dt>
                 <dd><input type="checkbox" id="settings-show-scrollbars" checked></dd>
+                <dt>
+                    <label for="settings-file-search-mode">File Search Mode</label>
+                    <span class="toggle-desc">How @ mentions and file browser search for files</span>
+                </dt>
+                <dd>
+                    <select id="settings-file-search-mode" class="settings-select">
+                        <option value="directory">Directory Browsing</option>
+                        <option value="fuzzy">Fuzzy Matching</option>
+                    </select>
+                </dd>
+                <dt>
+                    <label for="settings-git-diff-mode">Git Diff Mode</label>
+                    <span class="toggle-desc">What to compare changed files against</span>
+                </dt>
+                <dd>
+                    <select id="settings-git-diff-mode" class="settings-select">
+                        <option value="branch_point">Branch Point (merge-base)</option>
+                        <option value="previous_commit">Previous Commit (HEAD~1)</option>
+                    </select>
+                </dd>
                 </dl>
                 <button class="btn btn-primary" onclick="hideSettingsModal(); showDefaultPromptsModal()" style="width:100%;margin-top:12px">
                     <span style="font-size:16px;vertical-align:middle;margin-right:6px">✏️</span>

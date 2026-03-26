@@ -8,44 +8,11 @@ package main
 
 #import <Cocoa/Cocoa.h>
 
-// DragOverlayView is a transparent NSView placed over the titlebar region.
-// It handles window dragging natively, bypassing WKWebView's event handling
-// which breaks CSS -webkit-app-region: drag after the window gains focus.
-@interface DragOverlayView : NSView
-@end
+// Drag region height in points — matches the CSS top-bar height (~37px).
+static const CGFloat kDragRegionHeight = 37.0;
 
-@implementation DragOverlayView
-
-- (BOOL)acceptsFirstMouse:(NSEvent *)event {
-    return YES;
-}
-
-- (void)mouseDown:(NSEvent *)event {
-    [self.window performWindowDragWithEvent:event];
-}
-
-- (void)mouseUp:(NSEvent *)event {
-    // Check for double-click to toggle zoom (standard macOS behavior)
-    if (event.clickCount == 2) {
-        [self.window performZoom:nil];
-    }
-}
-
-// Allow clicks to pass through to buttons underneath
-- (NSView *)hitTest:(NSPoint)point {
-    // Convert to window coordinates
-    NSPoint windowPoint = [self convertPoint:point toView:nil];
-    NSPoint screenPoint = [self.window convertPointToScreen:windowPoint];
-
-    // Check if any button/control under this point should receive the click.
-    // Traffic light buttons (close/minimize/zoom) are in the titlebar area
-    // and handled by the window frame, not by this view.
-    // For web-rendered buttons, we rely on the height of the drag region
-    // being just the titlebar height (~37px), so buttons below it get clicks.
-    return [super hitTest:point];
-}
-
-@end
+// Minimum mouse movement (in points) to distinguish a drag from a click.
+static const CGFloat kDragThreshold = 3.0;
 
 static NSWindow* findAppWindow() {
     NSWindow *window = [[NSApplication sharedApplication] keyWindow];
@@ -58,8 +25,95 @@ static NSWindow* findAppWindow() {
     return window;
 }
 
-// configureTitlebar sets up a transparent titlebar with full-size content view
-// and adds a native drag overlay so window dragging works reliably in WKWebView.
+// Returns YES if the point (in window coordinates) is within the titlebar
+// drag region.
+static BOOL isInDragRegion(NSWindow *window, NSPoint windowPoint) {
+    NSView *contentView = [window contentView];
+    if (!contentView) return NO;
+
+    CGFloat contentHeight = contentView.bounds.size.height;
+    // NSWindow uses bottom-left origin, so the drag region is y > contentHeight - kDragRegionHeight.
+    CGFloat minY = contentHeight - kDragRegionHeight;
+
+    return windowPoint.y >= minY;
+}
+
+// installTitlebarDragMonitor sets up three local event monitors that
+// distinguish between clicks and drags in the titlebar region:
+//
+// 1. mouseDown: If in the drag region, save the event and let it pass through
+//    to WKWebView (so buttons remain clickable). Double-clicks trigger zoom.
+// 2. mouseDragged: If a drag-region mouseDown was saved and the mouse has
+//    moved beyond the threshold, initiate window drag.
+// 3. mouseUp: Clear the saved mouseDown (click completed without dragging).
+//
+// This avoids reentrancy issues with nested event loops and follows the
+// standard macOS pattern for click-vs-drag disambiguation.
+void installTitlebarDragMonitor() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Shared state between the three monitors.
+        __block NSEvent *savedMouseDown = nil;
+        __block NSPoint savedStartPoint = NSZeroPoint;
+
+        // Monitor 1: mouseDown — save if in drag region, pass through
+        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown
+            handler:^NSEvent *(NSEvent *event) {
+                savedMouseDown = nil; // clear any stale state
+
+                NSWindow *window = event.window;
+                if (!window) return event;
+
+                if (!isInDragRegion(window, event.locationInWindow)) return event;
+
+                if (event.clickCount == 2) {
+                    [window performZoom:nil];
+                    return nil; // consume double-click
+                }
+
+                // Save the mouseDown for potential drag initiation.
+                // Return the event so WKWebView receives it (buttons work).
+                savedMouseDown = event;
+                savedStartPoint = event.locationInWindow;
+                return event;
+            }];
+
+        // Monitor 2: mouseDragged — if saved mouseDown was in drag region,
+        // check threshold and initiate window drag
+        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDragged
+            handler:^NSEvent *(NSEvent *event) {
+                if (!savedMouseDown) return event;
+
+                NSPoint dragPoint = event.locationInWindow;
+                CGFloat dx = dragPoint.x - savedStartPoint.x;
+                CGFloat dy = dragPoint.y - savedStartPoint.y;
+
+                if (dx * dx + dy * dy > kDragThreshold * kDragThreshold) {
+                    // User dragged beyond threshold — initiate window drag.
+                    // performWindowDragWithEvent: takes over the run loop until
+                    // the mouse is released. Pass the original mouseDown event
+                    // as the drag anchor.
+                    NSEvent *mouseDown = savedMouseDown;
+                    savedMouseDown = nil;
+                    [mouseDown.window performWindowDragWithEvent:mouseDown];
+                    return nil; // consume the drag event
+                }
+
+                return event;
+            }];
+
+        // Monitor 3: mouseUp — clear saved mouseDown (click completed)
+        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseUp
+            handler:^NSEvent *(NSEvent *event) {
+                savedMouseDown = nil;
+                return event;
+            }];
+
+        NSLog(@"[TITLEBAR] drag monitors installed (height=%.0f, threshold=%.0f)",
+              kDragRegionHeight, kDragThreshold);
+    });
+}
+
+// configureTitlebar sets up a transparent titlebar with full-size content view.
 void configureTitlebar() {
     NSLog(@"[TITLEBAR] configureTitlebar called");
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -90,22 +144,7 @@ void configureTitlebar() {
         window.styleMask |= NSWindowStyleMaskFullSizeContentView;
         [window setMovableByWindowBackground:NO];
 
-        // Add native drag overlay above the webview for the titlebar region.
-        // Height matches the CSS top-bar (~37px). The overlay handles drag
-        // natively, which is more reliable than CSS -webkit-app-region in
-        // embedded WKWebView.
-        NSView *contentView = [window contentView];
-        CGFloat dragHeight = 37.0;
-        NSRect overlayFrame = NSMakeRect(0,
-            contentView.bounds.size.height - dragHeight,
-            contentView.bounds.size.width,
-            dragHeight);
-
-        DragOverlayView *overlay = [[DragOverlayView alloc] initWithFrame:overlayFrame];
-        overlay.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-        [contentView addSubview:overlay];
-
-        NSLog(@"[TITLEBAR] titlebar + drag overlay configured (height=%.0f)", dragHeight);
+        NSLog(@"[TITLEBAR] titlebar configured");
     });
 }
 */
@@ -114,13 +153,19 @@ import "C"
 import "time"
 
 // setupNativeTitlebar configures the macOS window for a transparent title bar
-// with full-size content view and a native drag overlay. The drag overlay is
-// a transparent NSView that handles window dragging natively, bypassing
-// WKWebView's broken CSS -webkit-app-region: drag behavior.
+// with full-size content view, and installs a local event monitor that
+// intercepts mouse events in the titlebar region for native window dragging.
+//
+// The event monitor approach is used instead of a subview overlay because
+// WKWebView rearranges its internal view hierarchy after gaining focus,
+// which causes overlay subviews to stop receiving events. The local event
+// monitor operates at the NSApplication event-dispatch level, before events
+// reach any view, so it works reliably regardless of WKWebView's state.
 func setupNativeTitlebar() {
 	// Give the window time to appear before configuring
 	go func() {
 		time.Sleep(200 * time.Millisecond)
 		C.configureTitlebar()
+		C.installTitlebarDragMonitor()
 	}()
 }

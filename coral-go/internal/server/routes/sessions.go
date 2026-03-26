@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +60,27 @@ func (h *SessionsHandler) SetBoardHandler(bh *BoardHandler) {
 type lastKnownState struct {
 	Status  string
 	Summary string
+}
+
+// getDiffModeForSession resolves the git diff mode using a cascade:
+// agent column → user_settings → default ("branch_point").
+func (h *SessionsHandler) getDiffModeForSession(ctx context.Context, sessionID string) string {
+	// 1. Check per-agent setting
+	if sessionID != "" {
+		ls, err := h.ss.GetLiveSession(ctx, sessionID)
+		if err == nil && ls != nil && ls.GitDiffMode != nil && *ls.GitDiffMode != "" {
+			return *ls.GitDiffMode
+		}
+	}
+	// 2. Fall back to global user setting
+	settings, err := h.ss.GetSettings(ctx)
+	if err == nil {
+		if mode := settings["git_diff_mode"]; mode != "" {
+			return mode
+		}
+	}
+	// 3. Default
+	return ""
 }
 
 // NewSessionsHandler creates a SessionsHandler with the given dependencies.
@@ -738,7 +760,7 @@ func (h *SessionsHandler) RefreshFiles(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir)
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), body.SessionID))
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--numstat").Output()
 	fileMap := make(map[string]store.ChangedFile)
 	if err != nil {
@@ -872,7 +894,7 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir)
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), sessionID))
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "diff", base, "--", fp).Output()
 	diffText := ""
 	if err != nil {
@@ -906,9 +928,20 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 
 // SearchFiles searches for files in the agent's working directory.
 // GET /api/sessions/live/{name}/search-files
+//
+// Query parameters:
+//
+//	q          - search query (fuzzy mode)
+//	dir        - directory path to list (directory browsing mode)
+//	session_id - optional session identifier
+//
+// When 'dir' is provided, returns entries in that directory with type info
+// (directory browsing mode). When 'q' is provided, returns fuzzy matches
+// (search mode). When neither is provided, returns the first 50 files.
 func (h *SessionsHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	query := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+	dir := r.URL.Query().Get("dir")
 	sessionID := r.URL.Query().Get("session_id")
 
 	workdir := h.resolveGitRoot(r.Context(), name, "", sessionID)
@@ -919,6 +952,12 @@ func (h *SessionsHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	// Directory browsing mode: list entries in a specific directory
+	if dir != "" {
+		h.searchFilesDir(w, ctx, workdir, dir, query)
+		return
+	}
 
 	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "ls-files", "--cached", "--others", "--exclude-standard").Output()
 	if err != nil {
@@ -959,13 +998,12 @@ func (h *SessionsHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Sort by score then path
-	for i := 0; i < len(matches); i++ {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[j].score < matches[i].score || (matches[j].score == matches[i].score && matches[j].path < matches[i].path) {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score < matches[j].score
 		}
-	}
+		return matches[i].path < matches[j].path
+	})
 	result := make([]string, 0, 50)
 	for i, m := range matches {
 		if i >= 50 {
@@ -974,6 +1012,188 @@ func (h *SessionsHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 		result = append(result, m.path)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"files": result})
+}
+
+// searchFilesDir lists filesystem entries in a specific directory for
+// directory browsing mode. Uses os.ReadDir for direct filesystem access,
+// like ls/tab-completion. Returns entries with name, path, and type
+// (dir/file). Directories are listed first, then files. An optional
+// filter (from the 'q' parameter) restricts results to matching names.
+func (h *SessionsHandler) searchFilesDir(w http.ResponseWriter, _ context.Context, workdir, dir, filter string) {
+	// Normalize dir: strip leading/trailing slashes, use "." for root
+	dir = strings.TrimPrefix(dir, "/")
+	dir = strings.TrimSuffix(dir, "/")
+	if dir == "" {
+		dir = "."
+	}
+
+	// Prevent path traversal
+	if strings.Contains(dir, "..") {
+		writeJSON(w, http.StatusOK, map[string]any{"entries": []any{}})
+		return
+	}
+
+	// Build the absolute path to read
+	absDir := workdir
+	if dir != "." {
+		absDir = filepath.Join(workdir, dir)
+	}
+
+	dirEntries, err := os.ReadDir(absDir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"entries": []any{}, "dir": dir})
+		return
+	}
+
+	type entry struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+		Type string `json:"type"` // "dir" or "file"
+	}
+
+	var dirs []entry
+	var files []entry
+	showHidden := strings.HasPrefix(filter, ".")
+
+	for _, de := range dirEntries {
+		name := de.Name()
+
+		// Skip hidden files/dirs unless filter starts with .
+		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		// Skip non-text files and files over 1MB
+		if !de.IsDir() {
+			if !isTextFile(name) {
+				continue
+			}
+			if info, err := de.Info(); err == nil && info.Size() > 1<<20 {
+				continue
+			}
+		}
+
+		// Apply filter if provided
+		if filter != "" && !strings.Contains(strings.ToLower(name), filter) {
+			continue
+		}
+
+		entryPath := name
+		if dir != "." {
+			entryPath = dir + "/" + name
+		}
+
+		if de.IsDir() {
+			dirs = append(dirs, entry{
+				Name: name + "/",
+				Path: entryPath,
+				Type: "dir",
+			})
+		} else {
+			files = append(files, entry{
+				Name: name,
+				Path: entryPath,
+				Type: "file",
+			})
+		}
+	}
+
+	// Sort dirs and files alphabetically by name (case-insensitive)
+	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name) })
+	sort.Slice(files, func(i, j int) bool { return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name) })
+
+	// Combine: directories first, then files
+	entries := make([]entry, 0, len(dirs)+len(files))
+	entries = append(entries, dirs...)
+	entries = append(entries, files...)
+
+	// Limit to 100 entries
+	if len(entries) > 100 {
+		entries = entries[:100]
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"dir":     dir,
+	})
+}
+
+// textExtensions is a whitelist of file extensions known to be text/source
+// files safe to preview in the web UI. Files not matching this list are
+// excluded from directory browsing results to prevent loading binary files.
+var textExtensions = map[string]bool{
+	// Go
+	".go": true, ".mod": true, ".sum": true,
+	// JavaScript / TypeScript
+	".js": true, ".ts": true, ".tsx": true, ".jsx": true, ".mjs": true, ".cjs": true,
+	// Web
+	".html": true, ".htm": true, ".css": true, ".scss": true, ".less": true,
+	// Data / Config
+	".json": true, ".yaml": true, ".yml": true, ".toml": true, ".xml": true,
+	".csv": true, ".ini": true, ".cfg": true, ".conf": true, ".properties": true,
+	// Documentation
+	".md": true, ".txt": true, ".rst": true, ".adoc": true,
+	// Python
+	".py": true, ".pyi": true, ".pyx": true,
+	// Ruby
+	".rb": true, ".erb": true, ".rake": true, ".gemspec": true,
+	// Rust
+	".rs": true,
+	// C / C++
+	".c": true, ".h": true, ".cpp": true, ".hpp": true, ".cc": true, ".hh": true,
+	// Java / JVM
+	".java": true, ".kt": true, ".kts": true, ".scala": true, ".gradle": true,
+	// Shell
+	".sh": true, ".bash": true, ".zsh": true, ".fish": true,
+	// SQL / Query
+	".sql": true, ".graphql": true, ".gql": true,
+	// Protocol / Schema
+	".proto": true, ".avro": true, ".thrift": true,
+	// Environment / Config files
+	".env": true, ".envrc": true,
+	".gitignore": true, ".gitattributes": true, ".gitmodules": true,
+	".dockerignore": true, ".editorconfig": true,
+	".eslintrc": true, ".prettierrc": true, ".babelrc": true,
+	// Swift / Objective-C
+	".swift": true, ".m": true, ".mm": true,
+	// Other
+	".log": true, ".lock": true, ".patch": true, ".diff": true,
+	".tf": true, ".hcl": true, // Terraform
+	".lua": true, ".vim": true, ".el": true,
+	".r": true, ".R": true, ".jl": true, // R, Julia
+	".ex": true, ".exs": true, // Elixir
+	".hs": true, ".cabal": true, // Haskell
+	".pl": true, ".pm": true, // Perl
+	".php": true, ".twig": true,
+	".dart": true, ".svelte": true, ".vue": true,
+	".nix": true, ".dhall": true,
+	".tmpl": true, ".tpl": true, // Go templates
+	".plist": true, // macOS property lists
+}
+
+// textFileNames are known text files without extensions.
+var textFileNames = map[string]bool{
+	"Makefile": true, "Dockerfile": true, "Containerfile": true,
+	"LICENSE": true, "README": true, "CHANGELOG": true,
+	"Gemfile": true, "Rakefile": true, "Procfile": true,
+	"Vagrantfile": true, "Brewfile": true,
+	"CLAUDE.md": true, "MEMORY.md": true,
+	".gitignore": true, ".gitattributes": true, ".gitmodules": true,
+	".dockerignore": true, ".editorconfig": true,
+	".eslintrc": true, ".prettierrc": true,
+}
+
+// isTextFile returns true if the filename has a known text file extension
+// or is a known extensionless text file.
+func isTextFile(name string) bool {
+	if textFileNames[name] {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		return false
+	}
+	return textExtensions[ext]
 }
 
 // Git returns recent git snapshots for a live agent.
@@ -2140,7 +2360,7 @@ func (h *SessionsHandler) GetFileOriginal(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir)
+	base := gitutil.GetDiffBase(ctx, workdir, h.getDiffModeForSession(r.Context(), sessionID))
 
 	// git show <ref>:<path> needs paths relative to the repo root, not the workdir.
 	prefix := gitutil.ShowPrefix(ctx, workdir)
@@ -2271,6 +2491,38 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "icon": icon})
+}
+
+// SetGitDiffMode sets the git diff mode for a live session.
+// PUT /api/sessions/live/{name}/git-diff-mode
+func (h *SessionsHandler) SetGitDiffMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SessionID string `json:"session_id"`
+		Mode      string `json:"mode"` // "branch_point" or "previous_commit"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+	if body.SessionID == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "session_id is required"})
+		return
+	}
+
+	// Validate mode
+	switch body.Mode {
+	case "branch_point", "previous_commit", "":
+		// valid
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"error": "mode must be 'branch_point' or 'previous_commit'"})
+		return
+	}
+
+	if err := h.ss.UpdateGitDiffMode(r.Context(), body.SessionID, body.Mode); err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": body.Mode})
 }
 
 // ── Team Sleep/Wake ──────────────────────────────────────────────────────

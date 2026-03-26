@@ -192,7 +192,7 @@ func queryChangedFiles(ctx context.Context, workdir string) ([]store.ChangedFile
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	base := gitutil.GetDiffBase(ctx, workdir)
+	base := gitutil.GetDiffBase(ctx, workdir, "") // uses default branch_point mode
 	baseTS := getBaseTimestamp(ctx, workdir, base)
 
 	fileMap := make(map[string]store.ChangedFile)

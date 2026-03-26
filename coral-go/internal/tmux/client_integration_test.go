@@ -270,8 +270,64 @@ func TestClient_ResizePane(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, target)
 
-	err = c.ResizePaneTarget(ctx, target, 120)
+	err = c.ResizePaneTarget(ctx, target, 120, 40)
 	require.NoError(t, err)
+}
+
+func TestClient_ResizePaneTarget_RowsAndCols(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+
+	createTestSession(t, c, "resize-dims", t.TempDir())
+
+	target, err := c.FindPaneTarget(ctx, "resize-dims", "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, target)
+
+	// Resize to specific dimensions
+	err = c.ResizePaneTarget(ctx, target, 100, 30)
+	require.NoError(t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify tmux reports the correct dimensions
+	out, err := c.DisplayMessage(ctx, target, "#{window_width},#{window_height}")
+	require.NoError(t, err)
+	parts := strings.SplitN(strings.TrimSpace(out), ",", 2)
+	require.Len(t, parts, 2, "expected width,height from display-message")
+	assert.Equal(t, "100", parts[0], "columns should be 100")
+	assert.Equal(t, "30", parts[1], "rows should be 30")
+
+	// Resize again with different rows to verify rows actually change
+	err = c.ResizePaneTarget(ctx, target, 100, 50)
+	require.NoError(t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	out, err = c.DisplayMessage(ctx, target, "#{window_width},#{window_height}")
+	require.NoError(t, err)
+	parts = strings.SplitN(strings.TrimSpace(out), ",", 2)
+	require.Len(t, parts, 2)
+	assert.Equal(t, "100", parts[0], "columns should still be 100")
+	assert.Equal(t, "50", parts[1], "rows should be updated to 50")
+}
+
+func TestClient_ResizePaneTarget_RowsZeroSkipped(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+
+	createTestSession(t, c, "resize-norows", t.TempDir())
+
+	target, err := c.FindPaneTarget(ctx, "resize-norows", "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, target)
+
+	// When rows=0, only columns should be resized (backward compat)
+	err = c.ResizePaneTarget(ctx, target, 80, 0)
+	require.NoError(t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	out, err := c.DisplayMessage(ctx, target, "#{window_width}")
+	require.NoError(t, err)
+	assert.Equal(t, "80", strings.TrimSpace(out), "columns should be 80")
 }
 
 // ── Integration Tests: ClearHistory ─────────────────────────────────────

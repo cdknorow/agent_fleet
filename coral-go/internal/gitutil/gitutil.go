@@ -66,13 +66,29 @@ func ResolveGitRoot(ctx context.Context, workdir string) string {
 	return workdir
 }
 
-// GetDiffBase returns the merge-base ref for diffing on feature branches.
-// On main/master it returns "HEAD" (uncommitted changes only).
-// On feature branches it returns the merge-base with main/master.
-func GetDiffBase(ctx context.Context, workdir string) string {
+// GetDiffBase returns the base ref for diffing.
+//
+// When mode is "previous_commit", returns "HEAD~1" to diff against the
+// previous commit on the current branch. Falls back to "HEAD" if there
+// is no previous commit.
+//
+// When mode is "branch_point" (or empty, the default), returns the
+// merge-base with main/master on feature branches, or "HEAD" on
+// main/master (uncommitted changes only).
+func GetDiffBase(ctx context.Context, workdir, mode string) string {
 	if !Available() {
 		return "HEAD"
 	}
+
+	if mode == "previous_commit" {
+		// Check that HEAD~1 exists (at least 2 commits)
+		if _, err := git(ctx, workdir, "rev-parse", "--verify", "HEAD~1"); err == nil {
+			return "HEAD~1"
+		}
+		return "HEAD"
+	}
+
+	// Default: branch_point (merge-base)
 	branch, err := git(ctx, workdir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "HEAD"

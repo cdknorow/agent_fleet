@@ -1776,6 +1776,14 @@ export async function loadSettings() {
         if (s.refresh_files_on_switch === undefined) {
             s.refresh_files_on_switch = false;
         }
+        // Default file_search_mode to 'directory'
+        if (!s.file_search_mode) {
+            s.file_search_mode = 'directory';
+        }
+        // Default git_diff_mode to 'branch_point'
+        if (!s.git_diff_mode) {
+            s.git_diff_mode = 'branch_point';
+        }
         state.settings = s;
 
         // Apply scrollbar visibility
@@ -1950,6 +1958,14 @@ export async function showSettingsModal() {
     const scrollbarsCheck = document.getElementById("settings-show-scrollbars");
     if (scrollbarsCheck) scrollbarsCheck.checked = s.show_scrollbars !== false;
 
+    // File Search Mode (defaults to 'directory')
+    const fileSearchSelect = document.getElementById("settings-file-search-mode");
+    if (fileSearchSelect) fileSearchSelect.value = s.file_search_mode || 'directory';
+
+    // Git Diff Mode (defaults to 'branch_point')
+    const gitDiffSelect = document.getElementById("settings-git-diff-mode");
+    if (gitDiffSelect) gitDiffSelect.value = s.git_diff_mode || 'branch_point';
+
     // License status
     _loadLicenseStatus();
 
@@ -2027,6 +2043,8 @@ export async function applySettings() {
     const checkUpdates = document.getElementById("settings-check-updates")?.checked ?? true;
     localStorage.setItem("coral-update-check-enabled", checkUpdates ? "true" : "false");
     const showScrollbars = document.getElementById("settings-show-scrollbars")?.checked ?? true;
+    const fileSearchMode = document.getElementById("settings-file-search-mode")?.value || "directory";
+    const gitDiffMode = document.getElementById("settings-git-diff-mode")?.value || "branch_point";
 
     // Parse theme selection — "custom:<name>" or built-in "dark"/"light"/"system"
     let theme, customTheme;
@@ -2051,7 +2069,11 @@ export async function applySettings() {
         cli_path_claude: cliPathClaude,
         cli_path_codex: cliPathCodex,
         cli_path_gemini: cliPathGemini,
+        file_search_mode: fileSearchMode,
+        git_diff_mode: gitDiffMode,
     };
+
+    const oldGitDiffMode = state.settings?.git_diff_mode || 'branch_point';
 
     try {
         await fetch("/api/settings", {
@@ -2093,6 +2115,11 @@ export async function applySettings() {
 
         // Apply scrollbar visibility
         document.body.classList.toggle('no-scrollbars', !showScrollbars);
+
+        // Refresh changed files if git diff mode changed
+        if (gitDiffMode !== oldGitDiffMode && typeof refreshChangedFiles === 'function') {
+            refreshChangedFiles();
+        }
 
         showToast("Settings saved");
     } catch (e) {

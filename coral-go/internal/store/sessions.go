@@ -61,6 +61,7 @@ type LiveSession struct {
 	Icon         *string `db:"icon" json:"icon,omitempty"`
 	IsSleeping   int     `db:"is_sleeping" json:"is_sleeping"`
 	BoardType    *string `db:"board_type" json:"board_type,omitempty"`
+	GitDiffMode  *string `db:"git_diff_mode" json:"git_diff_mode,omitempty"`
 	CreatedAt    string  `db:"created_at" json:"created_at"`
 }
 
@@ -795,7 +796,7 @@ func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*L
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, git_diff_mode, created_at
 		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -866,6 +867,18 @@ func (s *SessionStore) UpdateLiveSessionDisplayName(ctx context.Context, session
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE live_sessions SET display_name = ? WHERE session_id = ?",
 		displayName, sessionID)
+	return err
+}
+
+// UpdateGitDiffMode updates the git_diff_mode for a live session.
+func (s *SessionStore) UpdateGitDiffMode(ctx context.Context, sessionID, mode string) error {
+	var val *string
+	if mode != "" {
+		val = &mode
+	}
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET git_diff_mode = ? WHERE session_id = ?",
+		val, sessionID)
 	return err
 }
 

@@ -438,18 +438,22 @@ export function connectTerminalWs(name, agentType, sessionId) {
                 return;
             }
             const converted = data.content.replace(/\n/g, '\r\n');
-            // If server sent cursor position, restore it after writing content.
-            // This makes the cursor visible in vim, nano, and other TUI apps.
-            let cursorSeq = '';
-            if (data.cursor_x != null && data.cursor_y != null) {
-                // ANSI CSI cursor position: \x1b[row;colH (1-indexed)
-                cursorSeq = `\x1b[${data.cursor_y + 1};${data.cursor_x + 1}H`;
-            }
+            const hasCursor = data.cursor_x != null && data.cursor_y != null;
             // \x1b[2J = clear visible screen, \x1b[3J = clear scrollback buffer,
-            // \x1b[H = cursor home. Clearing scrollback prevents duplication since
-            // the captured content already includes tmux scrollback history.
-            terminal.write('\x1b[2J\x1b[3J\x1b[H' + converted + cursorSeq);
-            if (!cursorSeq) terminal.scrollToBottom();
+            // \x1b[H = cursor home.
+            if (data.alt_screen && hasCursor) {
+                // Alternate screen (vim/nano/TUI): show xterm's native
+                // blinking cursor. No scrollback in alt screen, so
+                // cursor_y maps directly to xterm rows.
+                const cursorSeq = `\x1b[${data.cursor_y + 1};${data.cursor_x + 1}H`;
+                terminal.write('\x1b[?25h\x1b[2J\x1b[3J\x1b[H' + converted + cursorSeq);
+            } else {
+                // Normal shell: hide xterm cursor, let tmux's reverse-video
+                // in the captured content be the sole cursor. cursorSeq would
+                // be wrong here due to scrollback offset.
+                terminal.write('\x1b[?25l\x1b[2J\x1b[3J\x1b[H' + converted);
+                if (!hasCursor) terminal.scrollToBottom();
+            }
         }
     };
 

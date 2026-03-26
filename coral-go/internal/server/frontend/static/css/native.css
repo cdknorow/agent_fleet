@@ -20,3 +20,11 @@
 .native-app .top-bar-actions {
     -webkit-app-region: no-drag;
 }
+
+/* ── Layout ──────────────────────────────────────────────── */
+
+/* Native top-bar is shorter (6px padding vs 10px in browser).
+   Matches the 37px drag region height used by the native titlebar. */
+.native-app .layout {
+    height: calc(100vh - 37px);
+}

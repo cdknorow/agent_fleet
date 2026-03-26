@@ -336,3 +336,16 @@
     color: inherit;
     font-weight: 700;
 }
+
+.file-mention-breadcrumb {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.file-mention-dir-icon {
+    margin-right: 4px;
+    font-size: 11px;
+}

@@ -951,6 +951,26 @@
     letter-spacing: 0.03em;
 }
 
+.diff-mode-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-size: 10px;
+    padding: 1px 5px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: normal;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.diff-mode-toggle:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
 .changed-files-list {
     flex: 1;
     overflow-y: auto;

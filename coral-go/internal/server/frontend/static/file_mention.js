@@ -15,6 +15,11 @@ const CACHE_TTL_MS = 60_000;
 let fetchPromise = null;    // dedup concurrent fetches
 let renderTimer = null;     // 30ms render throttle
 
+// Directory browsing state
+let currentDir = '';        // current directory path for directory browsing mode
+let dirCache = {};          // cached directory listings: { dir: { entries, timestamp } }
+const DIR_CACHE_TTL_MS = 30_000;
+
 export function initFileMention() {
     const input = document.getElementById("command-input");
     if (!input) return;
@@ -74,6 +79,36 @@ export async function fetchFileList() {
     return fetchPromise;
 }
 
+/** Fetch directory entries for directory browsing mode.
+ *  Returns array of { name, type } where type is 'dir' or 'file'. */
+export async function fetchDirEntries(dir) {
+    const now = Date.now();
+    const cacheKey = dir || '.';
+    const cached = dirCache[cacheKey];
+    if (cached && (now - cached.timestamp) < DIR_CACHE_TTL_MS) {
+        return cached.entries;
+    }
+
+    if (!state.currentSession || state.currentSession.type !== "live") return [];
+
+    try {
+        const name = encodeURIComponent(state.currentSession.name);
+        const params = new URLSearchParams();
+        if (state.currentSession.session_id) {
+            params.set("session_id", state.currentSession.session_id);
+        }
+        params.set("dir", dir || ".");
+        const resp = await fetch(`/api/sessions/live/${name}/search-files?${params}`);
+        if (!resp.ok) return cached?.entries || [];
+        const data = await resp.json();
+        const entries = data.entries || [];
+        dirCache[cacheKey] = { entries, timestamp: Date.now() };
+        return entries;
+    } catch {
+        return cached?.entries || [];
+    }
+}
+
 function fuzzyMatch(text, query, original) {
     // Walk text left-to-right matching query chars in order
     // Returns a score (lower is better) or null if no match
@@ -85,24 +120,33 @@ function fuzzyMatch(text, query, original) {
     // Basename bonus: find where filename starts
     const slashIdx = original.lastIndexOf('/');
     const basenameStart = slashIdx >= 0 ? slashIdx + 1 : 0;
+    const basename = text.slice(basenameStart);
     const boundaryChars = '/_-.';
+
+    // Strong bonus for exact basename match
+    if (basename === query) return -10000;
+    // Bonus for basename starting with query
+    if (basename.startsWith(query)) score -= 500;
+    // Bonus for basename containing query as substring
+    else if (basename.includes(query)) score -= 200;
 
     for (let ti = 0; ti < text.length && qi < query.length; ti++) {
         if (text[ti] === query[qi]) {
             // Bonus for consecutive matches
             if (lastMatchPos === ti - 1) {
-                score -= 1;
+                score -= 3;
             }
             // Bonus for matching at word boundaries
             if (ti === 0 || boundaryChars.indexOf(text[ti - 1]) !== -1) {
-                score -= 2;
+                score -= 5;
             }
-            // Basename bonus: matches in the filename score higher
+            // Basename bonus: matches in the filename score much higher
             if (ti >= basenameStart) {
-                score -= 1;
+                score -= 3;
             }
             lastMatchPos = ti;
-            score += ti; // Penalize matches later in the string
+            // Mild position penalty (capped) — deep paths shouldn't be penalized heavily
+            score += Math.min(ti * 0.1, 10);
             qi++;
         }
     }
@@ -151,7 +195,62 @@ async function onInput(e) {
     mentionStart = atIndex;
     const query = beforeCursor.slice(atIndex + 1); // text after '@'
 
-    // Require at least 1 character
+    // Require at least 1 character (or show root dir in directory mode)
+    const mode = (state.settings || {}).file_search_mode || 'directory';
+    if (mode === 'directory') {
+        await onInputDirectory(query);
+    } else {
+        await onInputFuzzy(query);
+    }
+}
+
+/** Shared directory browsing logic — returns { entries, dir, filter, results } or null.
+ *  Used by both @ mention and file browser search. */
+export async function getDirBrowseResults(query) {
+    const lastSlash = query.lastIndexOf('/');
+    const dir = lastSlash >= 0 ? query.slice(0, lastSlash) : '';
+    const filter = (lastSlash >= 0 ? query.slice(lastSlash + 1) : query).toLowerCase();
+
+    const entries = await fetchDirEntries(dir);
+    if (entries.length === 0) return null;
+
+    let filtered = entries;
+    if (filter) {
+        filtered = entries.filter(e => e.name.toLowerCase().includes(filter));
+    }
+
+    filtered.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+    });
+
+    if (filtered.length === 0) return null;
+
+    const results = filtered.map(e => {
+        // Use e.path (no trailing /) for building paths; add / for dirs
+        const path = e.path || ((dir ? dir + '/' : '') + e.name.replace(/\/$/, ''));
+        return path + (e.type === 'dir' ? '/' : '');
+    });
+
+    return { entries: filtered, dir, filter, results };
+}
+
+/** Directory browsing mode: tab-completion style navigation. */
+async function onInputDirectory(query) {
+    const browse = await getDirBrowseResults(query);
+    if (!browse) {
+        hideDropdown();
+        return;
+    }
+
+    currentDir = browse.dir;
+    currentResults = browse.results;
+    selectedIndex = 0;
+    renderDropdownDirectory(browse.entries, browse.dir, browse.filter);
+}
+
+/** Fuzzy matching mode (original behavior). */
+async function onInputFuzzy(query) {
     if (query.length < 1) {
         hideDropdown();
         return;
@@ -234,6 +333,49 @@ function renderDropdown(query) {
     });
 }
 
+function renderDropdownDirectory(entries, dir, filter) {
+    if (!dropdown || currentResults.length === 0) {
+        hideDropdown();
+        return;
+    }
+
+    // Breadcrumb showing current directory path
+    const breadcrumb = dir ? `<div class="file-mention-breadcrumb">${escapeHtml(dir)}/</div>` : '';
+
+    const items = entries.map((entry, i) => {
+        const cls = i === selectedIndex ? "file-mention-item selected" : "file-mention-item";
+        const icon = entry.type === 'dir' ? '<span class="file-mention-dir-icon">&#128193;</span>' : '';
+        // entry.name may already include trailing / for dirs
+        const displaySuffix = entry.type === 'dir' && !entry.name.endsWith('/') ? '/' : '';
+        const name = escapeHtml(entry.name + displaySuffix);
+        const cleanName = entry.name.replace(/\/$/, ''); // name without trailing /
+        // Highlight matching filter text
+        let displayName = name;
+        if (filter) {
+            const idx = cleanName.toLowerCase().indexOf(filter);
+            if (idx >= 0) {
+                const before = escapeHtml(cleanName.slice(0, idx));
+                const match = escapeHtml(cleanName.slice(idx, idx + filter.length));
+                const after = escapeHtml(cleanName.slice(idx + filter.length) + displaySuffix);
+                displayName = `${before}<strong>${match}</strong>${after}`;
+            }
+        }
+        return `<div class="${cls}" data-index="${i}">${icon}${displayName}</div>`;
+    }).join("");
+
+    dropdown.innerHTML = breadcrumb + items;
+    dropdown.style.display = "block";
+
+    // Add click handlers
+    dropdown.querySelectorAll(".file-mention-item").forEach(el => {
+        el.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const idx = parseInt(el.dataset.index);
+            selectItem(idx);
+        });
+    });
+}
+
 function highlightMatch(filepath, query) {
     if (!query) return escapeHtml(filepath);
     const lower = filepath.toLowerCase();
@@ -273,16 +415,33 @@ function selectItem(index) {
     if (!input || index < 0 || index >= currentResults.length) return;
 
     const filepath = currentResults[index];
+    const mode = (state.settings || {}).file_search_mode || 'directory';
+
+    // In directory mode, selecting a directory expands into it
+    if (mode === 'directory' && filepath.endsWith('/')) {
+        const text = input.value;
+        const before = text.slice(0, mentionStart + 1); // keep the '@'
+        const after = text.slice(input.selectionStart);
+        input.value = before + filepath + after;
+        const newPos = mentionStart + 1 + filepath.length;
+        input.selectionStart = input.selectionEnd = newPos;
+        input.focus();
+        // Trigger input event to refresh directory listing
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+
     const text = input.value;
     const cursor = input.selectionStart;
 
-    // Replace @query with the filepath
+    // Replace @query with the filepath (strip trailing / for files)
+    const cleanPath = filepath.replace(/\/$/, '');
     const before = text.slice(0, mentionStart);
     const after = text.slice(cursor);
-    input.value = before + filepath + " " + after;
+    input.value = before + cleanPath + " " + after;
 
     // Position cursor after the inserted path + space
-    const newPos = mentionStart + filepath.length + 1;
+    const newPos = mentionStart + cleanPath.length + 1;
     input.selectionStart = input.selectionEnd = newPos;
     input.focus();
 
@@ -327,6 +486,7 @@ function hideDropdown() {
     if (dropdown) dropdown.style.display = "none";
     currentResults = [];
     mentionStart = -1;
+    currentDir = '';
     clearTimeout(renderTimer);
 }
 
@@ -338,4 +498,5 @@ export function invalidateFileCache() {
     cachedFiles = [];
     cachedSessionKey = null;
     cachedTimestamp = 0;
+    dirCache = {};
 }

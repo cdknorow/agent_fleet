@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { escapeHtml, showToast } from './utils.js';
-import { fetchFileList, fuzzyFilter } from './file_mention.js';
+import { fetchFileList, fuzzyFilter, fetchDirEntries, getDirBrowseResults } from './file_mention.js';
 
 let _currentFiles = [];
 let _searchTimeout = null;
@@ -80,66 +80,119 @@ export function renderStarredFiles() {
 
 /* ── File search ── */
 
+let _searchResults = [];      // current dropdown results
+let _searchSelectedIdx = 0;   // selected index in dropdown
+
 export async function searchRepoFiles(query) {
     if (!query || !state.currentSession || state.currentSession.type !== 'live') {
-        const el = document.getElementById('files-search-results');
-        if (el) el.style.display = 'none';
+        _hideSearchDropdown();
         return;
     }
-    // Client-side fuzzy search using cached file list (shared with @file mention).
-    // No server round-trip per keystroke.
-    const files = await fetchFileList();
-    const matches = fuzzyFilter(files, query);
-    // Throttle rendering to avoid layout thrashing on fast typing
-    clearTimeout(_renderTimer);
-    _renderTimer = setTimeout(() => _renderSearchResults(matches), 30);
+
+    const mode = (state.settings || {}).file_search_mode || 'directory';
+
+    if (mode === 'directory') {
+        const browse = await getDirBrowseResults(query);
+        const matches = browse ? browse.results : [];
+        clearTimeout(_renderTimer);
+        _renderTimer = setTimeout(() => _renderSearchDropdown(matches, query), 30);
+    } else {
+        const files = await fetchFileList();
+        const matches = fuzzyFilter(files, query);
+        clearTimeout(_renderTimer);
+        _renderTimer = setTimeout(() => _renderSearchDropdown(matches, query), 30);
+    }
 }
 
-function _renderSearchResults(files) {
-    const container = document.getElementById('files-search-results');
-    if (!container) return;
+function _renderSearchDropdown(files, query) {
+    const dropdown = document.getElementById('files-search-dropdown');
+    if (!dropdown) return;
 
-    const query = (document.getElementById('files-search-input')?.value || '').trim();
+    const mode = (state.settings || {}).file_search_mode || 'directory';
     const hasExactMatch = files.some(f => f === query);
     const looksLikePath = query.includes('/') || query.includes('.');
 
     let html = '';
 
-    // Show "Create <path>" option when query looks like a file path and no exact match
-    if (query && looksLikePath && !hasExactMatch) {
-        const escapedQuery = escapeHtml(query).replace(/'/g, "\\'");
-        html += `<div class="file-item file-create-option" onclick="_createFile('${escapedQuery}')" style="color:var(--accent);font-weight:500">
-            <span style="margin-right:6px;font-size:16px">+</span>
-            <div class="file-path-wrap">Create ${escapeHtml(query)}</div>
-        </div>`;
+    // Breadcrumb in directory mode
+    if (mode === 'directory' && query.includes('/')) {
+        const dirPath = query.slice(0, query.lastIndexOf('/'));
+        if (dirPath) {
+            html += `<div class="file-mention-breadcrumb">${escapeHtml(dirPath)}/</div>`;
+        }
     }
 
-    if (files.length === 0 && !html) {
-        container.style.display = '';
-        container.innerHTML = '<div class="file-empty">No matches</div>';
+    // Build results list
+    _searchResults = [];
+    files.slice(0, 50).forEach((filepath, i) => {
+        const isDir = filepath.endsWith('/');
+        const cls = i === _searchSelectedIdx ? 'file-mention-item selected' : 'file-mention-item';
+
+        if (mode === 'directory' && isDir) {
+            const dirName = filepath.replace(/\/$/, '').split('/').pop();
+            _searchResults.push({ path: filepath, type: 'dir' });
+            html += `<div class="${cls}" data-index="${i}"><span class="file-mention-dir-icon">&#128193;</span>${escapeHtml(dirName)}/</div>`;
+        } else {
+            _searchResults.push({ path: filepath, type: 'file' });
+            html += `<div class="${cls}" data-index="${i}">${escapeHtml(filepath)}</div>`;
+        }
+    });
+
+    // +create option at the end
+    if (query && looksLikePath && !hasExactMatch) {
+        const createIdx = _searchResults.length;
+        _searchResults.push({ path: query, type: 'create' });
+        const cls = createIdx === _searchSelectedIdx ? 'file-mention-item selected' : 'file-mention-item';
+        html += `<div class="${cls}" data-index="${createIdx}" style="color:var(--accent)">+ Create ${escapeHtml(query)}</div>`;
+    }
+
+    if (_searchResults.length === 0) {
+        _hideSearchDropdown();
         return;
     }
 
-    const starred = new Set(_getStarredFiles());
-    html += files.slice(0, 50).map(filepath => {
-        const { dir, name } = splitPath(filepath);
-        const escapedPath = escapeHtml(filepath).replace(/'/g, "\\'");
-        const isStarred = starred.has(filepath);
-        const starBtn = `<button class="file-star-btn ${isStarred ? 'starred' : ''}" data-filepath="${escapeHtml(filepath)}" onclick="event.stopPropagation(); toggleStarFile('${escapedPath}')" title="${isStarred ? 'Unstar' : 'Star'}">` +
-            `${isStarred ? '★' : '☆'}</button>`;
-        const previewBtn = `<button class="file-action-btn" onclick="event.stopPropagation(); openFilePreview('${escapedPath}')" title="Preview"><span class="material-icons">visibility</span></button>`;
-        return `<div class="file-item" onclick="openFilePreview('${escapedPath}')">
-            ${starBtn}
-            <div class="file-path-wrap">
-                <span class="file-name">${escapeHtml(name)}</span>
-                ${dir ? `<span class="file-dir">${escapeHtml(dir)}</span>` : ''}
-            </div>
-            <div class="file-action-btns">${previewBtn}</div>
-        </div>`;
-    }).join('');
+    _searchSelectedIdx = Math.min(_searchSelectedIdx, _searchResults.length - 1);
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
 
-    container.style.display = '';
-    container.innerHTML = html;
+    // Click handlers
+    dropdown.querySelectorAll('.file-mention-item').forEach(el => {
+        el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            _selectSearchItem(parseInt(el.dataset.index));
+        });
+    });
+}
+
+function _selectSearchItem(index) {
+    if (index < 0 || index >= _searchResults.length) return;
+    const item = _searchResults[index];
+
+    if (item.type === 'dir') {
+        // Navigate into directory
+        const input = document.getElementById('files-search-input');
+        if (input) {
+            input.value = item.path;
+            input.focus();
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    } else if (item.type === 'create') {
+        _hideSearchDropdown();
+        window._createFile(item.path);
+    } else {
+        _hideSearchDropdown();
+        openFilePreview(item.path);
+    }
+}
+
+function _hideSearchDropdown() {
+    const dropdown = document.getElementById('files-search-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+    _searchResults = [];
+    _searchSelectedIdx = 0;
+    // Also hide the old inline results container
+    const el = document.getElementById('files-search-results');
+    if (el) el.style.display = 'none';
 }
 
 export function initFileSearch() {
@@ -151,23 +204,57 @@ export function initFileSearch() {
         clearTimeout(_searchTimeout);
         const q = input.value.trim();
         if (!q) {
-            const el = document.getElementById('files-search-results');
-            if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+            _hideSearchDropdown();
             return;
         }
         _searchTimeout = setTimeout(() => searchRepoFiles(q), 200);
     }
 
-    // Use both input and keyup — some WebKit webviews don't fire input reliably
     input.addEventListener('input', onSearchInput);
     input.addEventListener('keyup', onSearchInput);
     input.addEventListener('keydown', (e) => {
+        const dropdown = document.getElementById('files-search-dropdown');
+        const isVisible = dropdown && dropdown.style.display !== 'none';
+
         if (e.key === 'Escape') {
-            input.value = '';
-            const el = document.getElementById('files-search-results');
-            if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+            if (isVisible) {
+                e.preventDefault();
+                _hideSearchDropdown();
+            } else {
+                input.value = '';
+            }
+            return;
+        }
+
+        if (!isVisible || _searchResults.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _searchSelectedIdx = Math.min(_searchSelectedIdx + 1, _searchResults.length - 1);
+            _updateSearchSelection();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _searchSelectedIdx = Math.max(_searchSelectedIdx - 1, 0);
+            _updateSearchSelection();
+        } else if (e.key === 'Tab' || e.key === 'Enter') {
+            e.preventDefault();
+            _selectSearchItem(_searchSelectedIdx);
         }
     });
+
+    input.addEventListener('blur', () => {
+        setTimeout(_hideSearchDropdown, 200);
+    });
+}
+
+function _updateSearchSelection() {
+    const dropdown = document.getElementById('files-search-dropdown');
+    if (!dropdown) return;
+    dropdown.querySelectorAll('.file-mention-item').forEach((el, i) => {
+        el.classList.toggle('selected', i === _searchSelectedIdx);
+    });
+    const selected = dropdown.querySelector('.file-mention-item.selected');
+    if (selected) selected.scrollIntoView({ block: 'nearest' });
 }
 
 export async function loadChangedFiles(agentName, sessionId) {
@@ -713,9 +800,10 @@ window._closeInlinePreview = function() {
     if (panel) {
         panel.innerHTML = `
             <div class="changed-files-header" id="changed-files-header">
-                <div class="files-search-row">
+                <div class="files-search-row" style="position:relative">
                     <input type="search" id="files-search-input" class="files-search-input" placeholder="Search or create files..." autocomplete="off">
                     <button class="refresh-files-btn" onclick="refreshChangedFiles()" title="Refresh git diff">&#x21bb;</button>
+                    <div id="files-search-dropdown" class="file-mention-dropdown" style="display:none;bottom:auto;top:100%;margin-top:4px;margin-bottom:0;max-height:400px"></div>
                 </div>
                 <span class="changed-files-title" id="changed-files-title">Loading...</span>
             </div>
@@ -733,6 +821,40 @@ window._closeInlinePreview = function() {
 };
 
 /* ── Refresh & Render ──────────────────────────────────────── */
+
+export async function toggleGitDiffMode() {
+    if (!state.currentSession || state.currentSession.type !== 'live') return;
+
+    const current = _getGitDiffMode();
+    const next = current === 'branch_point' ? 'previous_commit' : 'branch_point';
+
+    // Save per-agent
+    try {
+        const name = encodeURIComponent(state.currentSession.name);
+        await fetch(`/api/sessions/live/${name}/git-diff-mode`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: state.currentSession.session_id || '',
+                mode: next,
+            }),
+        });
+        // Cache the mode locally on the session object
+        state.currentSession.git_diff_mode = next;
+    } catch (e) {
+        console.error('Failed to save git diff mode:', e);
+        return;
+    }
+
+    refreshChangedFiles();
+}
+
+/** Get current git diff mode: agent override → user default → 'branch_point' */
+function _getGitDiffMode() {
+    return state.currentSession?.git_diff_mode
+        || (state.settings || {}).git_diff_mode
+        || 'branch_point';
+}
 
 export async function refreshChangedFiles() {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
@@ -778,7 +900,9 @@ export function renderChangedFiles() {
     const files = _currentFiles.slice().sort((a, b) => a.filepath.localeCompare(b.filepath));
 
     if (titleEl) {
-        titleEl.textContent = `${files.length} file${files.length !== 1 ? 's' : ''} changed`;
+        const diffMode = _getGitDiffMode();
+        const modeLabel = diffMode === 'previous_commit' ? 'vs HEAD~1' : 'vs merge-base';
+        titleEl.innerHTML = `${files.length} file${files.length !== 1 ? 's' : ''} changed <button class="diff-mode-toggle" onclick="toggleGitDiffMode()" title="Click to switch diff mode">${escapeHtml(modeLabel)}</button>`;
     }
     if (countEl) {
         countEl.textContent = files.length > 0 ? String(files.length) : '';

@@ -42,6 +42,7 @@ export async function selectLiveSession(name, agentType, sessionId) {
     state.currentSession = {
         type: "live", name, agent_type: agentType || null, session_id: sessionId || null,
         display_name: displayName || null, working_directory: workingDirectory || "",
+        git_diff_mode: agentData?.git_diff_mode || null,
     };
 
     // Restore input text for the new session

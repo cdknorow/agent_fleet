@@ -500,9 +500,13 @@ func (c *Client) SetPaneTitle(ctx context.Context, target, title string) {
 	c.run(ctx, "select-pane", "-t", target, "-T", title)
 }
 
-// ResizePaneTarget resizes a tmux pane width by target address.
-func (c *Client) ResizePaneTarget(ctx context.Context, target string, columns int) error {
-	_, err := c.run(ctx, "resize-window", "-t", target, "-x", fmt.Sprintf("%d", columns))
+// ResizePaneTarget resizes a tmux pane by target address (both width and height).
+func (c *Client) ResizePaneTarget(ctx context.Context, target string, columns, rows int) error {
+	args := []string{"resize-window", "-t", target, "-x", fmt.Sprintf("%d", columns)}
+	if rows > 0 {
+		args = append(args, "-y", fmt.Sprintf("%d", rows))
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 

@@ -127,7 +127,7 @@ func (m *mockSessionTerminal) RenameSession(_ context.Context, oldName, newName 
 func (m *mockSessionTerminal) ResizeSession(_ context.Context, _ string, _ int, _, _ string) error {
 	return nil
 }
-func (m *mockSessionTerminal) ResizeTarget(_ context.Context, _ string, _ int) error { return nil }
+func (m *mockSessionTerminal) ResizeTarget(_ context.Context, _ string, _, _ int) error { return nil }
 func (m *mockSessionTerminal) StartLogging(_ context.Context, _, _ string) error   { return nil }
 func (m *mockSessionTerminal) StopLogging(_ context.Context, _ string) error        { return nil }
 func (m *mockSessionTerminal) ClearHistory(_ context.Context, _ string) error       { return nil }

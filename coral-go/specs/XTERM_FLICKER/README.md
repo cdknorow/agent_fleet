@@ -10,7 +10,7 @@ The xterm terminal in Coral's web UI flickers when displaying tmux-backed sessio
 1. Watches tmux pipe-pane log file for mtime changes (10ms poll loop)
 2. On change: runs `tmux capture-pane -t <target> -p -e -S-200` to grab 200 lines of scrollback + visible content
 3. Compares to previous capture — only sends if content or cursor position changed
-4. Sends `{ type: "terminal_update", content: "<raw ANSI>", cursor_x, cursor_y }` via WebSocket
+4. Sends `{ type: "terminal_update", content: "<raw ANSI>", cursor_x, cursor_y, alt_screen }` via WebSocket
 
 ### Client-side (JS: `xterm_renderer.js`)
 1. Receives `terminal_update` message
@@ -97,8 +97,68 @@ Hint to the browser that the terminal canvas should be composited on its own lay
 
 Start with **B** (rAF batching) as it's the simplest. If that doesn't help, move to **C** (diff-based updates) which solves the root cause — sending only what changed instead of the full screen.
 
+## Cursor Positioning
+
+### Problem — Dual Cursors
+tmux `capture-pane -e` renders reverse-video (SGR 7) at the cursor position in
+the captured content. xterm.js also renders its own native blinking cursor when
+positioned via ANSI cursorSeq (`\x1b[row;colH`). When both are visible, two
+cursors appear.
+
+Additionally, `cursor_x`/`cursor_y` from tmux `display-message` are relative to
+the VISIBLE pane, but the captured content includes up to 200 lines of
+scrollback. cursorSeq positions at `(cursor_y+1)` which is near the top of the
+full content, not at the actual cursor location within the visible area.
+
+### Solution — Mode-Based Cursor Toggle
+The server sends `alt_screen` (from tmux `alternate_on`) in the
+`terminal_update` WebSocket message.
+
+**Normal shell mode (`alt_screen=false`):**
+- Hide xterm native cursor (`\x1b[?25l`)
+- Don't send cursorSeq
+- tmux reverse-video in content is the sole cursor (static, always correct
+  position)
+
+**Alt screen mode (`alt_screen=true`, vim/nano/TUI):**
+- Show xterm native cursor (`\x1b[?25h`)
+- Use cursorSeq — safe because alt screen capture has no scrollback, so
+  `cursor_y` maps directly
+- Blinking cursor at correct position
+
+### Row Sync Fix
+tmux `resize-window` now receives both `-x` (columns) AND `-y` (rows) to keep
+tmux and xterm.js dimensions in sync. Previously only columns were sent, causing
+`cursor_y` mismatches when the xterm container height didn't match tmux's
+default row count.
+
+### Layout Height Fix (Native App)
+`native.css`: `.native-app .layout { height: calc(100vh - 37px) }` — the native
+app top-bar is shorter than the browser version (37px vs 49px), which caused
+fitAddon to calculate wrong row count.
+
+### Known Issue — Multi-Client Cursor Mismatch
+
+When multiple clients (e.g. browser + native app) are connected to the same
+tmux session with different window sizes, the cursor position can be wrong for
+one client. tmux has one pane size — whichever client resizes last wins. The
+other client's xterm viewport won't match tmux's actual dimensions.
+
+**TODO:** Investigate whether we are computing cursor position from the actual
+tmux pane size (queried via `display-message`) or from the local xterm window
+size. If xterm.js fitAddon calculates rows based on its own container, but tmux
+has been resized by another client, there will be a mismatch. We should either:
+1. Send the actual tmux pane dimensions (`pane_height`, `pane_width`) in the
+   `terminal_update` message so the frontend can detect mismatches
+2. Or lock the terminal display to the tmux pane size rather than fitting to the
+   container
+
 ## Files Involved
 
-- `coral-go/internal/server/routes/websocket.go` — `wsTerminalPolling()`, `doCapture()`
-- `coral-go/internal/server/frontend/static/xterm_renderer.js` — `onmessage` handler for `terminal_update`
-- `coral-go/internal/tmux/client.go` — `CapturePaneRawTarget()`
+- `coral-go/internal/server/routes/websocket.go` — `wsTerminalPolling()`, `doCapture()`, `alt_screen` flag
+- `coral-go/internal/server/frontend/static/xterm_renderer.js` — `onmessage` handler for `terminal_update`, cursor toggle
+- `coral-go/internal/tmux/client.go` — `CapturePaneRawTarget()`, `ResizePaneTarget()` (now includes rows)
+- `coral-go/internal/server/frontend/static/css/native.css` — layout height fix for native app
+- `coral-go/internal/ptymanager/session_terminal.go` — `ResizeTarget` interface (rows param)
+- `coral-go/internal/ptymanager/session_terminal_tmux.go` — tmux resize with rows
+- `coral-go/internal/ptymanager/session_terminal_pty.go` — PTY resize with rows
