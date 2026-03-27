@@ -8,19 +8,15 @@ import (
 	"strconv"
 )
 
-// SkipLicense is set to "true" at build time via ldflags for builds that
-// should not require license activation (e.g. internal/partner builds).
-var SkipLicense string
-
-// Edition is set at build time via ldflags to enable edition-specific limits.
-// For example, "forDropbox" enables demo edition limits.
-var Edition string
-
 // PostHogKey is set at build time via ldflags for install tracking.
 var PostHogKey string
 
 // Version is set at build time via ldflags.
 var Version string
+
+// Build tier variables are set in tier_dev.go, tier_beta.go, or tier_prod.go
+// based on compile-time build tags (-tags dev, -tags beta, or default).
+// See those files for the values per tier.
 
 // Config holds all server configuration values.
 type Config struct {
@@ -128,18 +124,11 @@ func Load(dataDir ...string) *Config {
 			filepath.Join(homeDir, ".gemini", "tmp")),
 	}
 
-	// Dev mode can also be set via environment variable
-	if os.Getenv("CORAL_DEV") == "1" || os.Getenv("CORAL_DEV") == "true" {
-		cfg.DevMode = true
-	}
+	// DevMode is derived from the build tier (dev tier only)
+	cfg.DevMode = TierSkipEULA && TierSkipLicense
 
-	// Note: SkipLicense no longer sets DevMode. They are independent:
-	// - SkipLicense bypasses license checks (partner/demo builds)
-	// - DevMode enables developer features (CORAL_DEV=1 or --dev flag)
-	// Use LicenseRequired() to check whether license validation is needed.
-
-	// Edition-specific limits
-	if Edition == "forDropbox" {
+	// Demo limits from build tier (beta) or runtime LS plan (prod)
+	if TierDemoLimits {
 		cfg.MaxLiveTeams = 2
 		cfg.MaxLiveAgents = 8
 	}
@@ -148,9 +137,21 @@ func Load(dataDir ...string) *Config {
 }
 
 // LicenseRequired returns true if license validation should be enforced.
-// It is false in dev mode or when the build was compiled with SkipLicense.
+// False for dev and beta tiers (set at compile time via build tags).
 func (c *Config) LicenseRequired() bool {
-	return !c.DevMode && SkipLicense != "true"
+	return !TierSkipLicense
+}
+
+// EULARequired returns true if the EULA acceptance dialog should be shown.
+// False for dev tier (set at compile time via build tags).
+func EULARequired() bool {
+	return !TierSkipEULA
+}
+
+// DemoLimitsEnforced returns true if demo edition limits (2 teams / 8 agents)
+// should be enforced. True for beta tier.
+func DemoLimitsEnforced() bool {
+	return TierDemoLimits
 }
 
 // CoralDir returns the root data directory for all Coral state.

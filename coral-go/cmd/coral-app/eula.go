@@ -2,10 +2,16 @@
 
 package main
 
-import "github.com/cdknorow/coral/internal/license"
+import (
+	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/license"
+)
 
 // checkAndShowEULA checks if the user has accepted the EULA.
-// Delegates to the shared license package with a platform-specific dialog.
+// Skipped in dev tier (compile-time build tag).
 func checkAndShowEULA() bool {
+	if !config.EULARequired() {
+		return true
+	}
 	return license.CheckAndPromptEULA(showEULADialog)
 }

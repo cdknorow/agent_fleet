@@ -215,7 +215,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// License gate — gates all API access behind a valid license key.
 	// Activation and static asset paths are always accessible.
-	// Skipped in dev mode and SkipLicense builds.
+	// Skipped in dev and beta tiers (compile-time build tags).
 	if s.cfg.LicenseRequired() {
 		r.Use(license.Middleware(s.licenseMgr))
 	}
@@ -675,10 +675,11 @@ const activationPage = `<!DOCTYPE html>
     </form>
     <div class="error" id="error-msg"></div>
     <div class="success" id="success-msg"></div>
+    <p style="font-size:12px;color:#484f58;margin-top:16px;">Need help? <a href="https://coralai.ai/support.html" target="_blank" style="color:#58a6ff;">Contact Support</a></p>
   </div>
 
   <div class="footer-link">
-    <a href="https://coralai.ai" target="_blank">Visit coralai.ai</a>
+    <a href="https://coralai.ai/support.html" target="_blank">Contact Support</a>
   </div>
 </div>
 <script>

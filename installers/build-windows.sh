@@ -2,11 +2,13 @@
 # Build coral-go Windows portable ZIP (cross-compiled from Linux/macOS)
 #
 # Usage: ./installers/build-windows.sh [version]
+#   Set CORAL_TIER=dev|beta to select build tier. Default: prod (license required).
 # Output: installers/dist/coral-windows-amd64.zip
 
 set -euo pipefail
 
 VERSION="${1:-dev}"
+CORAL_TIER="${CORAL_TIER:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 GO_DIR="$PROJECT_DIR/coral-go"
@@ -15,23 +17,35 @@ BUILD_DIR="$DIST_DIR/coral-windows"
 
 echo "==> Building coral-go for Windows (amd64) v${VERSION}"
 
+# Build tags — select tier via CORAL_TIER env var
+BUILD_TAGS=""
+if [ "$CORAL_TIER" = "dev" ]; then
+    BUILD_TAGS="-tags dev"
+    echo "==> Tier: dev (EULA skipped, license skipped)"
+elif [ "$CORAL_TIER" = "beta" ]; then
+    BUILD_TAGS="-tags beta"
+    echo "==> Tier: beta (license skipped, demo limits enforced)"
+else
+    echo "==> Tier: prod (license required)"
+fi
+
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 cd "$GO_DIR"
 
 echo "==> Compiling coral.exe"
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/coral.exe" ./cmd/coral/
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="-s -w" -o "$BUILD_DIR/coral.exe" ./cmd/coral/
 
 echo "==> Compiling launch-coral.exe"
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/launch-coral.exe" ./cmd/launch-coral/
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="-s -w" -o "$BUILD_DIR/launch-coral.exe" ./cmd/launch-coral/
 
 echo "==> Compiling coral-board.exe"
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/coral-board.exe" ./cmd/coral-board/
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="-s -w" -o "$BUILD_DIR/coral-board.exe" ./cmd/coral-board/
 
 for hook in coral-hook-agentic-state coral-hook-task-sync coral-hook-message-check; do
     echo "==> Compiling $hook.exe"
-    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BUILD_DIR/$hook.exe" "./cmd/$hook/"
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="-s -w" -o "$BUILD_DIR/$hook.exe" "./cmd/$hook/"
 done
 
 echo "==> Creating ZIP"

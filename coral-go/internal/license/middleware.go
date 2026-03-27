@@ -132,6 +132,7 @@ func (lr *Routes) Status(w http.ResponseWriter, r *http.Request) {
 		"activated":                true,
 		"customer_name":            info.CustomerName,
 		"customer_email":           info.CustomerEmail,
+		"product_name":             info.ProductName,
 		"activated_at":             info.ActivatedAt,
 		"last_validated":           info.LastValidated,
 		"machine_id":              machineFingerprint(),

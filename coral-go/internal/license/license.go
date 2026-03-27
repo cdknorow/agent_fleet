@@ -2,6 +2,10 @@
 package license
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -41,6 +45,7 @@ type CachedLicense struct {
 	InstanceID    string `json:"instance_id"`
 	CustomerName  string `json:"customer_name,omitempty"`
 	CustomerEmail string `json:"customer_email,omitempty"`
+	ProductName   string `json:"product_name,omitempty"`
 	ActivatedAt   string `json:"activated_at"`
 	LastValidated string `json:"last_validated"`
 	Valid         bool   `json:"valid"`
@@ -64,6 +69,8 @@ type lsResponse struct {
 	Meta struct {
 		CustomerName  string `json:"customer_name"`
 		CustomerEmail string `json:"customer_email"`
+		ProductName   string `json:"product_name"`
+		VariantName   string `json:"variant_name"`
 	} `json:"meta"`
 }
 
@@ -147,6 +154,9 @@ func (m *Manager) Revalidate() bool {
 	if m.cache.Valid {
 		m.cache.LastValidated = time.Now().UTC().Format(time.RFC3339)
 	}
+	if resp.Meta.ProductName != "" {
+		m.cache.ProductName = resp.Meta.ProductName
+	}
 	m.save()
 	return m.cache.Valid
 }
@@ -176,6 +186,7 @@ func (m *Manager) Activate(key string) error {
 		InstanceID:    resp.Instance.ID,
 		CustomerName:  resp.Meta.CustomerName,
 		CustomerEmail: resp.Meta.CustomerEmail,
+		ProductName:   resp.Meta.ProductName,
 		ActivatedAt:   now,
 		LastValidated: now,
 		Valid:         true,
@@ -313,10 +324,20 @@ func (m *Manager) load() {
 	if err != nil {
 		return
 	}
-	var c CachedLicense
-	if json.Unmarshal(data, &c) == nil {
-		m.cache = &c
+
+	// Try encrypted format first (nonce + ciphertext)
+	key := deriveEncryptionKey()
+	if plaintext, err := decryptLicense(data, key); err == nil {
+		var c CachedLicense
+		if json.Unmarshal(plaintext, &c) == nil {
+			m.cache = &c
+			return
+		}
 	}
+
+	// Encrypted decryption failed — file is tampered, from another machine,
+	// or was manually edited. Treat as invalid.
+	log.Println("[license] encrypted license file could not be decrypted — re-activation required")
 }
 
 func (m *Manager) save() error {
@@ -324,11 +345,65 @@ func (m *Manager) save() error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(m.cache, "", "  ")
+	plaintext, err := json.Marshal(m.cache)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.filePath, append(data, '\n'), 0600)
+	key := deriveEncryptionKey()
+	ciphertext, err := encryptLicense(plaintext, key)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(m.filePath, ciphertext, 0600)
+}
+
+// deriveEncryptionKey derives a 256-bit AES key from the machine fingerprint
+// using HMAC-SHA256 with a fixed application salt. This ensures the license
+// file can only be decrypted on the same machine.
+func deriveEncryptionKey() []byte {
+	fingerprint := machineFingerprint()
+	salt := []byte("coral-license-v1")
+	mac := hmac.New(sha256.New, salt)
+	mac.Write([]byte(fingerprint))
+	return mac.Sum(nil) // 32 bytes = AES-256
+}
+
+// encryptLicense encrypts plaintext with AES-256-GCM.
+// Returns: [12-byte nonce][ciphertext+tag]
+func encryptLicense(plaintext, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize()) // 12 bytes
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return ciphertext, nil
+}
+
+// decryptLicense decrypts AES-256-GCM encrypted data.
+// Expects: [12-byte nonce][ciphertext+tag]
+func decryptLicense(data, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
 // machineFingerprint returns a stable identifier for this machine.

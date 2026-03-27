@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+// writeEncryptedLicense writes a CachedLicense as an encrypted file
+// using the same format as Manager.save().
+func writeEncryptedLicense(t *testing.T, dir string, cached CachedLicense) {
+	t.Helper()
+	plaintext, err := json.Marshal(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := deriveEncryptionKey()
+	ciphertext, err := encryptLicense(plaintext, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "license.json"), ciphertext, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNewManager_NoFile(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager(dir)
@@ -30,8 +48,7 @@ func TestNewManager_LoadsCachedLicense(t *testing.T) {
 		LastValidated: time.Now().UTC().Format(time.RFC3339),
 		Valid:         true,
 	}
-	data, _ := json.MarshalIndent(cached, "", "  ")
-	os.WriteFile(filepath.Join(dir, "license.json"), data, 0600)
+	writeEncryptedLicense(t, dir, cached)
 
 	m := NewManager(dir)
 	if !m.IsValid() {
@@ -56,8 +73,7 @@ func TestIsValid_ExpiredRevalidation(t *testing.T) {
 		LastValidated: old.Format(time.RFC3339),
 		Valid:         true,
 	}
-	data, _ := json.MarshalIndent(cached, "", "  ")
-	os.WriteFile(filepath.Join(dir, "license.json"), data, 0600)
+	writeEncryptedLicense(t, dir, cached)
 
 	m := NewManager(dir)
 	// Still valid because within offline grace period (30 days)
@@ -79,8 +95,7 @@ func TestIsValid_BeyondGracePeriod(t *testing.T) {
 		LastValidated: old.Format(time.RFC3339),
 		Valid:         true,
 	}
-	data, _ := json.MarshalIndent(cached, "", "  ")
-	os.WriteFile(filepath.Join(dir, "license.json"), data, 0600)
+	writeEncryptedLicense(t, dir, cached)
 
 	m := NewManager(dir)
 	if m.IsValid() {
@@ -102,7 +117,9 @@ func TestActivate_Success(t *testing.T) {
 			Meta: struct {
 				CustomerName  string `json:"customer_name"`
 				CustomerEmail string `json:"customer_email"`
-			}{CustomerName: "Test User", CustomerEmail: "test@example.com"},
+				ProductName   string `json:"product_name"`
+				VariantName   string `json:"variant_name"`
+			}{CustomerName: "Test User", CustomerEmail: "test@example.com", ProductName: "Coral Pro"},
 		})
 	}))
 	defer server.Close()

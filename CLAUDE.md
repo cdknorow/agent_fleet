@@ -97,14 +97,14 @@ cd coral-go && go run ./cmd/coral/ --host 127.0.0.1 --port 8420
 
 ### Dev Mode
 ```bash
-cd coral-go && go run ./cmd/coral/ --dev --host 127.0.0.1 --port 8420
+cd coral-go && go build -tags dev -o coral ./cmd/coral/ && ./coral --host 127.0.0.1 --port 8420
 ```
-The `--dev` flag skips license validation.
+The `dev` build tag skips EULA and license validation.
 
 ### Test Server
 To spin up a test server for manual verification, use `0.0.0.0` (not `127.0.0.1`) so it's reachable from other machines, and a non-default port to avoid conflicts:
 ```bash
-cd coral-go && go build -o coral ./cmd/coral/ && ./coral --dev --host 0.0.0.0 --port 8450
+cd coral-go && go build -tags dev -o coral ./cmd/coral/ && ./coral --host 0.0.0.0 --port 8450
 ```
 
 ### Database
@@ -124,29 +124,43 @@ Build installers for each platform from any OS:
 ### Tagged Release (CI)
 Pushing a tag triggers the GitHub Actions release workflow. Tag suffixes control build behavior:
 
+#### Build Tiers
+
+Tiers are selected via **compile-time build tags** (not ldflags):
+
+| Tier | Build Tag | EULA | License | Demo Limits |
+|------|-----------|------|---------|-------------|
+| Prod | (default) | Required | Required | None (LS plan controls) |
+| Dev | `-tags dev` | Skipped | Skipped | None |
+| Beta | `-tags beta` | Required | Skipped | 2 teams / 8 agents |
+
 #### Tag Naming Conventions
 
-| Tag Format | License | Demo Limits | Windows Build |
-|---|---|---|---|
-| `v0.x.x` | required | none | skipped |
-| `v0.x.x-dev` | skipped | none | skipped |
-| `v0.x.x-forDropbox` | skipped | 2 teams / 10 agents | skipped |
-| `v0.x.x-windows` | required | none | **built** |
-| `v0.x.x-all` | required | none | **built** |
+| Tag Format | Tier | Windows Build |
+|---|---|---|
+| `v0.x.x` | prod | skipped |
+| `v0.x.x-dev` | dev | skipped |
+| `v0.x.x-beta` | beta | skipped |
+| `v0.x.x-forDropbox` | beta | skipped |
+| `v0.x.x-windows` | prod | **built** |
+| `v0.x.x-all` | prod | **built** |
 
-Suffixes can be combined, e.g. `v0.x.x-dev-windows` builds Windows without license.
+Suffixes can be combined, e.g. `v0.x.x-dev-windows` builds Windows with dev tier.
 
-- **`-dev`**: Sets `SkipLicense=true` via ldflags. No demo limits. Good for internal testing.
-- **`-forDropbox`**: Sets `SkipLicense=true` and `Edition=forDropbox` via ldflags. Enforces demo limits (max 2 teams, max 10 concurrent agents). Shows a popup when limits are hit.
+- **`-dev`**: Dev tier build tag. Skips EULA and license. Good for internal testing.
+- **`-beta`** / **`-forDropbox`**: Beta tier build tag. Skips license, enforces demo limits (max 2 teams, max 8 agents).
 - **`-windows`** / **`-all`**: Includes the Windows build (skipped by default to save CI compute).
 
-#### Build-time flags (ldflags)
-- `config.SkipLicense` — set to `"true"` to skip license validation
-- `config.Edition` — set to `"forDropbox"` to enable demo edition limits
-
-#### Local forDropbox build
+#### Local builds with tiers
 ```bash
-CORAL_EDITION=forDropbox ./installers/build-macos.sh 0.10.15
+# Dev build (no EULA, no license)
+CORAL_TIER=dev ./installers/build-macos.sh 0.10.15
+
+# Beta build (demo limits, no license)
+CORAL_TIER=beta ./installers/build-macos.sh 0.10.15
+
+# Prod build (default — license required)
+./installers/build-macos.sh 0.10.15
 ```
 
 #### Example release flow
@@ -155,8 +169,8 @@ CORAL_EDITION=forDropbox ./installers/build-macos.sh 0.10.15
 git tag v0.10.15-dev
 git push origin main --tags
 
-# Demo build for partners (no license, demo limits)
-git tag v0.10.15-forDropbox
+# Beta build for partners (no license, demo limits)
+git tag v0.10.15-beta
 git push origin main --tags
 
 # Full production release (all platforms)

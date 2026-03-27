@@ -24,17 +24,19 @@ jobs:
         working-directory: coral-go
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          EXTRA_LDFLAGS="-X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=${VERSION}"
-          if [[ "$GITHUB_REF_NAME" == *"-forDropbox"* ]]; then
-            EXTRA_LDFLAGS="$EXTRA_LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true -X github.com/cdknorow/coral/internal/config.Edition=forDropbox"
+          LDFLAGS="-s -w -X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=${VERSION}"
+          BUILD_TAGS=""
+          if [[ "$GITHUB_REF_NAME" == *"-beta"* ]] || [[ "$GITHUB_REF_NAME" == *"-forDropbox"* ]]; then
+            BUILD_TAGS="-tags beta"
           elif [[ "$GITHUB_REF_NAME" == *"-dev"* ]]; then
-            EXTRA_LDFLAGS="$EXTRA_LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true"
+            BUILD_TAGS="-tags dev"
           fi
           mkdir -p ../dist/linux
           for cmd in coral launch-coral coral-board coral-hook-agentic-state coral-hook-message-check coral-hook-task-sync; do
             [ -d "./cmd/$cmd" ] || continue
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-              -ldflags "-s -w $EXTRA_LDFLAGS" \
+              $BUILD_TAGS \
+              -ldflags "$LDFLAGS" \
               -o "../dist/linux/$cmd" \
               "./cmd/$cmd/"
           done
@@ -72,11 +74,12 @@ jobs:
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
           $version = "${{ github.ref_name }}" -replace "^v", ""
-          $extraLdflags = "-X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=$version"
-          if ("${{ github.ref_name }}" -match "-forDropbox") {
-            $extraLdflags = "$extraLdflags -X github.com/cdknorow/coral/internal/config.SkipLicense=true -X github.com/cdknorow/coral/internal/config.Edition=forDropbox"
+          $ldflags = "-s -w -X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=$version"
+          $buildTags = ""
+          if ("${{ github.ref_name }}" -match "-beta|-forDropbox") {
+            $buildTags = "-tags beta"
           } elseif ("${{ github.ref_name }}" -match "-dev") {
-            $extraLdflags = "$extraLdflags -X github.com/cdknorow/coral/internal/config.SkipLicense=true"
+            $buildTags = "-tags dev"
           }
           New-Item -ItemType Directory -Force -Path ..\dist\windows\bin | Out-Null
 
@@ -84,15 +87,16 @@ jobs:
           $env:CGO_ENABLED = "0"
           foreach ($cmd in @("coral", "launch-coral", "coral-board", "coral-hook-agentic-state", "coral-hook-message-check", "coral-hook-task-sync")) {
             if (Test-Path "./cmd/$cmd") {
-              go build -ldflags "-s -w $extraLdflags" -o "..\dist\windows\bin\$cmd.exe" "./cmd/$cmd/"
+              go build $buildTags -ldflags "$ldflags" -o "..\dist\windows\bin\$cmd.exe" "./cmd/$cmd/"
             }
           }
 
           # CGO binaries (systray, webview)
           $env:CGO_ENABLED = "1"
           $env:CC = "gcc"
-          go build -ldflags "-s -w -H windowsgui $extraLdflags" -o "..\dist\windows\bin\coral-tray.exe" "./cmd/coral-tray/"
-          go build -tags webview -ldflags "-s -w -H windowsgui $extraLdflags" -o "..\dist\windows\bin\coral-app.exe" "./cmd/coral-app/"
+          $webviewTags = if ($buildTags) { "-tags webview,$($buildTags -replace '-tags ','')" } else { "-tags webview" }
+          go build $buildTags -ldflags "-H windowsgui $ldflags" -o "..\dist\windows\bin\coral-tray.exe" "./cmd/coral-tray/"
+          go build $webviewTags -ldflags "-H windowsgui $ldflags" -o "..\dist\windows\bin\coral-app.exe" "./cmd/coral-app/"
 
       - name: Import signing certificate
         if: env.WINDOWS_CERTIFICATE != ''
@@ -176,24 +180,31 @@ jobs:
         working-directory: coral-go
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          EXTRA_LDFLAGS="-X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=${VERSION}"
-          if [[ "$GITHUB_REF_NAME" == *"-forDropbox"* ]]; then
-            EXTRA_LDFLAGS="$EXTRA_LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true -X github.com/cdknorow/coral/internal/config.Edition=forDropbox"
+          LDFLAGS="-s -w -X github.com/cdknorow/coral/internal/config.PostHogKey=phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2 -X github.com/cdknorow/coral/internal/config.Version=${VERSION}"
+          BUILD_TAGS=""
+          if [[ "$GITHUB_REF_NAME" == *"-beta"* ]] || [[ "$GITHUB_REF_NAME" == *"-forDropbox"* ]]; then
+            BUILD_TAGS="-tags beta"
           elif [[ "$GITHUB_REF_NAME" == *"-dev"* ]]; then
-            EXTRA_LDFLAGS="$EXTRA_LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true"
+            BUILD_TAGS="-tags dev"
           fi
           mkdir -p ../dist/macos
           # Pure Go binaries (no CGO needed)
           for cmd in coral launch-coral coral-board coral-hook-agentic-state coral-hook-message-check coral-hook-task-sync; do
-            CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w $EXTRA_LDFLAGS" -o "../dist/macos/${cmd}-arm64" "./cmd/$cmd/"
-            CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w $EXTRA_LDFLAGS" -o "../dist/macos/${cmd}-amd64" "./cmd/$cmd/"
+            CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $BUILD_TAGS -ldflags "$LDFLAGS" -o "../dist/macos/${cmd}-arm64" "./cmd/$cmd/"
+            CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $BUILD_TAGS -ldflags "$LDFLAGS" -o "../dist/macos/${cmd}-amd64" "./cmd/$cmd/"
             lipo -create -output "../dist/macos/$cmd" "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
             rm "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
           done
           # Tray app + webview app require CGO for native platform APIs
+          # Combine webview tag with tier tag if present
+          WEBVIEW_TAGS="-tags webview"
+          if [[ -n "$BUILD_TAGS" ]]; then
+            TIER_TAG="${BUILD_TAGS#-tags }"
+            WEBVIEW_TAGS="-tags webview,${TIER_TAG}"
+          fi
           for cmd in coral-tray coral-app; do
-            CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags webview -ldflags "-s -w $EXTRA_LDFLAGS" -o "../dist/macos/${cmd}-arm64" "./cmd/$cmd/"
-            CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags webview -ldflags "-s -w $EXTRA_LDFLAGS" -o "../dist/macos/${cmd}-amd64" "./cmd/$cmd/"
+            CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build $WEBVIEW_TAGS -ldflags "$LDFLAGS" -o "../dist/macos/${cmd}-arm64" "./cmd/$cmd/"
+            CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build $WEBVIEW_TAGS -ldflags "$LDFLAGS" -o "../dist/macos/${cmd}-amd64" "./cmd/$cmd/"
             lipo -create -output "../dist/macos/$cmd" "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
             rm "../dist/macos/${cmd}-arm64" "../dist/macos/${cmd}-amd64"
           done
@@ -353,3 +364,44 @@ jobs:
           for f in artifacts/**/*; do
             [ -f "$f" ] && gh release upload "$TAG" "$f" --clobber
           done
+
+  # ── Publish to public repo (prod tags only) ───────────────────
+  publish-public:
+    if: >-
+      always() && !failure() && !cancelled() &&
+      !contains(github.ref_name, '-dev') &&
+      !contains(github.ref_name, '-beta') &&
+      !contains(github.ref_name, '-forDropbox')
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release to subgentic/coral-app
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "Publishing $TAG to subgentic/coral-app"
+
+          # Create the release on the public repo
+          gh release create "$TAG" \
+            --repo subgentic/coral-app \
+            --title "$TAG" \
+            --generate-notes \
+            || true
+
+          # Upload all artifacts
+          for f in artifacts/**/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $(basename "$f")..."
+              gh release upload "$TAG" "$f" \
+                --repo subgentic/coral-app \
+                --clobber
+            fi
+          done
+
+          echo "Published $TAG to subgentic/coral-app"

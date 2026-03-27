@@ -2,13 +2,13 @@
 # Build coral-go macOS universal .app bundle + DMG
 #
 # Usage: ./installers/build-macos.sh [version]
-#   Set CORAL_EDITION=forDropbox to build with demo edition limits.
+#   Set CORAL_TIER=dev|beta to select build tier. Default: prod (license required).
 # Output: installers/dist/Coral-<version>.dmg
 
 set -euo pipefail
 
 VERSION="${1:-dev}"
-CORAL_EDITION="${CORAL_EDITION:-}"
+CORAL_TIER="${CORAL_TIER:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 GO_DIR="$PROJECT_DIR/coral-go"
@@ -21,12 +21,17 @@ echo "==> Building coral-go for macOS (universal) v${VERSION}"
 LDFLAGS="-s -w"
 POSTHOG_KEY="${CORAL_POSTHOG_KEY:-phc_qXGp75qwDNcETkBDDsptPuP8qAV4nNQPDmTdAC8K9h2}"
 LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.PostHogKey=$POSTHOG_KEY -X github.com/cdknorow/coral/internal/config.Version=$VERSION"
-if [ -n "$CORAL_EDITION" ]; then
-    LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true -X github.com/cdknorow/coral/internal/config.Edition=$CORAL_EDITION"
-    echo "==> Edition: $CORAL_EDITION (license skipped)"
-elif [ "${CORAL_DEV:-}" = "1" ]; then
-    LDFLAGS="$LDFLAGS -X github.com/cdknorow/coral/internal/config.SkipLicense=true"
-    echo "==> Dev mode (license skipped)"
+
+# Build tags — select tier via CORAL_TIER env var
+BUILD_TAGS=""
+if [ "$CORAL_TIER" = "dev" ]; then
+    BUILD_TAGS="-tags dev"
+    echo "==> Tier: dev (EULA skipped, license skipped, no demo limits)"
+elif [ "$CORAL_TIER" = "beta" ]; then
+    BUILD_TAGS="-tags beta"
+    echo "==> Tier: beta (EULA required, license skipped, demo limits enforced)"
+else
+    echo "==> Tier: prod (EULA required, license required)"
 fi
 
 rm -rf "$APP_DIR" "$DIST_DIR/coral-arm64" "$DIST_DIR/coral-amd64"
@@ -41,11 +46,11 @@ cd "$GO_DIR"
 
 # Build arm64
 echo "==> Compiling coral (arm64)"
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "$DIST_DIR/coral-arm64" ./cmd/coral/
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/coral-arm64" ./cmd/coral/
 
 # Build amd64
 echo "==> Compiling coral (amd64)"
-GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "$DIST_DIR/coral-amd64" ./cmd/coral/
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/coral-amd64" ./cmd/coral/
 
 # Create universal binary
 echo "==> Creating universal binary with lipo"
@@ -62,8 +67,8 @@ echo "==> Compiling companion CLI binaries (universal)"
 for cmd in launch-coral coral-board coral-hook-agentic-state coral-hook-message-check coral-hook-task-sync; do
     if [ -d "./cmd/$cmd" ]; then
         echo "    Building $cmd..."
-        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-arm64" ./cmd/$cmd/
-        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-amd64" ./cmd/$cmd/
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-arm64" ./cmd/$cmd/
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $BUILD_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-amd64" ./cmd/$cmd/
         if command -v lipo &>/dev/null; then
             lipo -create -output "$APP_DIR/Contents/MacOS/$cmd" "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
             rm -f "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
@@ -76,12 +81,18 @@ for cmd in launch-coral coral-board coral-hook-agentic-state coral-hook-message-
 done
 
 # Build CGO binaries (tray + webview app — require native platform APIs)
+# Combine webview tag with tier tag if present
+WEBVIEW_TAGS="-tags webview"
+if [ -n "$BUILD_TAGS" ]; then
+    TIER_TAG="${BUILD_TAGS#-tags }"
+    WEBVIEW_TAGS="-tags webview,${TIER_TAG}"
+fi
 echo "==> Compiling coral-tray + coral-app (CGO required)"
 if [[ "$(uname -s)" == "Darwin" ]]; then
     for cmd in coral-tray coral-app; do
         echo "    Building $cmd..."
-        GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags webview -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-arm64" ./cmd/$cmd/
-        GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags webview -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-amd64" ./cmd/$cmd/
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build $WEBVIEW_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-arm64" ./cmd/$cmd/
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build $WEBVIEW_TAGS -ldflags="$LDFLAGS" -o "$DIST_DIR/${cmd}-amd64" ./cmd/$cmd/
         lipo -create -output "$APP_DIR/Contents/MacOS/$cmd" "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
         rm -f "$DIST_DIR/${cmd}-arm64" "$DIST_DIR/${cmd}-amd64"
         chmod +x "$APP_DIR/Contents/MacOS/$cmd"

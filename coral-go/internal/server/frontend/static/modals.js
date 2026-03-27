@@ -1795,9 +1795,30 @@ export async function loadSettings() {
         if (!s.custom_theme) {
             state.settings.custom_theme = "GhostV3";
         }
+        // Load license tier badge in settings dropdown
+        _loadLicenseTierBadge();
     } catch (e) {
         console.error("Failed to load settings:", e);
     }
+}
+
+/** Show license tier (Pro / Free Trial) in the settings dropdown. */
+async function _loadLicenseTierBadge() {
+    const badge = document.getElementById('license-tier-badge');
+    if (!badge) return;
+    try {
+        const resp = await fetch('/api/license/status');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.activated && data.valid) {
+            // Use product_name from LS if available, fallback to 'Coral Pro'
+            const label = data.product_name || 'Coral Pro';
+            badge.innerHTML = `<span class="tier-label tier-pro">${escapeHtml(label)}</span>`;
+        } else {
+            badge.innerHTML = '<span class="tier-label tier-trial">Free Trial</span>';
+        }
+        badge.style.display = '';
+    } catch { /* silent — non-critical */ }
 }
 
 // ── Theme ────────────────────────────────────────────────────────────────
@@ -2000,6 +2021,7 @@ async function _loadLicenseStatus() {
                 <button class="btn btn-small" onclick="_deactivateLicense()" style="margin-top:8px;color:var(--text-secondary)">Deactivate</button>`;
         } else if (data.activated && !data.valid) {
             container.innerHTML = `<span style="color:var(--red, #f44336);font-size:13px;font-weight:600">License expired or invalid</span>
+                <br><a href="mailto:support@subgentic.ai" style="font-size:11px;color:var(--text-muted)">Contact support@subgentic.ai</a>
                 <button class="btn btn-small" onclick="_deactivateLicense()" style="margin-top:8px">Deactivate</button>`;
         } else {
             container.innerHTML = `<span style="color:var(--text-secondary);font-size:13px">Not activated</span>`;

@@ -52,7 +52,6 @@ func main() {
 	host := flag.String("host", "", "Host to bind to")
 	port := flag.Int("port", 0, "Port to bind to")
 	noBrowser := flag.Bool("no-browser", false, "Don't open the browser on startup")
-	devMode := flag.Bool("dev", false, "Development mode: skip license check")
 	defaultBackend := "tmux"
 	if runtime.GOOS == "windows" {
 		defaultBackend = "pty"
@@ -63,6 +62,9 @@ func main() {
 	cfg := config.Load(*homeDir)
 	setupCrashLogging(cfg.CoralDir())
 
+	log.Printf("[STARTUP] build tier=%s eula=%v license=%v demo_limits=%v",
+		config.TierName, config.EULARequired(), cfg.LicenseRequired(), config.DemoLimitsEnforced())
+
 	if *host != "" {
 		cfg.Host = *host
 	}
@@ -70,12 +72,8 @@ func main() {
 		cfg.Port = *port
 	}
 
-	if *devMode {
-		cfg.DevMode = true
-	}
-
 	// Check EULA acceptance (terminal prompt on first launch)
-	if !cfg.DevMode && !license.CheckAndPromptEULA(license.TerminalEULADialog) {
+	if config.EULARequired() && !license.CheckAndPromptEULA(license.TerminalEULADialog) {
 		fmt.Fprintln(os.Stderr, "Terms of Service must be accepted to use Coral.")
 		os.Exit(0)
 	}

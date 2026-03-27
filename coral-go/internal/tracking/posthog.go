@@ -70,7 +70,7 @@ func TrackEvent(eventName string, extraProps map[string]string) {
 		}
 		props := map[string]any{
 			"version": config.Version,
-			"edition": config.Edition,
+			"edition": config.TierName,
 			"os":      runtime.GOOS,
 			"arch":    runtime.GOARCH,
 		}
@@ -101,7 +101,7 @@ func trackInstall() {
 		cachedInstallID = installID
 		postEvent("install", installID, map[string]any{
 			"version": currentVersion,
-			"edition": config.Edition,
+			"edition": config.TierName,
 			"os":      runtime.GOOS,
 			"arch":    runtime.GOARCH,
 		})
@@ -116,7 +116,7 @@ func trackInstall() {
 		os.WriteFile(versionFile, []byte(currentVersion), 0600)
 		postEvent("upgrade", installID, map[string]any{
 			"version": currentVersion,
-			"edition": config.Edition,
+			"edition": config.TierName,
 			"os":      runtime.GOOS,
 			"arch":    runtime.GOARCH,
 		})
