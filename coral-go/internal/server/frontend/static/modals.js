@@ -1787,20 +1787,20 @@ export async function loadSettings() {
         if (!s.file_search_mode) {
             s.file_search_mode = 'directory';
         }
-        // Default git_diff_mode to 'branch_point'
+        // Default git_diff_mode to 'previous_commit' (HEAD~1)
         if (!s.git_diff_mode) {
-            s.git_diff_mode = 'branch_point';
+            s.git_diff_mode = 'previous_commit';
         }
         state.settings = s;
 
         // Apply scrollbar visibility
         document.body.classList.toggle('no-scrollbars', !s.show_scrollbars);
 
-        // Apply theme from settings (default to GhostV3 if no theme configured)
-        const themeName = s.custom_theme || "GhostV3";
+        // Apply theme from settings (default to Dropbox Dark if no theme configured)
+        const themeName = (!s.custom_theme || s.custom_theme === "GhostV3") ? "Dropbox Dark" : s.custom_theme;
         await applyCustomThemeByName(themeName);
-        if (!s.custom_theme) {
-            state.settings.custom_theme = "GhostV3";
+        if (!s.custom_theme || s.custom_theme === "GhostV3") {
+            state.settings.custom_theme = "Dropbox Dark";
         }
         // Load license tier badge in settings dropdown
         _loadLicenseTierBadge();
@@ -1990,9 +1990,9 @@ export async function showSettingsModal() {
     const fileSearchSelect = document.getElementById("settings-file-search-mode");
     if (fileSearchSelect) fileSearchSelect.value = s.file_search_mode || 'directory';
 
-    // Git Diff Mode (defaults to 'branch_point')
+    // Git Diff Mode (defaults to 'previous_commit')
     const gitDiffSelect = document.getElementById("settings-git-diff-mode");
-    if (gitDiffSelect) gitDiffSelect.value = s.git_diff_mode || 'branch_point';
+    if (gitDiffSelect) gitDiffSelect.value = s.git_diff_mode || 'previous_commit';
 
     // License status
     _loadLicenseStatus();
@@ -2108,7 +2108,7 @@ export async function applySettings() {
         git_diff_mode: gitDiffMode,
     };
 
-    const oldGitDiffMode = state.settings?.git_diff_mode || 'branch_point';
+    const oldGitDiffMode = state.settings?.git_diff_mode || 'previous_commit';
 
     try {
         await fetch("/api/settings", {
