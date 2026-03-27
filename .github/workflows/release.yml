@@ -405,4 +405,8 @@ jobs:
             fi
           done
 
+          # Delete auto-generated source archives (we only distribute the DMG)
+          gh release delete-asset "$TAG" "${TAG}.zip" --repo subgentic/coral-app --yes 2>/dev/null || true
+          gh release delete-asset "$TAG" "${TAG}.tar.gz" --repo subgentic/coral-app --yes 2>/dev/null || true
+
           echo "Published $TAG to subgentic/coral-app"
