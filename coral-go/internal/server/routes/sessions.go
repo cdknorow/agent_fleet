@@ -1485,6 +1485,18 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// Edition limits: check max live agents before resuming
+	if h.cfg.MaxLiveAgents > 0 {
+		count, err := h.ss.CountLiveSessions(ctx)
+		if err == nil && count >= h.cfg.MaxLiveAgents {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.cfg.MaxLiveAgents),
+			})
+			return
+		}
+	}
+
 	pane, _ := h.terminal.FindSession(ctx, name, agentType, body.CurrentSessionID)
 	if pane == nil {
 		errNotFound(w, "Pane not found")
@@ -2562,10 +2574,26 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 
 	// Find sleeping sessions on this board and relaunch
 	allLive, _ := h.ss.GetAllLiveSessions(ctx)
+
+	// Count currently active (non-sleeping) agents for limit enforcement
+	activeCount := 0
+	for _, ls := range allLive {
+		if ls.IsSleeping == 0 {
+			activeCount++
+		}
+	}
+
 	relaunched := 0
 	for _, ls := range allLive {
 		if ls.IsSleeping != 1 || ls.BoardName == nil || *ls.BoardName != boardName {
 			continue
+		}
+
+		// Edition limits: stop waking if we'd exceed max live agents
+		if h.cfg.MaxLiveAgents > 0 && activeCount+relaunched >= h.cfg.MaxLiveAgents {
+			log.Printf("[wake] limit reached (%d/%d) — skipping remaining agents on board %s",
+				activeCount+relaunched, h.cfg.MaxLiveAgents, boardName)
+			break
 		}
 
 		// Relaunch the session
@@ -2741,6 +2769,22 @@ func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
 	if sess.IsSleeping != 1 {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session is not sleeping"})
 		return
+	}
+
+	// Edition limits: check max live agents before waking
+	if h.cfg.MaxLiveAgents > 0 {
+		activeCount := 0
+		for _, ls := range allLive {
+			if ls.IsSleeping == 0 {
+				activeCount++
+			}
+		}
+		if activeCount >= h.cfg.MaxLiveAgents {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.cfg.MaxLiveAgents),
+			})
+			return
+		}
 	}
 
 	flags := store.ParseFlags(sess.Flags)

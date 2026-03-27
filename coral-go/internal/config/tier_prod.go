@@ -10,4 +10,9 @@ var (
 	TierSkipLicense = false
 	TierDemoLimits  = false
 	TierName        = "prod"
+
+	// Live store (Lemon Squeezy)
+	StoreTrialURL = "https://store.coralai.ai/checkout/buy/6e3facc8-9fe8-4126-9000-d1a006e1e71a"
+	StoreProURL   = "https://store.coralai.ai/checkout/buy/1cf08999-ef06-466d-938c-b0f6ec4f92e6"
+	StorePromo    = "A3MDI0NQ"
 )

@@ -755,11 +755,11 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	return sessions, err
 }
 
-// CountLiveSessions returns the number of non-sleeping live sessions.
+// CountLiveSessions returns the total number of live sessions (including sleeping).
 func (s *SessionStore) CountLiveSessions(ctx context.Context) (int, error) {
 	var count int
 	err := s.db.GetContext(ctx, &count,
-		"SELECT COUNT(*) FROM live_sessions WHERE is_sleeping = 0")
+		"SELECT COUNT(*) FROM live_sessions")
 	return count, err
 }
 

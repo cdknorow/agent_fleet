@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
@@ -501,7 +502,16 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveActivation(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(activationPage))
+	page := activationPage
+	page = strings.Replace(page, "{{STORE_TRIAL_URL}}", config.StoreTrialURL, 1)
+	page = strings.Replace(page, "{{STORE_PRO_URL}}", config.StoreProURL, 1)
+	page = strings.Replace(page, "{{STORE_PROMO}}", func() string {
+		if config.StorePromo != "" {
+			return `Use code <strong style="color:#8b949e;">` + config.StorePromo + `</strong> at checkout`
+		}
+		return ""
+	}(), 1)
+	w.Write([]byte(page))
 }
 
 const activationPage = `<!DOCTYPE html>
@@ -644,7 +654,7 @@ const activationPage = `<!DOCTYPE html>
         <li>Claude &amp; Codex support</li>
         <li>Real-time dashboard</li>
       </ul>
-      <a href="https://store.coralai.ai/checkout/buy/59b4153c-d389-44f4-8a03-cf840261844e" class="price-btn price-btn-secondary" target="_blank">Start Free Trial</a>
+      <a href="{{STORE_TRIAL_URL}}" class="price-btn price-btn-secondary" target="_blank">Start Free Trial</a>
     </div>
 
     <div class="price-card featured">
@@ -659,8 +669,8 @@ const activationPage = `<!DOCTYPE html>
         <li>Search chat history</li>
         <li>Priority updates for one year</li>
       </ul>
-      <a href="https://store.coralai.ai/checkout/buy/44df39dc-9891-4094-8b77-f73c1d2596ae" class="price-btn price-btn-primary" target="_blank">Get Coral Pro</a>
-      <p style="font-size:11px;color:#484f58;margin-top:8px;text-align:center;">Use code <strong style="color:#8b949e;">U4NZY1NW</strong> at checkout</p>
+      <a href="{{STORE_PRO_URL}}" class="price-btn price-btn-primary" target="_blank">Get Coral Pro</a>
+      <p style="font-size:11px;color:#484f58;margin-top:8px;text-align:center;">{{STORE_PROMO}}</p>
     </div>
   </div>
 

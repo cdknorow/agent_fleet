@@ -61,8 +61,11 @@ Revalidates every 7 days, 30-day offline grace period
 - Per-machine activation with fingerprinting
 - Offline grace (30 days)
 - Low-overhead revalidation (7-day window)
-- Edition-based feature limits (forDropbox: 2 teams, 8 agents)
-- Dev mode bypass (`--dev`, `CORAL_DEV=1`, `SkipLicense` ldflags)
+- AES-256-GCM encrypted license file (`~/.coral/license.json`), machine-bound via HKDF-derived key
+- Compile-time build tiers (dev/beta/prod) via Go build tags — no runtime bypass possible
+- Trial limits enforced: 2 teams / 8 agents (default for any license that isn't "Coral Pro")
+- `VariantName` stored in cached license from Lemon Squeezy response
+- Store URLs (trial/pro checkout) set per build tier at compile time
 
 ### What's Missing for Team/Managed
 
@@ -253,8 +256,8 @@ CREATE TABLE active_sessions (
 
 | Plan | Machines | Teams | Agents | Price |
 |------|----------|-------|--------|-------|
-| 14-Day Trial | 1 | Unlimited | Unlimited | Free ($0 LS SKU) |
-| Pro | 1 | Unlimited | Unlimited | ~~$99/yr~~ $49/yr (launch) |
+| 14-Day Trial ("Coral Trial Edition") | 1 | 2 | 8 | Free ($0 LS SKU) |
+| Pro ("Coral Pro") | 1 | Unlimited | Unlimited | ~~$99/yr~~ $49/yr (launch) |
 | Team | N seats | Unlimited | Unlimited | TBD |
 
 **Trial:** Full Pro features for 14 days. Requires $0 Lemon Squeezy activation
@@ -403,11 +406,72 @@ When license is required and not yet activated, the server serves a
 self-contained activation page (`server.go` `activationPage` const) that shows:
 
 1. **Pricing cards:** 14-Day Pro Trial (free, LS checkout link) and Pro
-   (~~$99/yr~~ $49/yr, LS checkout link with promo code U4NZY1NW)
+   (~~$99/yr~~ $49/yr, LS checkout link with promo code)
 2. **License key input form** for users who already have a key
 3. **Link back to coralai.ai**
 
 The page is gated — all routes redirect to it until a valid license is activated.
+
+Store URLs and promo codes are injected at serve time via `{{STORE_TRIAL_URL}}`,
+`{{STORE_PRO_URL}}`, and `{{STORE_PROMO}}` placeholders, resolved from compile-time
+tier config.
+
+---
+
+## Build Tiers & Store Configuration
+
+Build tiers control licensing behavior and which Lemon Squeezy store (test vs live)
+is used for checkout links. Set at compile time via Go build tags.
+
+| Tier | Build Tag | EULA | License | Demo Limits | Store |
+|------|-----------|------|---------|-------------|-------|
+| Prod | (default) | Required | Required | LS variant controls | **Live** |
+| Dev | `-tags dev` | Skipped | Skipped | None | Test |
+| Beta | `-tags beta` | Required | Skipped | 2 teams / 8 agents | Test |
+
+### Lemon Squeezy Products
+
+**Live Store** (prod builds):
+
+| Product | Variant | Checkout UUID | Limits |
+|---------|---------|---------------|--------|
+| Coral Trial Edition | Trial | `6e3facc8-9fe8-4126-9000-d1a006e1e71a` | 2 teams, 8 agents |
+| Coral Pro | Pro | `1cf08999-ef06-466d-938c-b0f6ec4f92e6` | Unlimited |
+
+Promo code: `A3MDI0NQ`
+
+**Test Store** (dev/beta builds):
+
+| Product | Variant | Checkout UUID | Limits |
+|---------|---------|---------------|--------|
+| Coral Trial Edition | Trial | `59b4153c-d389-44f4-8a03-cf840261844e` | 2 teams, 8 agents |
+| Coral Pro | Pro | `44df39dc-9891-4094-8b77-f73c1d2596ae` | Unlimited |
+
+### Trial Limit Enforcement
+
+On startup (`cmd/coral/main.go`), the server loads the cached license and checks
+`VariantName`. Limits default to trial (2 teams / 8 agents) unless the variant is
+explicitly `"Coral Pro"`. This means:
+
+- Empty variant (legacy activations) → trial limits
+- "Coral Trial Edition" → trial limits
+- "Coral Pro" → unlimited
+
+Limits are enforced in `sessions.go` via `h.cfg.MaxLiveAgents` and `h.cfg.MaxLiveTeams`.
+`CountLiveSessions()` counts ALL sessions in `live_sessions` (including sleeping).
+
+When the limit is hit, the UI shows a "Free Trial Limit Reached" modal with an
+"Upgrade to Pro" button linking to the store pro URL (fetched from `/api/system/status`).
+
+### License File Encryption
+
+The cached license (`~/.coral/license.json`) is encrypted with AES-256-GCM using a key
+derived from the machine fingerprint via HKDF. This prevents:
+- Copying license files between machines
+- Tampering with license data (e.g. changing variant name)
+- Reading license details from disk
+
+The file can only be decrypted on the same machine that activated it.
 
 ---
 

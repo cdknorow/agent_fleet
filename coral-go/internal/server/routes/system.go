@@ -134,6 +134,8 @@ func (h *SystemHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"startup_complete": true,
 		"version":          config.Version,
+		"store_trial_url":  config.StoreTrialURL,
+		"store_pro_url":    config.StoreProURL,
 	})
 }
 

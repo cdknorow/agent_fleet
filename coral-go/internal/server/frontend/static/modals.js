@@ -297,23 +297,30 @@ function _showCLINotFoundModal(agentType) {
     });
 }
 
-function _showDemoLimitModal(message) {
+async function _showDemoLimitModal(message) {
+    let storeProURL = 'https://store.coralai.ai';
+    try {
+        const resp = await fetch('/api/system/status');
+        const data = await resp.json();
+        if (data.store_pro_url) storeProURL = data.store_pro_url;
+    } catch (_e) { /* use default */ }
+
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.style.display = 'flex';
     modal.innerHTML = `
         <div class="modal-content" style="width:480px;text-align:center">
-            <h3 style="margin-bottom:12px">Demo Limit Reached</h3>
+            <h3 style="margin-bottom:12px">Free Trial Limit Reached</h3>
             <p style="color:var(--text-secondary);font-size:14px;line-height:1.6;margin:0 0 16px">
-                This is a demo edition with the following limits:<br>
-                <strong>Max Live Sessions:</strong> 8<br>
-                <strong>Max Agent Teams:</strong> 2
+                Your free trial includes:<br>
+                <strong>Up to 8 agents</strong> and <strong>2 agent teams</strong>
             </p>
             <p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px">
-                Please stop existing sessions before launching new ones.
+                Upgrade to <strong>Coral Pro</strong> for unlimited agents, teams, and priority support.
             </p>
-            <div class="modal-actions" style="justify-content:center">
-                <button class="btn btn-primary" data-action="close">OK</button>
+            <div class="modal-actions" style="justify-content:center;gap:12px">
+                <button class="btn btn-secondary" data-action="close">Maybe Later</button>
+                <a href="${storeProURL}" target="_blank" rel="noopener" class="btn btn-primary" style="text-decoration:none">Upgrade to Pro</a>
             </div>
         </div>
     `;

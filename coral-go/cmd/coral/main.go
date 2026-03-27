@@ -75,8 +75,9 @@ func main() {
 		}
 	}
 
-	log.Printf("[STARTUP] build tier=%s eula=%v license=%v demo_limits=%v variant=%q",
-		config.TierName, config.EULARequired(), cfg.LicenseRequired(), config.DemoLimitsEnforced(), variantName)
+	log.Printf("[STARTUP] build tier=%s eula=%v license=%v demo_limits=%v variant=%q max_teams=%d max_agents=%d",
+		config.TierName, config.EULARequired(), cfg.LicenseRequired(), config.DemoLimitsEnforced(), variantName,
+		cfg.MaxLiveTeams, cfg.MaxLiveAgents)
 
 	if *host != "" {
 		cfg.Host = *host
