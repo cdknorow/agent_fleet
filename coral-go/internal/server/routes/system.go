@@ -133,7 +133,7 @@ func (h *SystemHandler) GetDefaultPrompts(w http.ResponseWriter, r *http.Request
 func (h *SystemHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"startup_complete": true,
-		"version":          "0.1.0-go",
+		"version":          config.Version,
 	})
 }
 
@@ -144,7 +144,7 @@ func (h *SystemHandler) UpdateCheck(w http.ResponseWriter, r *http.Request) {
 	// Return the current version with no update available.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available": false,
-		"current":   "0.1.0-go",
+		"current":   config.Version,
 	})
 }
 

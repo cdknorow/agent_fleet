@@ -53,7 +53,7 @@ func isUngatedPath(path string) bool {
 		return true
 	}
 	// Health check (polled by native app before login)
-	if path == "/api/health" {
+	if path == "/api/health" || path == "/api/system/status" {
 		return true
 	}
 	// Root page (serves activation UI when unlicensed)
