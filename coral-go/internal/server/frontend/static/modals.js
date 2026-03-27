@@ -1990,6 +1990,12 @@ export async function showSettingsModal() {
     // License status
     _loadLicenseStatus();
 
+    // App version
+    fetch('/api/system/status').then(r => r.json()).then(d => {
+        const el = document.getElementById('app-version-label');
+        if (el && d.version) el.textContent = 'Version ' + d.version;
+    }).catch(() => {});
+
     document.getElementById("settings-modal").style.display = "flex";
 }
 
