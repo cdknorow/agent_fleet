@@ -122,20 +122,24 @@ if [ "$SERVER_UP" -eq 1 ]; then
         fail "GET /api/system/status missing 'startup_complete' (got: $STATUS_BODY)"
     fi
 
-    # GET /api/sessions/live -- HTTP 200
-    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "http://localhost:$TEST_PORT/api/sessions/live" 2>/dev/null || echo "000")
+    # GET /api/sessions/live -- HTTP 200 (or 403 if license-gated in prod builds)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$TEST_PORT/api/sessions/live" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ]; then
         pass "GET /api/sessions/live returned 200"
+    elif [ "$HTTP_CODE" = "403" ]; then
+        pass "GET /api/sessions/live returned 403 (license-gated, expected in prod builds)"
     else
-        fail "GET /api/sessions/live returned $HTTP_CODE (expected 200)"
+        fail "GET /api/sessions/live returned $HTTP_CODE (expected 200 or 403)"
     fi
 
-    # GET /api/settings -- HTTP 200
-    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "http://localhost:$TEST_PORT/api/settings" 2>/dev/null || echo "000")
+    # GET /api/settings -- HTTP 200 (or 403 if license-gated in prod builds)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$TEST_PORT/api/settings" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ]; then
         pass "GET /api/settings returned 200"
+    elif [ "$HTTP_CODE" = "403" ]; then
+        pass "GET /api/settings returned 403 (license-gated, expected in prod builds)"
     else
-        fail "GET /api/settings returned $HTTP_CODE (expected 200)"
+        fail "GET /api/settings returned $HTTP_CODE (expected 200 or 403)"
     fi
 else
     info "Skipping API checks (server not up)"
