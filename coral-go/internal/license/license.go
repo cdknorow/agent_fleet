@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,11 +46,16 @@ type CachedLicense struct {
 	Valid         bool   `json:"valid"`
 }
 
-// lsResponse is the Lemon Squeezy API response for activate/validate.
+// lsResponse is the Lemon Squeezy API response for activate/validate/deactivate.
+// The activate endpoint returns "activated", validate returns "valid",
+// deactivate returns "deactivated". We map all three so the same struct works
+// for all endpoints.
 type lsResponse struct {
-	Valid     bool   `json:"valid"`
-	Error     string `json:"error,omitempty"`
-	LicenseKey struct {
+	Activated   bool   `json:"activated"`
+	Deactivated bool   `json:"deactivated"`
+	Valid       bool   `json:"valid"`
+	Error       string `json:"error,omitempty"`
+	LicenseKey  struct {
 		Status string `json:"status"`
 	} `json:"license_key"`
 	Instance struct {
@@ -155,10 +162,10 @@ func (m *Manager) Activate(key string) error {
 		return fmt.Errorf("failed to reach license server: %w", err)
 	}
 
-	if !resp.Valid {
+	if !resp.Activated {
 		msg := resp.Error
 		if msg == "" {
-			msg = "invalid license key"
+			msg = "license activation failed"
 		}
 		return fmt.Errorf("%s", msg)
 	}
@@ -186,14 +193,18 @@ func (m *Manager) Deactivate() error {
 		return fmt.Errorf("no active license")
 	}
 
-	// Call LS deactivate API
-	resp, err := m.callAPI(deactivateEndpoint, m.cache.LicenseKey, m.cache.InstanceID)
+	// Call LS deactivate API — uses instance_id (not instance_name)
+	resp, err := m.callDeactivateAPI(m.cache.LicenseKey, m.cache.InstanceID)
 	if err != nil {
 		return fmt.Errorf("failed to reach license server: %w", err)
 	}
 
-	if resp.Error != "" {
-		return fmt.Errorf("%s", resp.Error)
+	if !resp.Deactivated {
+		msg := resp.Error
+		if msg == "" {
+			msg = "deactivation failed"
+		}
+		return fmt.Errorf("%s", msg)
 	}
 
 	// Clear local state
@@ -238,8 +249,60 @@ func (m *Manager) callAPI(endpoint, licenseKey, instanceID string) (*lsResponse,
 	}
 	defer resp.Body.Close()
 
+	// Read the full body so we can log it on error
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[license] API %s returned HTTP %d: %s", endpoint, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("license server returned HTTP %d", resp.StatusCode)
+	}
+
 	var result lsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[license] API %s returned invalid JSON: %s", endpoint, string(body))
+		return nil, fmt.Errorf("invalid API response: %w", err)
+	}
+
+	// Log the response for debugging activation issues
+	if !result.Valid {
+		log.Printf("[license] API %s returned valid=false error=%q status=%q",
+			endpoint, result.Error, result.LicenseKey.Status)
+	}
+
+	return &result, nil
+}
+
+// callDeactivateAPI calls the LS deactivate endpoint with instance_id
+// (different from activate/validate which use instance_name).
+func (m *Manager) callDeactivateAPI(licenseKey, instanceID string) (*lsResponse, error) {
+	form := url.Values{
+		"license_key": {licenseKey},
+		"instance_id": {instanceID},
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.PostForm(deactivateEndpoint, form)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[license] deactivate API returned HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("license server returned HTTP %d", resp.StatusCode)
+	}
+
+	var result lsResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[license] deactivate API returned invalid JSON: %s", string(body))
 		return nil, fmt.Errorf("invalid API response: %w", err)
 	}
 	return &result, nil

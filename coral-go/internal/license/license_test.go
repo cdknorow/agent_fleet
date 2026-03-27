@@ -92,7 +92,7 @@ func TestActivate_Success(t *testing.T) {
 	// Mock Lemon Squeezy API
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(lsResponse{
-			Valid: true,
+			Activated: true,
 			LicenseKey: struct {
 				Status string `json:"status"`
 			}{Status: "active"},
