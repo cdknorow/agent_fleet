@@ -27,9 +27,12 @@ export function connectCoralWs() {
                     const key = changed.session_id || changed.name;
                     const idx = sessions.findIndex(s => (s.session_id || s.name) === key);
                     if (idx >= 0) {
-                        // Preserve commands from previous data (not sent in WS updates)
+                        // Preserve fields not sent in WS diff updates
                         if (!changed.commands && sessions[idx].commands) {
                             changed.commands = sessions[idx].commands;
+                        }
+                        if (!changed.icon && sessions[idx].icon) {
+                            changed.icon = sessions[idx].icon;
                         }
                         sessions[idx] = changed;
                     } else {
