@@ -278,6 +278,9 @@ export function initTopBarSearch() {
 
     input.addEventListener('input', doSearch);
     input.addEventListener('keyup', doSearch);
+    input.addEventListener('focus', () => {
+        if (!input.value.trim()) _showWorkingDir();
+    });
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             input.value = '';
@@ -287,7 +290,16 @@ export function initTopBarSearch() {
     input.addEventListener('blur', () => setTimeout(_hideTopBarDropdown, 200));
 }
 
-function _renderTopBarResults(files, message) {
+function _showWorkingDir() {
+    const dir = state.currentSession?.working_directory;
+    if (!dir) {
+        _renderTopBarResults(null, 'No agent selected');
+        return;
+    }
+    _renderTopBarResults(null, null, dir);
+}
+
+function _renderTopBarResults(files, message, workingDir) {
     const dropdown = document.getElementById('topbar-search-dropdown');
     if (!dropdown) return;
 
@@ -299,17 +311,24 @@ function _renderTopBarResults(files, message) {
         dropdown.style.left = rect.left + 'px';
         dropdown.style.width = Math.max(rect.width, 300) + 'px';
     }
+
+    // Working directory header
+    const dir = workingDir || state.currentSession?.working_directory;
+    const dirHeader = dir
+        ? `<div class="topbar-search-dir" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);border-bottom:1px solid var(--border);font-family:var(--font-mono)"><span class="material-icons" style="font-size:13px;vertical-align:-2px;margin-right:4px">folder</span>${escapeHtml(dir)}</div>`
+        : '';
+
     if (message) {
-        dropdown.innerHTML = `<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">${escapeHtml(message)}</div>`;
+        dropdown.innerHTML = dirHeader + `<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">${escapeHtml(message)}</div>`;
         dropdown.style.display = 'block';
         return;
     }
     if (!files || files.length === 0) {
-        dropdown.innerHTML = '<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">No matches</div>';
+        dropdown.innerHTML = dirHeader + '<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">No matches</div>';
         dropdown.style.display = 'block';
         return;
     }
-    dropdown.innerHTML = files.slice(0, 20).map(fp => {
+    dropdown.innerHTML = dirHeader + files.slice(0, 20).map(fp => {
         const escaped = escapeHtml(fp).replace(/'/g, "\\'");
         return `<div class="file-mention-item" onmousedown="event.preventDefault(); openFilePreview('${escaped}')">${escapeHtml(fp)}</div>`;
     }).join('');
