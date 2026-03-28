@@ -247,38 +247,55 @@ export function initFileSearch() {
     });
 }
 
-// Top bar search — mirrors the files panel search but in a prominent location.
-// Shown when a live session is active; syncs queries bidirectionally with the
-// files panel search input.
+// Top bar search — prominent file search that renders results in its own dropdown.
 export function initTopBarSearch() {
     const input = document.getElementById('topbar-file-search');
     if (!input || input.dataset.searchBound) return;
     input.dataset.searchBound = '1';
 
     let debounce;
-    input.addEventListener('input', () => {
+    function doSearch() {
         clearTimeout(debounce);
         const q = input.value.trim();
         if (!q) {
-            _hideSearchDropdown();
+            _hideTopBarDropdown();
             return;
         }
-        debounce = setTimeout(() => searchRepoFiles(q), 200);
-    });
-    input.addEventListener('keyup', () => {
-        clearTimeout(debounce);
-        const q = input.value.trim();
-        if (q) debounce = setTimeout(() => searchRepoFiles(q), 200);
-    });
+        debounce = setTimeout(async () => {
+            const files = await fetchFileList();
+            const matches = fuzzyFilter(files, q);
+            _renderTopBarResults(matches);
+        }, 200);
+    }
+
+    input.addEventListener('input', doSearch);
+    input.addEventListener('keyup', doSearch);
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             input.value = '';
-            _hideSearchDropdown();
+            _hideTopBarDropdown();
         }
     });
-    input.addEventListener('blur', () => {
-        setTimeout(_hideSearchDropdown, 200);
-    });
+    input.addEventListener('blur', () => setTimeout(_hideTopBarDropdown, 200));
+}
+
+function _renderTopBarResults(files) {
+    const dropdown = document.getElementById('topbar-search-dropdown');
+    if (!dropdown) return;
+    if (!files || files.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    dropdown.innerHTML = files.slice(0, 20).map(fp => {
+        const escaped = escapeHtml(fp).replace(/'/g, "\\'");
+        return `<div class="file-mention-item" onmousedown="event.preventDefault(); openFilePreview('${escaped}')">${escapeHtml(fp)}</div>`;
+    }).join('');
+    dropdown.style.display = 'block';
+}
+
+function _hideTopBarDropdown() {
+    const dropdown = document.getElementById('topbar-search-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
 }
 
 export function showTopBarSearch() {

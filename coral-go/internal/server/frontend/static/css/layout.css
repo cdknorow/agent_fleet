@@ -55,6 +55,17 @@
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
 }
 
+.topbar-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 100;
+}
+
 .top-bar-search-input::placeholder {
     color: var(--text-secondary);
     opacity: 0.6;
