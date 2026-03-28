@@ -224,15 +224,16 @@
 }
 
 .sidebar-resize-handle {
-    width: 4px;
+    width: 1px;
     cursor: col-resize;
     background: var(--border);
     flex-shrink: 0;
-    transition: background 0.15s;
+    transition: background 0.15s, width 0.15s;
 }
 
 .sidebar-resize-handle:hover,
 .sidebar-resize-handle.dragging {
+    width: 3px;
     background: var(--accent);
 }
 
