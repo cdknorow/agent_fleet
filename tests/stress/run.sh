@@ -45,7 +45,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GO_DIR="$PROJECT_DIR/coral-go"
 TEST_ID="stress-$$-$(date +%s)"
 DATA_DIR="/tmp/.coral-${TEST_ID}"
-TMUX_SOCKET="${DATA_DIR}/.coral/tmux.sock"
+TMUX_SOCKET="${DATA_DIR}/tmux.sock"
 CORAL_BIN="${GO_DIR}/coral-stress-test"
 LOG_FILE="${DATA_DIR}/stress-test.log"
 SERVER_PID=""
@@ -122,7 +122,7 @@ log ""
 if [[ "$SKIP_BUILD" == "false" ]]; then
     log "Phase 0: Building coral binary..."
     cd "$GO_DIR"
-    go build -o "$CORAL_BIN" ./cmd/coral/ 2>&1 | tee -a "$LOG_FILE"
+    go build -tags dev -o "$CORAL_BIN" ./cmd/coral/ 2>&1 | tee -a "$LOG_FILE"
     log "  Built: $CORAL_BIN"
 else
     CORAL_BIN="${GO_DIR}/coral"
@@ -148,7 +148,7 @@ if [[ -d "$REAL_CORAL_DIR" ]]; then
     find "$REAL_CORAL_DIR" -type f -newer "$LOG_FILE" 2>/dev/null | sort > "$SNAPSHOT_FILE" || true
 fi
 
-"$CORAL_BIN" --dev --home "$DATA_DIR" --host 127.0.0.1 --port "$PORT" --no-browser >> "$LOG_FILE" 2>&1 &
+"$CORAL_BIN" --home "$DATA_DIR" --host 127.0.0.1 --port "$PORT" --no-browser >> "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 log "  Server PID: $SERVER_PID"
 
@@ -175,27 +175,41 @@ log "Phase 2: Launching $TEAMS teams x $AGENTS_PER_TEAM agents..."
 TOTAL_AGENTS=$((TEAMS * AGENTS_PER_TEAM))
 LAUNCHED=0
 
-# Ensure tmux socket directory exists (server creates ~/.coral but tmux needs the dir)
-mkdir -p "$(dirname "$TMUX_SOCKET")"
+# Launch agents via the team API so they're on shared boards (needed for reset team test)
+WORK_DIR="${DATA_DIR}/workdir"
+mkdir -p "$WORK_DIR"
 
 for t in $(seq 1 $TEAMS); do
-    TEAM_NAME="stress-team-${t}"
+    BOARD_NAME="stress-team-${t}"
+
+    # Build agents JSON array
+    AGENTS_JSON="["
     for a in $(seq 1 $AGENTS_PER_TEAM); do
-        AGENT_NAME="agent-${t}-${a}"
-        SESSION_ID="stress-${t}-${a}-$(date +%s%N)"
-
-        # Create a tmux session with a simple bash loop that exercises the system
-        tmux -S "$TMUX_SOCKET" new-session -d -s "claude-${SESSION_ID}" \
-            "while true; do echo '[agent] ${AGENT_NAME} heartbeat'; sleep 2; done" 2>/dev/null
-
-        if tmux -S "$TMUX_SOCKET" has-session -t "claude-${SESSION_ID}" 2>/dev/null; then
-            LAUNCHED=$((LAUNCHED+1))
-        fi
+        [[ $a -gt 1 ]] && AGENTS_JSON="${AGENTS_JSON},"
+        AGENTS_JSON="${AGENTS_JSON}{\"name\":\"Agent ${t}-${a}\",\"prompt\":\"You are stress test agent ${t}-${a}. Run: while true; do echo heartbeat; sleep 2; done\"}"
     done
+    AGENTS_JSON="${AGENTS_JSON}]"
+
+    LAUNCH_BODY=$(cat <<EOJSON
+{"board_name":"${BOARD_NAME}","working_dir":"${WORK_DIR}","agent_type":"claude","agents":${AGENTS_JSON}}
+EOJSON
+)
+
+    RESP=$(api POST /api/sessions/launch-team -H "Content-Type: application/json" -d "$LAUNCH_BODY" 2>/dev/null || echo "")
+    TEAM_LAUNCHED=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    agents = data.get('agents', [])
+    print(sum(1 for a in agents if 'error' not in a))
+except: print(0)
+" 2>/dev/null || echo "0")
+    LAUNCHED=$((LAUNCHED + TEAM_LAUNCHED))
+    log "  Team $BOARD_NAME: launched $TEAM_LAUNCHED/$AGENTS_PER_TEAM agents"
 done
 
 if [[ $LAUNCHED -eq $TOTAL_AGENTS ]]; then
-    pass "Launched all $TOTAL_AGENTS agents"
+    pass "Launched all $TOTAL_AGENTS agents via team API"
 elif [[ $LAUNCHED -gt 0 ]]; then
     warn "Launched $LAUNCHED/$TOTAL_AGENTS agents"
 else
@@ -408,15 +422,37 @@ for s in json.load(sys.stdin):
 PRE_RESET_COUNT=$(echo "$PRE_RESET_IDS" | grep -c . || echo "0")
 
 # Find a board name from live sessions
-BOARD_NAME=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+# Debug: show what the API returns for board detection
+LIVE_JSON=$(api GET /api/sessions/live 2>/dev/null || echo "[]")
+log "  Live sessions sample: $(echo "$LIVE_JSON" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+if sessions:
+    s = sessions[0]
+    print({k:v for k,v in s.items() if 'board' in k.lower() or k in ('name','session_id')})
+else:
+    print('(none)')
+" 2>/dev/null || echo "(parse error)")"
+
+# Also check board projects API
+BOARDS_JSON=$(api GET /api/board/projects 2>/dev/null || echo "[]")
+log "  Board projects: $(echo "$BOARDS_JSON" | head -c 200)"
+
+BOARD_NAME=$(echo "$LIVE_JSON" | python3 -c "
 import sys, json
 sessions = json.load(sys.stdin)
 for s in sessions:
-    b = s.get('board', '')
+    b = s.get('board_name') or s.get('board') or ''
     if b:
         print(b)
         break
 " 2>/dev/null || true)
+
+# Fallback: use first stress-team board name directly
+if [[ -z "$BOARD_NAME" ]]; then
+    BOARD_NAME="stress-team-1"
+    log "  Using fallback board name: $BOARD_NAME"
+fi
 
 if [[ -n "$BOARD_NAME" ]]; then
     log "  Resetting team on board: $BOARD_NAME (pre-reset count: $PRE_RESET_COUNT)"
