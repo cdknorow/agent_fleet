@@ -755,6 +755,16 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	return sessions, err
 }
 
+// GetBoardSessions returns all live sessions on a given board.
+func (s *SessionStore) GetBoardSessions(ctx context.Context, boardName string) ([]LiveSession, error) {
+	var sessions []LiveSession
+	err := s.db.SelectContext(ctx, &sessions,
+		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at
+		 FROM live_sessions WHERE board_name = ? ORDER BY created_at`, boardName)
+	return sessions, err
+}
+
 // CountLiveSessions returns the total number of live sessions (including sleeping).
 func (s *SessionStore) CountLiveSessions(ctx context.Context) (int, error) {
 	var count int

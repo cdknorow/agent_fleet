@@ -287,6 +287,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Put("/api/sessions/live/{name}/icon", sessHandler.SetIcon)
 	r.Post("/api/sessions/launch", sessHandler.Launch)
 	r.Post("/api/sessions/launch-team", sessHandler.LaunchTeam)
+	r.Post("/api/sessions/live/team/{boardName}/reset", sessHandler.ResetTeam)
 
 	// Bulk sleep/wake all (must be registered before {name} routes to avoid conflicts)
 	r.Post("/api/sessions/live/sleep-all", sessHandler.SleepAll)

@@ -1763,6 +1763,113 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "board": body.BoardName, "agents": launched})
 }
 
+// ResetTeam kills all agents on a board and re-launches them with their
+// original prompts and configuration. Each agent gets a fresh context.
+// POST /api/sessions/live/team/{boardName}/reset
+func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
+	boardName := chi.URLParam(r, "boardName")
+	if boardName == "" {
+		errBadRequest(w, "boardName is required")
+		return
+	}
+
+	ctx := r.Context()
+	bgCtx := context.Background()
+
+	// Get all sessions on this board
+	sessions, err := h.ss.GetBoardSessions(ctx, boardName)
+	if err != nil {
+		errInternalServer(w, "failed to get board sessions: "+err.Error())
+		return
+	}
+	if len(sessions) == 0 {
+		errBadRequest(w, "no agents found on board: "+boardName)
+		return
+	}
+
+	// Save each agent's config before killing
+	type agentConfig struct {
+		DisplayName string
+		WorkingDir  string
+		AgentType   string
+		Flags       string
+		Prompt      *string
+		BoardServer *string
+		BoardType   *string
+		Icon        *string
+	}
+	configs := make([]agentConfig, 0, len(sessions))
+	for _, s := range sessions {
+		configs = append(configs, agentConfig{
+			DisplayName: s.DisplayName,
+			WorkingDir:  s.WorkingDir,
+			AgentType:   s.AgentType,
+			Flags:       s.Flags,
+			Prompt:      s.Prompt,
+			BoardServer: s.BoardServer,
+			BoardType:   s.BoardType,
+			Icon:        s.Icon,
+		})
+	}
+
+	// Kill all agents
+	for _, s := range sessions {
+		h.ss.UnregisterLiveSession(bgCtx, s.SessionID)
+		h.terminal.KillSession(bgCtx, s.AgentName, s.AgentType, s.SessionID)
+		removeBoardStateFile(s.AgentName, h.cfg)
+	}
+
+	// Clear board pause state
+	if h.boardHandler != nil {
+		h.boardHandler.SetPaused(boardName, false)
+	}
+
+	// Brief pause to let tmux sessions clean up
+	time.Sleep(500 * time.Millisecond)
+
+	// Re-launch each agent with original config
+	var launched []map[string]any
+	for _, cfg := range configs {
+		var flags []string
+		if cfg.Flags != "" {
+			json.Unmarshal([]byte(cfg.Flags), &flags)
+		}
+		prompt := ""
+		if cfg.Prompt != nil {
+			prompt = *cfg.Prompt
+		}
+		boardServer := ""
+		if cfg.BoardServer != nil {
+			boardServer = *cfg.BoardServer
+		}
+		boardType := ""
+		if cfg.BoardType != nil {
+			boardType = *cfg.BoardType
+		}
+
+		result, err := h.launchSession(bgCtx, cfg.WorkingDir, cfg.AgentType, cfg.DisplayName,
+			"", flags, prompt, boardName, boardServer, "", boardType, nil)
+		if err != nil {
+			log.Printf("[reset-team] failed to re-launch %s: %v", cfg.DisplayName, err)
+			launched = append(launched, map[string]any{"name": cfg.DisplayName, "error": err.Error()})
+			continue
+		}
+
+		// Re-setup board subscription
+		go h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
+			cfg.AgentType, boardName, cfg.DisplayName)
+
+		launched = append(launched, map[string]any{
+			"name":         cfg.DisplayName,
+			"session_id":   result["session_id"],
+			"session_name": result["session_name"],
+		})
+	}
+
+	log.Printf("[reset-team] reset board %q: %d agents", boardName, len(launched))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "board": boardName, "agents": launched})
+}
+
 // ── Tasks ───────────────────────────────────────────────────────────────
 
 func (h *SessionsHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
