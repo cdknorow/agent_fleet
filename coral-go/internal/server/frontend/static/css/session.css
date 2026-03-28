@@ -484,15 +484,11 @@
 /* ── Agent Status Text ────────────────────────────────────── */
 
 .session-activity-text {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-secondary);
+    display: none;  /* hidden — colored dot is sufficient status indicator */
 }
 
 .session-status-chip {
-    display: none;  /* hidden on desktop — activity-text shows status instead */
+    display: none;
 }
 
 /* Color-code status text based on dot state class */
