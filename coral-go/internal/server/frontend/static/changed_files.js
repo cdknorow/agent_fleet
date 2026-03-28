@@ -290,6 +290,15 @@ export function initTopBarSearch() {
 function _renderTopBarResults(files, message) {
     const dropdown = document.getElementById('topbar-search-dropdown');
     if (!dropdown) return;
+
+    // Position fixed dropdown below the search input
+    const input = document.getElementById('topbar-file-search');
+    if (input) {
+        const rect = input.getBoundingClientRect();
+        dropdown.style.top = (rect.bottom + 4) + 'px';
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.width = Math.max(rect.width, 300) + 'px';
+    }
     if (message) {
         dropdown.innerHTML = `<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">${escapeHtml(message)}</div>`;
         dropdown.style.display = 'block';
