@@ -136,13 +136,20 @@ func (s *Store) Subscribe(ctx context.Context, project, sessionID, jobTitle stri
 	}
 	now := nowUTC()
 
-	// Carry forward last_read_id from any existing subscription with the same
-	// role (job_title) on this project. This preserves the read cursor when an
-	// agent restarts with a new session_id.
+	// Carry forward last_read_id from existing subscriptions. Try matching by
+	// role (job_title) first, then fall back to the highest cursor on the same
+	// project. This preserves the read cursor when an agent restarts with a
+	// new session_id, even if the session name or role changes slightly.
 	var carryForwardCursor int64
 	_ = s.db.GetContext(ctx, &carryForwardCursor,
 		"SELECT COALESCE(MAX(last_read_id), 0) FROM board_subscribers WHERE project = ? AND job_title = ?",
 		project, jobTitle)
+	if carryForwardCursor == 0 {
+		// Fallback: use the highest cursor from any subscriber on this project
+		_ = s.db.GetContext(ctx, &carryForwardCursor,
+			"SELECT COALESCE(MAX(last_read_id), 0) FROM board_subscribers WHERE project = ?",
+			project)
+	}
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at)
