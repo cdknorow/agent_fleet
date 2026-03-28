@@ -134,13 +134,15 @@ function switchNavTab(tab) {
     const sidebarFooter = document.querySelector('.sidebar-footer');
 
     if (liveSection) liveSection.style.display = tab === 'agents' ? '' : 'none';
-    if (jobsSection) jobsSection.style.display = tab === 'agents' ? '' : 'none';
+    if (jobsSection) jobsSection.style.display = tab === 'jobs' ? '' : 'none';
     if (historySection) historySection.style.display = tab === 'history' ? '' : 'none';
     if (sidebarFooter) sidebarFooter.style.display = tab === 'agents' ? '' : 'none';
 
-    // Switch main view for board tab
+    // Switch main view based on tab
     if (tab === 'board') {
         showView('messageboard-view');
+    } else if (tab === 'jobs') {
+        showView('scheduler-view');
     } else if (tab === 'history') {
         // Keep current main view, just switch sidebar content
     } else {
