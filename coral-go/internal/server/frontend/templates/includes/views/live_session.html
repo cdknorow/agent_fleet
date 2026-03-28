@@ -34,6 +34,16 @@
                 <div class="live-body">
                     <div class="live-left-column">
                         <div id="capture-wrapper" style="position:relative;flex:1;min-height:0;display:flex;flex-direction:column">
+                            <div class="terminal-header">
+                                <div class="terminal-header-left">
+                                    <span class="terminal-status-dot" id="terminal-status-dot"></span>
+                                    <span class="terminal-session-label" id="terminal-header-label"></span>
+                                </div>
+                                <div class="terminal-header-actions">
+                                    <button class="terminal-header-btn" onclick="navigator.clipboard.writeText(document.getElementById('pane-capture').textContent).then(()=>showToast('Copied'))" title="Copy terminal output"><span class="material-icons">content_copy</span></button>
+                                    <button class="terminal-header-btn" onclick="killSession()" title="Kill session"><span class="material-icons">close</span></button>
+                                </div>
+                            </div>
                             <!-- Semantic blocks view (existing) -->
                             <div id="pane-capture" class="output-scroll capture-text"></div>
                             <!-- xterm.js terminal view -->

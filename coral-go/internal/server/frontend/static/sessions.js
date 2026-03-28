@@ -61,6 +61,8 @@ export async function selectLiveSession(name, agentType, sessionId) {
 
     // Update header
     document.getElementById("session-name").textContent = displayName || name;
+    const termLabel = document.getElementById("terminal-header-label");
+    if (termLabel) termLabel.textContent = `${displayName || name} -- ${sessionId || ''}`;
     const badge = document.getElementById("session-type-badge");
     badge.textContent = agentType || "claude";
     badge.className = `badge ${(agentType || "claude").toLowerCase()}`;

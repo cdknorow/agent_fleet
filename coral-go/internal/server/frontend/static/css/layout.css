@@ -238,7 +238,6 @@
 
 .sidebar-section {
     padding: 12px 2px 12px 10px;
-    border-bottom: 1px solid var(--border);
 }
 
 .sidebar-section:last-child {

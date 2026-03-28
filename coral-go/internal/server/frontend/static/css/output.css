@@ -59,6 +59,70 @@
     margin: 6px;
 }
 
+/* ── Terminal Header Bar ───────────────────────────────────── */
+
+.terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 0;
+}
+
+.terminal-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.terminal-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+}
+
+.terminal-status-dot.working  { background: var(--accent); }
+.terminal-status-dot.waiting  { background: var(--warning); }
+.terminal-status-dot.done     { background: var(--success); }
+.terminal-status-dot.stuck    { background: var(--error); }
+.terminal-status-dot.sleeping { background: var(--warning); opacity: 0.5; }
+.terminal-status-dot.stale    { background: var(--text-muted); }
+
+.terminal-session-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+
+.terminal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.terminal-header-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s, background 0.15s;
+}
+
+.terminal-header-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
 /* ── Output Scroll ─────────────────────────────────────────── */
 
 .output-scroll {
