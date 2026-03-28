@@ -262,7 +262,15 @@ export function initTopBarSearch() {
             return;
         }
         debounce = setTimeout(async () => {
+            if (!state.currentSession || state.currentSession.type !== 'live') {
+                _renderTopBarResults(null, 'Select an agent to search files');
+                return;
+            }
             const files = await fetchFileList();
+            if (!files || files.length === 0) {
+                _renderTopBarResults(null, 'No files found');
+                return;
+            }
             const matches = fuzzyFilter(files, q);
             _renderTopBarResults(matches);
         }, 200);
@@ -279,11 +287,17 @@ export function initTopBarSearch() {
     input.addEventListener('blur', () => setTimeout(_hideTopBarDropdown, 200));
 }
 
-function _renderTopBarResults(files) {
+function _renderTopBarResults(files, message) {
     const dropdown = document.getElementById('topbar-search-dropdown');
     if (!dropdown) return;
+    if (message) {
+        dropdown.innerHTML = `<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">${escapeHtml(message)}</div>`;
+        dropdown.style.display = 'block';
+        return;
+    }
     if (!files || files.length === 0) {
-        dropdown.style.display = 'none';
+        dropdown.innerHTML = '<div class="file-mention-item" style="color:var(--text-secondary);cursor:default">No matches</div>';
+        dropdown.style.display = 'block';
         return;
     }
     dropdown.innerHTML = files.slice(0, 20).map(fp => {
