@@ -247,6 +247,50 @@ export function initFileSearch() {
     });
 }
 
+// Top bar search — mirrors the files panel search but in a prominent location.
+// Shown when a live session is active; syncs queries bidirectionally with the
+// files panel search input.
+export function initTopBarSearch() {
+    const input = document.getElementById('topbar-file-search');
+    if (!input || input.dataset.searchBound) return;
+    input.dataset.searchBound = '1';
+
+    let debounce;
+    input.addEventListener('input', () => {
+        clearTimeout(debounce);
+        const q = input.value.trim();
+        if (!q) {
+            _hideSearchDropdown();
+            return;
+        }
+        debounce = setTimeout(() => searchRepoFiles(q), 200);
+    });
+    input.addEventListener('keyup', () => {
+        clearTimeout(debounce);
+        const q = input.value.trim();
+        if (q) debounce = setTimeout(() => searchRepoFiles(q), 200);
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            input.value = '';
+            _hideSearchDropdown();
+        }
+    });
+    input.addEventListener('blur', () => {
+        setTimeout(_hideSearchDropdown, 200);
+    });
+}
+
+export function showTopBarSearch() {
+    const el = document.getElementById('top-bar-search');
+    if (el) el.style.display = 'flex';
+}
+
+export function hideTopBarSearch() {
+    const el = document.getElementById('top-bar-search');
+    if (el) el.style.display = 'none';
+}
+
 function _updateSearchSelection() {
     const dropdown = document.getElementById('files-search-dropdown');
     if (!dropdown) return;

@@ -19,7 +19,7 @@ import { loadSessionTags, addTagToSession, removeTagFromSession, showTagDropdown
 import { loadSessionCommits } from './commits.js';
 import { showTemplateBrowser } from './template_browser.js';
 import { loadAgentTasks, addAgentTask, toggleAgentTask, deleteAgentTask, editAgentTaskTitle } from './tasks.js';
-import { loadChangedFiles, openFileDiff, openFilePreview, openFileEdit, refreshChangedFiles, toggleGitDiffMode, toggleStarFile, searchRepoFiles, renderStarredFiles, initFileSearch } from './changed_files.js';
+import { loadChangedFiles, openFileDiff, openFilePreview, openFileEdit, refreshChangedFiles, toggleGitDiffMode, toggleStarFile, searchRepoFiles, renderStarredFiles, initFileSearch, initTopBarSearch, showTopBarSearch, hideTopBarSearch } from './changed_files.js';
 import { initFileMention } from './file_mention.js';
 import { initCommandMention } from './command_mention.js';
 import { loadAgentNotes, initNotesMd } from './agent_notes.js';
@@ -725,8 +725,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // Image drag-and-drop on command pane
     initImageDrop();
 
-    // File search in files panel
+    // File search in files panel + top bar
     initFileSearch();
+    initTopBarSearch();
 
     // @file mention autocomplete
     initFileMention();

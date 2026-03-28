@@ -81,6 +81,9 @@ export function showView(activeId) {
         const el = document.getElementById(id);
         if (el) el.style.display = id === activeId ? VIEW_DISPLAY[id] : "none";
     }
+    // Show top bar search only when viewing a live session
+    const topSearch = document.getElementById('top-bar-search');
+    if (topSearch) topSearch.style.display = activeId === 'live-session-view' ? 'flex' : 'none';
 }
 
 export function copyBranchName(btn) {
