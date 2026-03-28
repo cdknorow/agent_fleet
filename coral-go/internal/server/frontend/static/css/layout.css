@@ -633,18 +633,22 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
 }
 
 /* ── Welcome Screen ────────────────────────────────────────── */
 
 .welcome {
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
+    overflow-y: auto;
     color: var(--text-secondary);
     gap: 8px;
+    padding: 24px 0;
 }
 
 .welcome-logo {
