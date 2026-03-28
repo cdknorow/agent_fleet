@@ -98,7 +98,7 @@
     margin-bottom: 0;       /* override base margin-bottom */
     max-height: 400px;
     overflow-y: auto;
-    z-index: 100;
+    z-index: 9999;
 }
 
 .top-bar-search-input::placeholder {
