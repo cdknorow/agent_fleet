@@ -136,6 +136,9 @@ export function connectCoralWs() {
                     updateSessionBranch(s.branch);
                     updateWaitingIndicator(s);
                     updateChangedFileCount(s.changed_file_count || 0);
+                    // Update terminal header status dot
+                    const termDot = document.getElementById('terminal-status-dot');
+                    if (termDot) termDot.className = `terminal-status-dot ${s.working ? 'working' : s.waiting_for_input ? 'waiting' : s.sleeping ? 'sleeping' : s.done ? 'done' : 'stale'}`;
                 }
             }
         }

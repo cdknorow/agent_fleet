@@ -145,9 +145,13 @@ function switchNavTab(tab) {
         showView('scheduler-view');
     } else if (tab === 'history') {
         // Keep current main view, just switch sidebar content
-    } else {
-        // Agents tab — show welcome or current session
-        if (!state.currentSession) showView('welcome-screen');
+    } else if (tab === 'agents') {
+        // Restore previously selected session or show welcome
+        if (state.currentSession && state.currentSession.type === 'live') {
+            showView('live-session-view');
+        } else {
+            showView('welcome-screen');
+        }
     }
 }
 
