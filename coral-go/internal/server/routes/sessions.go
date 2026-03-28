@@ -1800,8 +1800,15 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	configs := make([]agentConfig, 0, len(sessions))
 	for _, s := range sessions {
+		dn := s.DisplayName
+		// Fallback: if display_name is nil in live_sessions, check session_meta
+		if dn == nil {
+			if metaName, err := h.ss.GetDisplayName(ctx, s.SessionID); err == nil && metaName != nil {
+				dn = metaName
+			}
+		}
 		configs = append(configs, agentConfig{
-			DisplayName: s.DisplayName,
+			DisplayName: dn,
 			WorkingDir:  s.WorkingDir,
 			AgentType:   s.AgentType,
 			Flags:       s.Flags,
@@ -1812,11 +1819,16 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Kill all agents
+	// Kill all agents and unsubscribe from board
 	for _, s := range sessions {
 		h.ss.UnregisterLiveSession(bgCtx, s.SessionID)
 		h.terminal.KillSession(bgCtx, s.AgentName, s.AgentType, s.SessionID)
 		removeBoardStateFile(s.AgentName, h.cfg)
+		// Clean up board subscriber entry to prevent ghost agents
+		if h.bs != nil {
+			sessionName := fmt.Sprintf("%s-%s", s.AgentType, s.SessionID)
+			h.bs.Unsubscribe(bgCtx, boardName, sessionName)
+		}
 	}
 
 	// Clear board pause state

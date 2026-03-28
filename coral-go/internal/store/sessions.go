@@ -831,7 +831,7 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 		// Carry forward flags, prompt, board from old session if not set
 		var old LiveSession
 		err := tx.GetContext(ctx, &old,
-			"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type FROM live_sessions WHERE session_id = ?",
+			"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type, display_name FROM live_sessions WHERE session_id = ?",
 			oldSessionID)
 		if err == nil {
 			if newSession.Flags == nil {
@@ -851,6 +851,9 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 			}
 			if newSession.BoardType == nil {
 				newSession.BoardType = old.BoardType
+			}
+			if newSession.DisplayName == nil {
+				newSession.DisplayName = old.DisplayName
 			}
 			newSession.IsSleeping = old.IsSleeping
 		}

@@ -9,6 +9,7 @@
 #   --agents-per-team N    Agents per team (default: 4)
 #   --duration DURATION    How long to run the monitor phase (default: 60s)
 #   --port PORT            Server port (default: 9420)
+#   --backend BACKEND      Terminal backend: pty or tmux (default: pty)
 #   --skip-build           Skip building the coral binary
 #
 # Requirements:
@@ -23,6 +24,7 @@ TEAMS=3
 AGENTS_PER_TEAM=4
 DURATION="60s"
 PORT=9420
+BACKEND="pty"
 SKIP_BUILD=false
 
 # ── Parse args ──────────────────────────────────────────────────────────
@@ -32,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --agents-per-team) AGENTS_PER_TEAM="$2"; shift 2 ;;
         --duration)       DURATION="$2"; shift 2 ;;
         --port)           PORT="$2"; shift 2 ;;
+        --backend)        BACKEND="$2"; shift 2 ;;
         --skip-build)     SKIP_BUILD=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -40,6 +43,11 @@ done
 # Convert duration to seconds
 DURATION_SECS="${DURATION%s}"
 
+# Ensure common tool paths are available (Go, tmux, etc.)
+for p in /usr/local/go/bin /opt/homebrew/bin /usr/local/bin; do
+    [[ -d "$p" ]] && [[ ":$PATH:" != *":$p:"* ]] && export PATH="$p:$PATH"
+done
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GO_DIR="$PROJECT_DIR/coral-go"
@@ -47,6 +55,7 @@ TEST_ID="stress-$$-$(date +%s)"
 DATA_DIR="/tmp/.coral-${TEST_ID}"
 TMUX_SOCKET="${DATA_DIR}/tmux.sock"
 CORAL_BIN="${GO_DIR}/coral-stress-test"
+MOCK_AGENT_BIN="${GO_DIR}/mock-agent-stress-test"
 LOG_FILE="${DATA_DIR}/stress-test.log"
 SERVER_PID=""
 PASSED=0
@@ -71,6 +80,23 @@ api() {
     curl -s -X "$method" "http://127.0.0.1:${PORT}${path}" "$@"
 }
 
+# Count running agent sessions (works for both backends)
+count_agent_sessions() {
+    local count
+    if [[ "$BACKEND" == "tmux" ]]; then
+        count=$(tmux -S "$TMUX_SOCKET" list-sessions 2>/dev/null | wc -l | tr -d '[:space:]') || true
+    else
+        count=$(pgrep -f "mock-agent.*stress-test.*--session-id" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+    fi
+    echo "${count:-0}"
+}
+
+# Kill all agent sessions
+kill_agent_sessions() {
+    tmux -S "$TMUX_SOCKET" kill-server 2>/dev/null || true
+    pkill -f "mock-agent.*stress-test.*--session-id" 2>/dev/null || true
+}
+
 wait_for_server() {
     local max_wait=30
     for i in $(seq 1 $max_wait); do
@@ -85,26 +111,27 @@ wait_for_server() {
 # ── Cleanup ─────────────────────────────────────────────────────────────
 cleanup() {
     log "Cleaning up..."
+    # Kill all agent sessions and tmux server
+    kill_agent_sessions 2>/dev/null || true
     # Kill server
     if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    # Kill any tmux sessions on our socket
-    tmux -S "$TMUX_SOCKET" kill-server 2>/dev/null || true
     # Clean up data dir (keep log for review)
     if [[ -d "$DATA_DIR" ]]; then
         cp "$LOG_FILE" "/tmp/coral-stress-${TEST_ID}.log" 2>/dev/null || true
         rm -rf "$DATA_DIR"
     fi
     # Clean up binary
-    rm -f "$CORAL_BIN"
+    rm -f "$CORAL_BIN" "$MOCK_AGENT_BIN"
 }
 trap cleanup EXIT
 
 # ── Pre-test cleanup ────────────────────────────────────────────────────
-# Kill any dangling coral-stress-test processes from previous runs
+# Kill any dangling processes from previous runs
 pkill -f "coral-stress-test" 2>/dev/null || true
+pkill -f "mock-agent.*stress-test" 2>/dev/null || true
 # Kill any tmux servers on old stress test sockets
 for old_sock in /tmp/.coral-stress-*/tmux.sock; do
     tmux -S "$old_sock" kill-server 2>/dev/null || true
@@ -125,23 +152,31 @@ log "  Teams:           $TEAMS"
 log "  Agents/team:     $AGENTS_PER_TEAM"
 log "  Duration:        $DURATION"
 log "  Port:            $PORT"
+log "  Backend:         $BACKEND"
 log "  Data dir:        $DATA_DIR"
 log "  Tmux socket:     $TMUX_SOCKET"
 log ""
 
 # ── Phase 0: Build ──────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" == "false" ]]; then
-    log "Phase 0: Building coral binary..."
+    log "Phase 0: Building coral + mock-agent binaries..."
     cd "$GO_DIR"
     go build -tags dev -o "$CORAL_BIN" ./cmd/coral/ 2>&1 | tee -a "$LOG_FILE"
+    go build -o "$MOCK_AGENT_BIN" ./cmd/mock-agent/ 2>&1 | tee -a "$LOG_FILE"
     log "  Built: $CORAL_BIN"
+    log "  Built: $MOCK_AGENT_BIN"
 else
     CORAL_BIN="${GO_DIR}/coral"
+    MOCK_AGENT_BIN="${GO_DIR}/mock-agent"
     if [[ ! -f "$CORAL_BIN" ]]; then
         log "ERROR: --skip-build specified but $CORAL_BIN not found"
         exit 1
     fi
-    log "Phase 0: Using existing binary: $CORAL_BIN"
+    if [[ ! -f "$MOCK_AGENT_BIN" ]]; then
+        log "ERROR: --skip-build specified but $MOCK_AGENT_BIN not found"
+        exit 1
+    fi
+    log "Phase 0: Using existing binaries: $CORAL_BIN, $MOCK_AGENT_BIN"
 fi
 
 # ── Phase 1: Launch server ──────────────────────────────────────────────
@@ -159,7 +194,9 @@ if [[ -d "$REAL_CORAL_DIR" ]]; then
     find "$REAL_CORAL_DIR" -type f -newer "$LOG_FILE" 2>/dev/null | sort > "$SNAPSHOT_FILE" || true
 fi
 
-"$CORAL_BIN" --home "$DATA_DIR" --host 127.0.0.1 --port "$PORT" --no-browser >> "$LOG_FILE" 2>&1 &
+# Export CORAL_PORT so the tmux server (and all mock-agent sessions) inherit it
+export CORAL_PORT="$PORT"
+"$CORAL_BIN" --home "$DATA_DIR" --host 127.0.0.1 --port "$PORT" --backend "$BACKEND" --no-browser >> "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 log "  Server PID: $SERVER_PID"
 
@@ -170,6 +207,14 @@ else
     cat "$LOG_FILE"
     exit 1
 fi
+
+# Configure server to use mock-agent CLI instead of real claude
+SETTINGS_BODY=$(cat <<EOJSON
+{"cli_path_claude":"${MOCK_AGENT_BIN}"}
+EOJSON
+)
+SETTINGS_RESP=$(api PUT /api/settings -H "Content-Type: application/json" -d "$SETTINGS_BODY" 2>/dev/null || echo "")
+log "  Configured mock-agent CLI: $MOCK_AGENT_BIN"
 
 # Verify health endpoint
 HEALTH=$(api GET /api/health 2>/dev/null || echo "")
@@ -227,16 +272,16 @@ else
     fail "Failed to launch any agents"
 fi
 
-# Validate: tmux session count matches expected
+# Validate: agent sessions are running
 sleep 2
-TMUX_COUNT=$(tmux -S "$TMUX_SOCKET" list-sessions 2>/dev/null | wc -l | tr -d '[:space:]' || echo "0")
-TMUX_COUNT="${TMUX_COUNT:-0}"
-if [[ "$TMUX_COUNT" -eq "$TOTAL_AGENTS" ]]; then
-    pass "Tmux session count matches: $TMUX_COUNT"
-elif [[ "$TMUX_COUNT" -gt 0 ]]; then
-    warn "Tmux sessions: $TMUX_COUNT (expected $TOTAL_AGENTS)"
+SESSION_COUNT=$(count_agent_sessions)
+SESSION_COUNT="${SESSION_COUNT:-0}"
+if [[ "$SESSION_COUNT" -eq "$TOTAL_AGENTS" ]]; then
+    pass "Agent session count matches: $SESSION_COUNT ($BACKEND)"
+elif [[ "$SESSION_COUNT" -gt 0 ]]; then
+    warn "Agent sessions: $SESSION_COUNT (expected $TOTAL_AGENTS, backend=$BACKEND)"
 else
-    fail "No tmux sessions found"
+    fail "No agent sessions found (backend=$BACKEND)"
 fi
 
 # Validate: API live session count
@@ -383,6 +428,82 @@ if [[ -n "$WS_CYCLE_PID" ]] && kill -0 "$WS_CYCLE_PID" 2>/dev/null; then
     log "  WebSocket cycling stopped"
 fi
 
+# ── Phase 3.5: Validate board messages ────────────────────────────────
+log ""
+log "Phase 3.5: Checking mock-agent board activity..."
+
+# Check that agents are posting messages to their boards
+BOARDS_WITH_MESSAGES=0
+for t in $(seq 1 $TEAMS); do
+    BOARD="stress-team-${t}"
+    MSG_COUNT=$(api GET "/api/board/${BOARD}/messages/all" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    msgs = data if isinstance(data, list) else data.get('messages', [])
+    print(len(msgs))
+except: print(0)
+" 2>/dev/null || echo "0")
+    log "  Board $BOARD: $MSG_COUNT messages (via /messages/all)"
+    if [[ "$MSG_COUNT" -gt 0 ]]; then
+        BOARDS_WITH_MESSAGES=$((BOARDS_WITH_MESSAGES + 1))
+    fi
+done
+
+if [[ "$BOARDS_WITH_MESSAGES" -eq "$TEAMS" ]]; then
+    pass "All $TEAMS boards have messages from mock agents"
+elif [[ "$BOARDS_WITH_MESSAGES" -gt 0 ]]; then
+    warn "Only $BOARDS_WITH_MESSAGES/$TEAMS boards have messages"
+else
+    fail "No boards have messages — mock agents are not posting to the board"
+fi
+
+# Validate cursor advancement: read messages on behalf of an agent, then read
+# again and verify the cursor advanced (second read returns fewer/no messages)
+# The board uses session_name (e.g. "claude-<uuid>") as the subscriber ID,
+# not the raw session_id UUID. Use tmux_session field from the live sessions API.
+CURSOR_BOARD="stress-team-1"
+CURSOR_AGENT=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+for s in json.load(sys.stdin):
+    if s.get('board_project') == '${CURSOR_BOARD}':
+        print(s.get('tmux_session', ''))
+        break
+" 2>/dev/null || true)
+
+if [[ -n "$CURSOR_AGENT" ]]; then
+    # First read: should return unread messages and advance cursor
+    READ1_COUNT=$(api GET "/api/board/${CURSOR_BOARD}/messages?session_id=${CURSOR_AGENT}" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    msgs = data if isinstance(data, list) else data.get('messages', [])
+    print(len(msgs))
+except: print(0)
+" 2>/dev/null || echo "0")
+
+    # Second read: cursor should have advanced, so fewer (ideally 0) new messages
+    READ2_COUNT=$(api GET "/api/board/${CURSOR_BOARD}/messages?session_id=${CURSOR_AGENT}" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    msgs = data if isinstance(data, list) else data.get('messages', [])
+    print(len(msgs))
+except: print(0)
+" 2>/dev/null || echo "0")
+
+    log "  Cursor test on $CURSOR_BOARD (agent=$CURSOR_AGENT): read1=$READ1_COUNT, read2=$READ2_COUNT"
+    if [[ "$READ1_COUNT" -gt 0 ]] && [[ "$READ2_COUNT" -lt "$READ1_COUNT" ]]; then
+        pass "Board read cursor advances (read1=$READ1_COUNT → read2=$READ2_COUNT)"
+    elif [[ "$READ1_COUNT" -gt 0 ]] && [[ "$READ2_COUNT" -eq "$READ1_COUNT" ]]; then
+        fail "Board read cursor did NOT advance (both reads returned $READ1_COUNT)"
+    elif [[ "$READ1_COUNT" -eq 0 ]]; then
+        fail "Board read returned 0 messages for subscribed agent $CURSOR_AGENT"
+    fi
+else
+    warn "Could not find an agent on $CURSOR_BOARD for cursor test"
+fi
+
 # ── Phase 4: Sleep/wake cycles ──────────────────────────────────────────
 log ""
 log "Phase 4: Sleep/wake cycles..."
@@ -524,9 +645,9 @@ for s in json.load(sys.stdin):
             fail "Server unhealthy after team reset"
         fi
 
-        # Verify tmux sessions match
-        TMUX_POST_RESET=$(tmux -S "$TMUX_SOCKET" list-sessions 2>/dev/null | wc -l | tr -d '[:space:]' || echo "0")
-        log "  Tmux sessions after reset: $TMUX_POST_RESET"
+        # Verify agent sessions after reset
+        SESSIONS_POST_RESET=$(count_agent_sessions)
+        log "  Agent sessions after reset: $SESSIONS_POST_RESET ($BACKEND)"
     else
         warn "Reset team returned unexpected response: $RESET_RESP"
     fi
@@ -534,21 +655,249 @@ else
     warn "No board found — skipping reset team test (agents may not be on a board)"
 fi
 
+# ── Phase 4.6: Reset team with sleeping agents ────────────────────────────
+log ""
+log "Phase 4.6: Reset team with sleeping agents..."
+
+# Use stress-team-2 (stress-team-1 was already reset in Phase 4.5)
+P46_BOARD="stress-team-2"
+
+# Get agents on this board
+P46_SESSIONS=$(api GET /api/sessions/live 2>/dev/null || echo "[]")
+P46_BOARD_AGENTS=$(echo "$P46_SESSIONS" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board_agents = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+for a in board_agents:
+    print(json.dumps({'session_id': a['session_id'], 'name': a['name'], 'display_name': a.get('display_name', '')}))
+" 2>/dev/null || true)
+
+P46_AGENT_COUNT=$(echo "$P46_BOARD_AGENTS" | grep -c . || echo "0")
+log "  Found $P46_AGENT_COUNT agents on board $P46_BOARD"
+
+if [[ "$P46_AGENT_COUNT" -ge 2 ]]; then
+    # Collect session IDs and names
+    P46_SESSION_IDS=$(echo "$P46_BOARD_AGENTS" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(json.loads(line)['session_id'])
+" 2>/dev/null || true)
+
+    P46_AGENT_NAMES=$(echo "$P46_BOARD_AGENTS" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(json.loads(line)['name'])
+" 2>/dev/null || true)
+
+    P46_DISPLAY_NAMES=$(echo "$P46_BOARD_AGENTS" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(json.loads(line)['display_name'])
+" 2>/dev/null || true)
+
+    # Sleep HALF of them individually (use session_id, not name — the sleep endpoint matches on SessionID)
+    P46_HALF=$((P46_AGENT_COUNT / 2))
+    P46_SLEEP_COUNT=0
+    P46_SLEEP_TARGETS=""
+    for SID in $P46_SESSION_IDS; do
+        [[ -z "$SID" ]] && continue
+        if [[ $P46_SLEEP_COUNT -ge $P46_HALF ]]; then
+            break
+        fi
+        RESP=$(api POST "/api/sessions/live/${SID}/sleep" -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "")
+        if echo "$RESP" | grep -q '"ok":true\|"ok": true'; then
+            P46_SLEEP_COUNT=$((P46_SLEEP_COUNT + 1))
+            P46_SLEEP_TARGETS="${P46_SLEEP_TARGETS} ${SID}"
+        else
+            log "    Sleep failed for $SID: $RESP"
+        fi
+        sleep 0.5
+    done
+    log "  Slept $P46_SLEEP_COUNT/$P46_HALF agents individually"
+
+    # Verify via API that half are sleeping and half are live
+    sleep 1
+    P46_POST_SLEEP=$(api GET /api/sessions/live 2>/dev/null || echo "[]")
+    P46_SLEEPING_NOW=$(echo "$P46_POST_SLEEP" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+sleeping = sum(1 for s in board if s.get('sleeping'))
+live = sum(1 for s in board if not s.get('sleeping'))
+print(f'{sleeping} {live}')
+" 2>/dev/null || echo "0 0")
+    P46_NUM_SLEEPING=$(echo "$P46_SLEEPING_NOW" | awk '{print $1}')
+    P46_NUM_LIVE=$(echo "$P46_SLEEPING_NOW" | awk '{print $2}')
+    log "  Board state before reset: $P46_NUM_SLEEPING sleeping, $P46_NUM_LIVE live"
+
+    if [[ "$P46_NUM_SLEEPING" -ge 1 ]] && [[ "$P46_NUM_LIVE" -ge 1 ]]; then
+        pass "Phase 4.6: Mixed sleeping/live state confirmed ($P46_NUM_SLEEPING sleeping, $P46_NUM_LIVE live)"
+    else
+        warn "Phase 4.6: Could not achieve mixed state (sleeping=$P46_NUM_SLEEPING, live=$P46_NUM_LIVE)"
+    fi
+
+    # Record pre-reset data
+    P46_PRE_IDS=$(echo "$P46_POST_SLEEP" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    if s.get('board_project') == '${P46_BOARD}':
+        print(s['session_id'])
+" 2>/dev/null || true)
+    P46_PRE_COUNT=$(echo "$P46_PRE_IDS" | grep -c . || echo "0")
+    log "  Pre-reset: $P46_PRE_COUNT sessions on $P46_BOARD"
+
+    # Reset the board
+    RESET_RESP=$(api POST "/api/sessions/live/team/${P46_BOARD}/reset" -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "")
+    log "  Reset response: $(echo "$RESET_RESP" | head -c 200)"
+
+    if echo "$RESET_RESP" | grep -q '"ok":true\|"ok": true'; then
+        # Wait for agents to come back (max 45s — sleeping agents may take longer)
+        P46_WAIT=0
+        while [[ $P46_WAIT -lt 45 ]]; do
+            P46_POST_COUNT=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+print(len(board))
+" 2>/dev/null || echo "0")
+            if [[ "$P46_POST_COUNT" -ge "$P46_PRE_COUNT" ]]; then
+                break
+            fi
+            sleep 2
+            P46_WAIT=$((P46_WAIT + 2))
+        done
+        log "  Waited ${P46_WAIT}s for agents to relaunch"
+
+        # ── Validate ──────────────────────────────────────────────────
+
+        # 1. Total live session count equals original (no duplicates)
+        P46_FINAL=$(api GET /api/sessions/live 2>/dev/null || echo "[]")
+        P46_FINAL_BOARD=$(echo "$P46_FINAL" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+print(len(board))
+" 2>/dev/null || echo "0")
+
+        if [[ "$P46_FINAL_BOARD" -eq "$P46_PRE_COUNT" ]]; then
+            pass "Phase 4.6: Session count matches original ($P46_FINAL_BOARD == $P46_PRE_COUNT)"
+        else
+            fail "Phase 4.6: Session count mismatch ($P46_FINAL_BOARD != $P46_PRE_COUNT expected)"
+        fi
+
+        # 2. All session IDs are new (none match pre-reset)
+        P46_POST_IDS=$(echo "$P46_FINAL" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    if s.get('board_project') == '${P46_BOARD}':
+        print(s['session_id'])
+" 2>/dev/null || true)
+
+        P46_STALE_IDS=0
+        for ID in $P46_POST_IDS; do
+            if echo "$P46_PRE_IDS" | grep -q "$ID"; then
+                P46_STALE_IDS=$((P46_STALE_IDS + 1))
+            fi
+        done
+
+        if [[ "$P46_STALE_IDS" -eq 0 ]]; then
+            pass "Phase 4.6: All session IDs are new (no stale IDs)"
+        else
+            fail "Phase 4.6: $P46_STALE_IDS session(s) kept pre-reset ID (stale sessions not cleaned up)"
+        fi
+
+        # 3. No sessions on the board have is_sleeping=1
+        P46_STILL_SLEEPING=$(echo "$P46_FINAL" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+sleeping = [s for s in board if s.get('sleeping')]
+print(len(sleeping))
+" 2>/dev/null || echo "0")
+
+        if [[ "$P46_STILL_SLEEPING" -eq 0 ]]; then
+            pass "Phase 4.6: No sleeping sessions remain after reset"
+        else
+            fail "Phase 4.6: $P46_STILL_SLEEPING session(s) still sleeping after reset (sleeping agents not cleaned up)"
+        fi
+
+        # 4. Check board_subscribers in messageboard DB
+        MB_DB="${DATA_DIR}/messageboard.db"
+        if command -v sqlite3 &>/dev/null && [[ -f "$MB_DB" ]]; then
+            P46_SUB_COUNT=$(sqlite3 "$MB_DB" "SELECT COUNT(*) FROM board_subscribers WHERE project='${P46_BOARD}' AND is_active=1" 2>/dev/null || echo "?")
+            if [[ "$P46_SUB_COUNT" == "$P46_FINAL_BOARD" ]]; then
+                pass "Phase 4.6: Board subscribers match agent count ($P46_SUB_COUNT == $P46_FINAL_BOARD)"
+            else
+                fail "Phase 4.6: Board subscriber mismatch ($P46_SUB_COUNT subscribers vs $P46_FINAL_BOARD agents — ghost subscribers?)"
+            fi
+        else
+            warn "Phase 4.6: Cannot check board_subscribers (sqlite3 unavailable or DB not found at $MB_DB)"
+        fi
+
+        # Also check sessions.db for sleeping flag
+        SESS_DB="${DATA_DIR}/sessions.db"
+        if command -v sqlite3 &>/dev/null && [[ -f "$SESS_DB" ]]; then
+            P46_DB_SLEEPING=$(sqlite3 "$SESS_DB" "SELECT COUNT(*) FROM live_sessions WHERE board_name='${P46_BOARD}' AND is_sleeping=1" 2>/dev/null || echo "?")
+            if [[ "$P46_DB_SLEEPING" == "0" ]]; then
+                pass "Phase 4.6: DB confirms no sleeping sessions on board"
+            else
+                fail "Phase 4.6: DB has $P46_DB_SLEEPING sleeping session(s) on $P46_BOARD (stale rows)"
+            fi
+        fi
+
+        # 5. All agents have correct display_name (none should be 'claude')
+        P46_BAD_NAMES=$(echo "$P46_FINAL" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board = [s for s in sessions if s.get('board_project') == '${P46_BOARD}']
+bad = [s['name'] for s in board if s.get('display_name', '').lower() == 'claude' or not s.get('display_name')]
+print(len(bad))
+for b in bad:
+    print(f'  bad: {b}', file=sys.stderr)
+" 2>/dev/null || echo "0")
+
+        if [[ "$P46_BAD_NAMES" == "0" ]]; then
+            pass "Phase 4.6: All agents have correct display names (none are 'claude')"
+        else
+            fail "Phase 4.6: $P46_BAD_NAMES agent(s) have bad display_name ('claude' or empty)"
+        fi
+
+        # 6. Server healthy after the operation
+        if curl -s "http://127.0.0.1:${PORT}/api/health" > /dev/null 2>&1; then
+            pass "Phase 4.6: Server healthy after reset-with-sleeping-agents"
+        else
+            fail "Phase 4.6: Server unhealthy after reset-with-sleeping-agents"
+        fi
+    else
+        fail "Phase 4.6: Reset team returned error: $RESET_RESP"
+    fi
+else
+    warn "Phase 4.6: Not enough agents on $P46_BOARD ($P46_AGENT_COUNT < 2), skipping"
+fi
+
 # ── Phase 5: Kill all agents ────────────────────────────────────────────
 log ""
 log "Phase 5: Killing all agents..."
 
-# Kill via tmux
-tmux -S "$TMUX_SOCKET" kill-server 2>/dev/null || true
+# Kill all agent sessions
+kill_agent_sessions
 sleep 2
 
-# Verify no orphan tmux sessions on our socket
-ORPHANS=$(tmux -S "$TMUX_SOCKET" list-sessions 2>/dev/null | wc -l | tr -d '[:space:]' || echo "0")
+# Verify no orphan sessions
+ORPHANS=$(count_agent_sessions)
 ORPHANS="${ORPHANS:-0}"
 if [[ "$ORPHANS" -eq 0 ]]; then
-    pass "No orphan tmux sessions"
+    pass "No orphan agent sessions ($BACKEND)"
 else
-    fail "Found $ORPHANS orphan tmux sessions"
+    fail "Found $ORPHANS orphan agent sessions ($BACKEND)"
 fi
 
 # Clean up board state files from test data dir

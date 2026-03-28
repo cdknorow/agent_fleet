@@ -26,6 +26,7 @@ type Subscriber struct {
 	ReceiveMode  string  `db:"receive_mode" json:"receive_mode"`
 	LastReadID   int64   `db:"last_read_id" json:"last_read_id"`
 	SubscribedAt string  `db:"subscribed_at" json:"subscribed_at"`
+	IsActive     int     `db:"is_active" json:"is_active"`
 }
 
 // GroupInfo holds group summary info.
@@ -120,6 +121,7 @@ func (s *Store) ensureSchema(ctx context.Context) error {
 	// Migrations for existing DBs
 	s.db.ExecContext(ctx, "ALTER TABLE board_subscribers ADD COLUMN receive_mode TEXT NOT NULL DEFAULT 'mentions'")
 	s.db.ExecContext(ctx, "ALTER TABLE board_messages ADD COLUMN target_group_id TEXT")
+	s.db.ExecContext(ctx, "ALTER TABLE board_subscribers ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 	return nil
 }
 
@@ -152,13 +154,14 @@ func (s *Store) Subscribe(ctx context.Context, project, sessionID, jobTitle stri
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
 		 ON CONFLICT(project, session_id) DO UPDATE SET
 		     job_title = excluded.job_title,
 		     webhook_url = excluded.webhook_url,
 		     origin_server = excluded.origin_server,
-		     receive_mode = excluded.receive_mode`,
+		     receive_mode = excluded.receive_mode,
+		     is_active = 1`,
 		project, sessionID, jobTitle, webhookURL, originServer, receiveMode, carryForwardCursor, now)
 	if err != nil {
 		return nil, err
@@ -170,10 +173,10 @@ func (s *Store) Subscribe(ctx context.Context, project, sessionID, jobTitle stri
 	return &sub, err
 }
 
-// Unsubscribe removes a subscriber. Returns true if a row was deleted.
+// Unsubscribe marks a subscriber as inactive. Returns true if a row was updated.
 func (s *Store) Unsubscribe(ctx context.Context, project, sessionID string) (bool, error) {
 	result, err := s.db.ExecContext(ctx,
-		"DELETE FROM board_subscribers WHERE project = ? AND session_id = ?",
+		"UPDATE board_subscribers SET is_active = 0 WHERE project = ? AND session_id = ? AND is_active = 1",
 		project, sessionID)
 	if err != nil {
 		return false, err
@@ -182,11 +185,11 @@ func (s *Store) Unsubscribe(ctx context.Context, project, sessionID string) (boo
 	return n > 0, nil
 }
 
-// ListSubscribers returns all subscribers for a project.
+// ListSubscribers returns all active subscribers for a project.
 func (s *Store) ListSubscribers(ctx context.Context, project string) ([]Subscriber, error) {
 	var subs []Subscriber
 	err := s.db.SelectContext(ctx, &subs,
-		"SELECT * FROM board_subscribers WHERE project = ? ORDER BY subscribed_at", project)
+		"SELECT * FROM board_subscribers WHERE project = ? AND is_active = 1 ORDER BY subscribed_at", project)
 	return subs, err
 }
 
@@ -194,17 +197,17 @@ func (s *Store) ListSubscribers(ctx context.Context, project string) ([]Subscrib
 func (s *Store) GetSubscription(ctx context.Context, sessionID string) (*Subscriber, error) {
 	var sub Subscriber
 	err := s.db.GetContext(ctx, &sub,
-		"SELECT * FROM board_subscribers WHERE session_id = ? LIMIT 1", sessionID)
+		"SELECT * FROM board_subscribers WHERE session_id = ? AND is_active = 1 LIMIT 1", sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return &sub, err
 }
 
-// GetAllSubscriptions returns all subscriptions keyed by session_id.
+// GetAllSubscriptions returns all active subscriptions keyed by session_id.
 func (s *Store) GetAllSubscriptions(ctx context.Context) (map[string]*Subscriber, error) {
 	var subs []Subscriber
-	err := s.db.SelectContext(ctx, &subs, "SELECT * FROM board_subscribers")
+	err := s.db.SelectContext(ctx, &subs, "SELECT * FROM board_subscribers WHERE is_active = 1")
 	if err != nil {
 		return nil, err
 	}
@@ -238,14 +241,15 @@ func (s *Store) TransferSubscription(ctx context.Context, project, oldSessionID,
 
 	now := nowUTC()
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO board_subscribers (project, session_id, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
 		 ON CONFLICT(project, session_id)
 		 DO UPDATE SET job_title = excluded.job_title,
 		               webhook_url = excluded.webhook_url,
 		               origin_server = excluded.origin_server,
 		               receive_mode = excluded.receive_mode,
-		               last_read_id = excluded.last_read_id`,
+		               last_read_id = excluded.last_read_id,
+		               is_active = 1`,
 		project, newSessionID, old.JobTitle, old.WebhookURL,
 		old.OriginServer, old.ReceiveMode, old.LastReadID, now)
 	if err != nil {
@@ -253,7 +257,7 @@ func (s *Store) TransferSubscription(ctx context.Context, project, oldSessionID,
 	}
 
 	_, err = tx.ExecContext(ctx,
-		"DELETE FROM board_subscribers WHERE project = ? AND session_id = ?",
+		"UPDATE board_subscribers SET is_active = 0 WHERE project = ? AND session_id = ?",
 		project, oldSessionID)
 	if err != nil {
 		return err
@@ -486,7 +490,7 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 		ReceiveMode string `db:"receive_mode"`
 	}
 	err := s.db.SelectContext(ctx, &subs,
-		"SELECT project, session_id, job_title, last_read_id, receive_mode FROM board_subscribers")
+		"SELECT project, session_id, job_title, last_read_id, receive_mode FROM board_subscribers WHERE is_active = 1")
 	if err != nil || len(subs) == 0 {
 		return map[string]int{}, nil
 	}
@@ -669,7 +673,7 @@ func (s *Store) GetWebhookTargets(ctx context.Context, project, excludeSessionID
 	var subs []Subscriber
 	err := s.db.SelectContext(ctx, &subs,
 		`SELECT * FROM board_subscribers
-		 WHERE project = ? AND session_id != ? AND webhook_url IS NOT NULL AND webhook_url != ''`,
+		 WHERE project = ? AND session_id != ? AND webhook_url IS NOT NULL AND webhook_url != '' AND is_active = 1`,
 		project, excludeSessionID)
 	return subs, err
 }
@@ -681,10 +685,10 @@ func (s *Store) ListProjects(ctx context.Context) ([]ProjectInfo, error) {
 	var projects []ProjectInfo
 	err := s.db.SelectContext(ctx, &projects,
 		`SELECT project,
-		        (SELECT COUNT(*) FROM board_subscribers s WHERE s.project = p.project) as subscriber_count,
+		        (SELECT COUNT(*) FROM board_subscribers s WHERE s.project = p.project AND s.is_active = 1) as subscriber_count,
 		        (SELECT COUNT(*) FROM board_messages m WHERE m.project = p.project) as message_count
 		 FROM (
-		     SELECT DISTINCT project FROM board_subscribers
+		     SELECT DISTINCT project FROM board_subscribers WHERE is_active = 1
 		     UNION
 		     SELECT DISTINCT project FROM board_messages
 		 ) p ORDER BY project`)
@@ -707,15 +711,15 @@ func (s *Store) ListProjectsEnriched(ctx context.Context) ([]EnrichedProject, er
 	err := s.db.SelectContext(ctx, &projects,
 		`SELECT
 		     p.project,
-		     (SELECT COUNT(*) FROM board_subscribers s WHERE s.project = p.project) as subscriber_count,
+		     (SELECT COUNT(*) FROM board_subscribers s WHERE s.project = p.project AND s.is_active = 1) as subscriber_count,
 		     (SELECT COUNT(*) FROM board_messages m WHERE m.project = p.project) as message_count,
 		     (SELECT MIN(created_at) FROM board_messages m WHERE m.project = p.project) as first_message_at,
 		     (SELECT MAX(created_at) FROM board_messages m WHERE m.project = p.project) as last_message_at,
 		     (SELECT GROUP_CONCAT(s.job_title, ', ')
-		      FROM board_subscribers s WHERE s.project = p.project
+		      FROM board_subscribers s WHERE s.project = p.project AND s.is_active = 1
 		      ORDER BY s.subscribed_at LIMIT 5) as participant_names
 		 FROM (
-		     SELECT DISTINCT project FROM board_subscribers
+		     SELECT DISTINCT project FROM board_subscribers WHERE is_active = 1
 		     UNION
 		     SELECT DISTINCT project FROM board_messages
 		 ) p
