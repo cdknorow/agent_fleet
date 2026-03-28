@@ -244,11 +244,19 @@ export function initFileSearch() {
 
     input.addEventListener('focus', async () => {
         if (!input.value.trim()) {
-            // Show all files on focus (empty query) — instant from cache
+            // Show file listing on focus — respects user's search mode preference
             if (!state.currentSession || state.currentSession.type !== 'live') return;
-            const files = await fetchFileList();
-            if (files && files.length > 0) {
-                _renderSearchDropdown(files.slice(0, 50), '');
+            const mode = (state.settings || {}).file_search_mode || 'directory';
+            if (mode === 'directory') {
+                const browse = await getDirBrowseResults('');
+                if (browse && browse.results.length > 0) {
+                    _renderSearchDropdown(browse.results.slice(0, 50), '');
+                }
+            } else {
+                const files = await fetchFileList();
+                if (files && files.length > 0) {
+                    _renderSearchDropdown(files.slice(0, 50), '');
+                }
             }
         }
     });
@@ -307,8 +315,13 @@ async function _showWorkingDir() {
         _renderTopBarResults(null, 'Select an agent to search files');
         return;
     }
-    // Show directory header + loading, then fetch file list
-    _renderTopBarResults(null, 'Type to search files...', dir);
+    // Show directory listing of working dir on focus
+    const browse = await getDirBrowseResults('');
+    if (browse && browse.results.length > 0) {
+        _renderTopBarResults(browse.results.slice(0, 20), null, dir);
+    } else {
+        _renderTopBarResults(null, 'Type to search files...', dir);
+    }
 }
 
 function _renderTopBarResults(files, message, workingDir) {
