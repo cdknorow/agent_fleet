@@ -83,6 +83,23 @@ export function renderStarredFiles() {
 let _searchResults = [];      // current dropdown results
 let _searchSelectedIdx = 0;   // selected index in dropdown
 
+// Toggle between directory browse and fuzzy search modes
+export function toggleFileSearchMode() {
+    if (!state.settings) state.settings = {};
+    const current = state.settings.file_search_mode || 'directory';
+    const next = current === 'directory' ? 'fuzzy' : 'directory';
+    state.settings.file_search_mode = next;
+    localStorage.setItem('coral-file-search-mode', next);
+
+    // Update toggle button icon
+    const btn = document.getElementById('file-search-mode-btn');
+    if (btn) btn.textContent = next === 'directory' ? '\u{1F4C1}' : '\u{1F50D}';
+
+    // Update placeholder
+    const input = document.getElementById('files-search-input');
+    if (input) input.placeholder = next === 'directory' ? 'Browse files...' : 'Search files...';
+}
+
 export async function searchRepoFiles(query) {
     if (!query || !state.currentSession || state.currentSession.type !== 'live') {
         _hideSearchDropdown();
@@ -199,6 +216,15 @@ export function initFileSearch() {
     const input = document.getElementById('files-search-input');
     if (!input || input.dataset.searchBound) return;
     input.dataset.searchBound = '1';
+
+    // Restore persisted search mode
+    const savedMode = localStorage.getItem('coral-file-search-mode');
+    if (savedMode && state.settings) {
+        state.settings.file_search_mode = savedMode;
+        const btn = document.getElementById('file-search-mode-btn');
+        if (btn) btn.textContent = savedMode === 'directory' ? '\u{1F4C1}' : '\u{1F50D}';
+        input.placeholder = savedMode === 'directory' ? 'Browse files...' : 'Search files...';
+    }
 
     function onSearchInput() {
         clearTimeout(_searchTimeout);
