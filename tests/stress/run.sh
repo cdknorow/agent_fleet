@@ -395,6 +395,89 @@ else
     fail "Server unhealthy after sleep/wake cycles"
 fi
 
+# ── Phase 4.5: Reset Team ──────────────────────────────────────────────
+log ""
+log "Phase 4.5: Reset team cycle..."
+
+# Get session IDs before reset
+PRE_RESET_IDS=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+for s in json.load(sys.stdin):
+    print(s.get('session_id', ''))
+" 2>/dev/null || true)
+PRE_RESET_COUNT=$(echo "$PRE_RESET_IDS" | grep -c . || echo "0")
+
+# Find a board name from live sessions
+BOARD_NAME=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    b = s.get('board', '')
+    if b:
+        print(b)
+        break
+" 2>/dev/null || true)
+
+if [[ -n "$BOARD_NAME" ]]; then
+    log "  Resetting team on board: $BOARD_NAME (pre-reset count: $PRE_RESET_COUNT)"
+    RESET_RESP=$(api POST "/api/sessions/live/team/${BOARD_NAME}/reset" -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "")
+
+    if echo "$RESET_RESP" | grep -q '"ok":true\|"ok": true'; then
+        # Wait for agents to come back up (max 30s)
+        RESET_WAIT=0
+        while [[ $RESET_WAIT -lt 30 ]]; do
+            POST_RESET_COUNT=$(api GET /api/sessions/live 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+            if [[ "$POST_RESET_COUNT" -ge "$PRE_RESET_COUNT" ]]; then
+                break
+            fi
+            sleep 2
+            RESET_WAIT=$((RESET_WAIT+2))
+        done
+
+        # Verify agents came back
+        POST_RESET_IDS=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+for s in json.load(sys.stdin):
+    print(s.get('session_id', ''))
+" 2>/dev/null || true)
+
+        # Check new session IDs (should be different from pre-reset)
+        SAME_IDS=0
+        for ID in $POST_RESET_IDS; do
+            if echo "$PRE_RESET_IDS" | grep -q "$ID"; then
+                SAME_IDS=$((SAME_IDS+1))
+            fi
+        done
+
+        if [[ "$POST_RESET_COUNT" -ge "$PRE_RESET_COUNT" ]]; then
+            pass "Reset team: $POST_RESET_COUNT agents relaunched"
+        else
+            fail "Reset team: only $POST_RESET_COUNT/$PRE_RESET_COUNT agents relaunched"
+        fi
+
+        if [[ "$SAME_IDS" -eq 0 ]]; then
+            pass "Reset team: all agents have new session IDs"
+        else
+            warn "Reset team: $SAME_IDS agents kept same session ID"
+        fi
+
+        # Verify server healthy after reset
+        if curl -s "http://127.0.0.1:${PORT}/api/health" > /dev/null 2>&1; then
+            pass "Server healthy after team reset"
+        else
+            fail "Server unhealthy after team reset"
+        fi
+
+        # Verify tmux sessions match
+        TMUX_POST_RESET=$(tmux -S "$TMUX_SOCKET" list-sessions 2>/dev/null | wc -l | tr -d '[:space:]' || echo "0")
+        log "  Tmux sessions after reset: $TMUX_POST_RESET"
+    else
+        warn "Reset team returned unexpected response: $RESET_RESP"
+    fi
+else
+    warn "No board found — skipping reset team test (agents may not be on a board)"
+fi
+
 # ── Phase 5: Kill all agents ────────────────────────────────────────────
 log ""
 log "Phase 5: Killing all agents..."
