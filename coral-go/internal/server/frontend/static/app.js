@@ -843,6 +843,9 @@ document.addEventListener("DOMContentLoaded", () => {
     initBoardChatResize();
     restoreAgenticTabs();
 
+    // Initialize nav tabs — hide history section on load (Agents tab is default)
+    switchNavTab('agents');
+
     // Pause polling when tab is hidden; refresh immediately when visible again.
     // Skip in native apps — WKWebView may report document.hidden=true permanently.
     if (!platform.isNative) {
