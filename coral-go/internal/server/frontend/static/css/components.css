@@ -32,6 +32,7 @@
 .btn-primary:hover {
     background: var(--accent);
     border-color: var(--accent);
+    opacity: 0.9;
 }
 
 .btn-primary:active {
@@ -545,9 +546,9 @@
     width: 100%;
     margin-top: 4px;
     padding: 8px 12px;
-    background: var(--bg-tertiary);
+    background: var(--bg-primary);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--text-primary);
     font-size: 13px;
     font-family: var(--font-sans);
@@ -558,6 +559,7 @@
 .modal-content select:focus,
 .modal-content textarea:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(var(--accent), 0.15);
 }
 
 .settings-toggle {

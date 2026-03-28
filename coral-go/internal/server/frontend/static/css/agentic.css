@@ -47,6 +47,9 @@
     flex-shrink: 0;
     overflow: hidden;
     position: relative;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border);
+    margin: 6px 6px 6px 0;
     transition: width 0.2s ease, min-width 0.2s ease;
 }
 

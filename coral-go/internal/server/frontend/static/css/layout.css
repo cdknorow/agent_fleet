@@ -21,10 +21,43 @@
     gap: 8px;
 }
 
-/* Rotate coral logo so open part faces down */
-img[src*="favicon.png"],
-img[src*="coral.png"] {
-    transform: rotate(90deg);
+/* ── Top Bar Search ────────────────────────────────────────── */
+
+.top-bar-search {
+    display: flex;
+    align-items: center;
+    position: relative;
+    flex: 0 1 250px;
+    max-width: 300px;
+}
+
+.top-bar-search-icon {
+    position: absolute;
+    left: 8px;
+    font-size: 16px;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+
+.top-bar-search-input {
+    width: 100%;
+    padding: 6px 10px 6px 30px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.top-bar-search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+}
+
+.top-bar-search-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.6;
 }
 
 .top-bar-title {
@@ -341,9 +374,9 @@ img[src*="coral.png"] {
 .history-filters input[type="search"] {
     width: 100%;
     padding: 5px 10px;
-    background: var(--bg-tertiary);
+    background: var(--bg-primary);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--text-primary);
     font-size: 12px;
     outline: none;
