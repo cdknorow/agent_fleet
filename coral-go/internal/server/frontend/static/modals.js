@@ -397,12 +397,12 @@ function _showCLINotFoundModal(agentType) {
 }
 
 async function _showDemoLimitModal(message) {
-    let storeProURL = 'https://store.coralai.ai';
+    let storeURL = 'https://store.coralai.ai';
     let tierName = '';
     try {
         const resp = await fetch('/api/system/status');
         const data = await resp.json();
-        if (data.store_pro_url) storeProURL = data.store_pro_url;
+        if (data.store_url) storeURL = data.store_url;
         if (data.tier_name) tierName = data.tier_name;
     } catch (_e) { /* use default */ }
 
@@ -439,7 +439,7 @@ async function _showDemoLimitModal(message) {
                 </p>
                 <div class="modal-actions" style="justify-content:center;gap:12px">
                     <button class="btn btn-secondary" data-action="close">Maybe Later</button>
-                    <a href="${storeProURL}" target="_blank" rel="noopener" class="btn btn-primary" style="text-decoration:none">Upgrade to Pro</a>
+                    <a href="${storeURL}" target="_blank" rel="noopener" class="btn btn-primary" style="text-decoration:none">Upgrade to Pro</a>
                 </div>
             </div>
         `;
@@ -2141,14 +2141,14 @@ async function _loadLicenseTierBadge() {
             badge.innerHTML = `<span class="tier-label tier-pro">${escapeHtml(label)}</span>`;
         } else {
             // Fetch store URL for upgrade link
-            let storeProURL = 'https://store.coralai.ai';
+            let storeURL = 'https://store.coralai.ai';
             try {
                 const sResp = await fetch('/api/system/status');
                 const sData = await sResp.json();
-                if (sData.store_pro_url) storeProURL = sData.store_pro_url;
+                if (sData.store_url) storeURL = sData.store_url;
             } catch (_) {}
             badge.innerHTML = '<span class="tier-label tier-trial">Free Trial</span>' +
-                `<a href="${storeProURL}" target="_blank" rel="noopener" style="font-size:11px;color:#58a6ff;margin-left:8px;text-decoration:none">Upgrade to Pro</a>`;
+                `<a href="${storeURL}" target="_blank" rel="noopener" style="font-size:11px;color:#58a6ff;margin-left:8px;text-decoration:none">Upgrade to Pro</a>`;
         }
         badge.style.display = '';
     } catch { /* silent — non-critical */ }
@@ -2362,9 +2362,31 @@ async function _loadLicenseStatus() {
             const revalDays = data.days_until_revalidation;
             const revalText = revalDays != null ? `${revalDays} day${revalDays !== 1 ? 's' : ''}` : '';
             const machineId = escapeHtml(data.machine_id || '');
+            const productName = (data.product_name || '').toLowerCase();
+            const isTrial = productName.includes('trial');
+
+            let storeURL = 'https://store.coralai.ai';
+            try {
+                const sysResp = await fetch('/api/system/status');
+                if (sysResp.ok) {
+                    const sysData = await sysResp.json();
+                    if (sysData.store_url) storeURL = sysData.store_url;
+                }
+            } catch { /* use default */ }
+
+            const statusLabel = isTrial
+                ? '<span style="color:var(--green, #4caf50);font-weight:600">Free Trial</span>'
+                : '<span style="color:var(--green, #4caf50);font-weight:600">Coral Pro</span>';
+            const upgradeRow = isTrial
+                ? `<div style="margin-top:10px;padding:10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border)">
+                    <span style="font-size:12px;color:var(--text-secondary)">Upgrade to <strong>Coral Pro</strong> for unlimited agents and teams.</span>
+                    <a href="${storeURL}" target="_blank" rel="noopener" class="btn btn-small btn-primary" style="margin-left:8px;text-decoration:none;font-size:11px">Upgrade</a>
+                   </div>`
+                : '';
+
             container.innerHTML = `
                 <dl class="info-grid" style="margin:0">
-                    <dt>Status</dt><dd><span style="color:var(--green, #4caf50);font-weight:600">Active</span></dd>
+                    <dt>Status</dt><dd>${statusLabel}</dd>
                     ${name ? `<dt>Name</dt><dd>${name}</dd>` : ''}
                     ${email ? `<dt>Email</dt><dd>${email}</dd>` : ''}
                     ${activated ? `<dt>Activated</dt><dd>${activated}</dd>` : ''}
@@ -2372,6 +2394,7 @@ async function _loadLicenseStatus() {
                     ${revalText ? `<dt>Next Revalidation</dt><dd>${revalText}</dd>` : ''}
                     ${machineId ? `<dt>Machine ID</dt><dd><code style="font-size:11px;color:var(--text-secondary)">${machineId}</code></dd>` : ''}
                 </dl>
+                ${upgradeRow}
                 <button class="btn btn-small" onclick="_deactivateLicense()" style="margin-top:8px;color:var(--text-secondary)">Deactivate</button>`;
         } else if (data.activated && !data.valid) {
             container.innerHTML = `<span style="color:var(--red, #f44336);font-size:13px;font-weight:600">License expired or invalid</span>

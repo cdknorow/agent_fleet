@@ -519,14 +519,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveActivation(w http.ResponseWriter, r *http.Request) {
 	page := activationPage
-	page = strings.Replace(page, "{{STORE_TRIAL_URL}}", config.StoreTrialURL, 1)
-	page = strings.Replace(page, "{{STORE_PRO_URL}}", config.StoreProURL, 1)
-	page = strings.Replace(page, "{{STORE_PROMO}}", func() string {
-		if config.StorePromo != "" {
-			return `Use code <strong style="color:#8b949e;">` + config.StorePromo + `</strong> at checkout`
-		}
-		return ""
-	}(), 1)
+	page = strings.Replace(page, "{{STORE_URL}}", config.StoreURL, 1)
 	w.Write([]byte(page))
 }
 
@@ -668,7 +661,7 @@ const activationPage = `<!DOCTYPE html>
         <li>Real-time dashboard</li>
         <li>All Pro features included</li>
       </ul>
-      <a href="{{STORE_TRIAL_URL}}" class="price-btn price-btn-primary" target="_blank">Start Free Trial</a>
+      <a href="{{STORE_URL}}" class="price-btn price-btn-primary" target="_blank">Start Free Trial</a>
     </div>
   </div>
 
