@@ -641,6 +641,16 @@
 .welcome {
     position: absolute;
     inset: 0;
+    --welcome-preset-card-width: 190px;
+    --welcome-preset-gap: 14px;
+    --welcome-preset-columns: 3;
+    --welcome-row-width: min(
+        calc(
+            (var(--welcome-preset-card-width) * var(--welcome-preset-columns)) +
+            (var(--welcome-preset-gap) * (var(--welcome-preset-columns) - 1))
+        ),
+        calc(100vw - 32px)
+    );
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -649,14 +659,6 @@
     color: var(--text-secondary);
     gap: 8px;
     padding: 24px 0;
-}
-
-.welcome-logo {
-    width: 64px;
-    height: 64px;
-    border-radius: 12px;
-    margin-bottom: 8px;
-    opacity: 0.85;
 }
 
 .welcome h2 {
@@ -678,7 +680,7 @@
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 16px;
-    width: min(720px, calc(100vw - 32px));
+    width: var(--welcome-row-width);
     margin: 0 16px 10px;
     padding: 22px 24px;
     border-radius: 18px;
@@ -801,7 +803,8 @@
     display: flex;
     gap: 14px;
     flex-wrap: wrap;
-    justify-content: center;
+    justify-content: space-between;
+    width: var(--welcome-row-width);
     margin-bottom: 24px;
 }
 
@@ -811,7 +814,7 @@
     align-items: center;
     gap: 6px;
     padding: 20px 24px;
-    width: 190px;
+    width: var(--welcome-preset-card-width);
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 12px;

@@ -823,14 +823,46 @@ export async function shareAgentTeam(boardName) {
         templates: [tmpl],
     };
 
-    const blob = new Blob([JSON.stringify(template, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `coral-team-${boardName.replace(/[^a-zA-Z0-9-_]/g, "_")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast(`Exported team "${boardName}" (${tmpl.agents.length} agents)`);
+    const jsonStr = JSON.stringify(template, null, 2);
+    const filename = `coral-team-${boardName.replace(/[^a-zA-Z0-9-_]/g, "_")}.json`;
+
+    // Show export modal with JSON content
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content" style="width:600px">
+            <div class="modal-header">
+                <h3>Export Team: ${escapeHtml(boardName)}</h3>
+                <p style="color:var(--text-secondary);font-size:13px;margin:6px 0 0">${tmpl.agents.length} agents</p>
+            </div>
+            <div class="modal-body">
+                <textarea readonly style="width:100%;height:260px;font-family:monospace;font-size:12px;resize:vertical;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:12px">${escapeHtml(jsonStr)}</textarea>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" data-action="close">Close</button>
+                <button class="btn" data-action="download">Download</button>
+                <button class="btn btn-primary" data-action="copy">Copy to Clipboard</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        const action = e.target.dataset?.action;
+        if (action === 'close' || e.target === modal) { modal.remove(); return; }
+        if (action === 'copy') {
+            navigator.clipboard.writeText(jsonStr).then(() => showToast('Copied to clipboard'));
+            return;
+        }
+        if (action === 'download') {
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            URL.revokeObjectURL(url);
+            showToast(`Downloaded ${filename}`);
+        }
+    });
 }
 
 export function saveTeamFromSidebar(boardName) {

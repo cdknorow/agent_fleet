@@ -637,6 +637,31 @@ func TestTranslateToClaudePermissions_DenyList(t *testing.T) {
 	}
 }
 
+func TestTranslateToClaudePermissions_DenyShellWithShellPatternAllow(t *testing.T) {
+	// When deny has 'shell' but allow has shell:<pattern>, blanket Bash deny
+	// must be skipped so the pattern-based allow isn't overridden.
+	result := TranslateToClaudePermissions(&Capabilities{
+		Allow: []string{CapFileRead, "shell:coral-board *"},
+		Deny:  []string{CapShell},
+	})
+	if result == nil {
+		t.Fatal("expected non-nil")
+	}
+
+	// Bash should NOT be in deny — blanket deny would override the pattern allow
+	for _, d := range result.Deny {
+		if d == "Bash" {
+			t.Error("Bash should not be in deny when shell:<pattern> is in allow")
+		}
+	}
+
+	// Bash(coral-board *) should be in allow
+	allowStr := strings.Join(result.Allow, ",")
+	if !strings.Contains(allowStr, "Bash(coral-board *)") {
+		t.Errorf("expected Bash(coral-board *) in allow, got %q", allowStr)
+	}
+}
+
 func TestTranslateToClaudePermissions_AllCapabilities(t *testing.T) {
 	result := TranslateToClaudePermissions(&Capabilities{
 		Allow: []string{CapFileRead, CapFileWrite, CapShell, CapWebAccess, CapGitWrite, CapAgentSpawn, CapNotebook},

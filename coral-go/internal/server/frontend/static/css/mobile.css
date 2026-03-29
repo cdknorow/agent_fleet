@@ -1042,6 +1042,7 @@
         flex-direction: column;
         align-items: center;
         gap: 10px;
+        width: 100%;
     }
 
     .welcome-team-card {
