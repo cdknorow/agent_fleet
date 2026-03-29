@@ -653,16 +653,32 @@ const activationPage = `<!DOCTYPE html>
   </div>
 
   <div class="pricing-row">
-    <div class="price-card featured">
-      <h3>Start 14-Day Free Trial</h3>
-      <p class="price-desc">Full access to all Pro features</p>
+    <div class="price-card">
+      <h3>14-Day Free Trial</h3>
+      <p class="price-desc">Full Pro access, cancel anytime</p>
+      <div class="price-amount">Free</div>
+      <p class="price-note">Card required &middot; billed after trial ends</p>
       <ul class="price-features">
-        <li>Unlimited teams &amp; agents</li>
+        <li>All Pro features for 14 days</li>
+        <li>2 teams &amp; 8 agents</li>
         <li>Claude, Codex &amp; Gemini support</li>
-        <li>Real-time dashboard</li>
-        <li>All Pro features included</li>
+        <li>Cancel before trial ends — no charge</li>
       </ul>
-      <a href="{{STORE_URL}}" class="price-btn price-btn-primary" target="_blank">Start 14-Day Free Trial</a>
+      <a href="{{STORE_URL}}" class="price-btn price-btn-secondary" target="_blank">Start Free Trial</a>
+    </div>
+
+    <div class="price-card featured">
+      <h3>Coral Pro</h3>
+      <p class="price-desc">For individual developers</p>
+      <div class="price-amount">$49/yr</div>
+      <p class="price-note">Billed annually after free trial</p>
+      <ul class="price-features">
+        <li>1 machine activation</li>
+        <li>Unlimited teams &amp; agents</li>
+        <li>Search chat history</li>
+        <li>Priority updates for one year</li>
+      </ul>
+      <a href="{{STORE_URL}}" class="price-btn price-btn-primary" target="_blank">Get Coral Pro</a>
     </div>
   </div>
 
