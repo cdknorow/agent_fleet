@@ -480,6 +480,11 @@ func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (
 			patterns = append(patterns, fmt.Sprintf("%s:%%", sub.JobTitle))
 			// Match "JobTitle:" after a newline (without @)
 			patterns = append(patterns, fmt.Sprintf("%%\n%s:%%", sub.JobTitle))
+			// Match "JobTitle —" or "JobTitle—" (em-dash, common in agent output)
+			patterns = append(patterns, fmt.Sprintf("%s —%%", sub.JobTitle))
+			patterns = append(patterns, fmt.Sprintf("%s—%%", sub.JobTitle))
+			patterns = append(patterns, fmt.Sprintf("%%\n%s —%%", sub.JobTitle))
+			patterns = append(patterns, fmt.Sprintf("%%\n%s—%%", sub.JobTitle))
 		}
 
 		whereClauses := make([]string, len(patterns))
@@ -623,6 +628,9 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 					"@" + sub.SubscriberID}
 				if sub.JobTitle != "" {
 					mentionTerms = append(mentionTerms, "@"+sub.JobTitle)
+					mentionTerms = append(mentionTerms, sub.JobTitle+":")
+					mentionTerms = append(mentionTerms, sub.JobTitle+" —")
+					mentionTerms = append(mentionTerms, sub.JobTitle+"—")
 				}
 				for _, msg := range msgs {
 					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID {

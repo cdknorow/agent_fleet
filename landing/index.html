@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Coral — Your AI Everything Team</title>
+<title>Coral — Build at the Speed You Think</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -407,6 +407,98 @@ section { padding: 100px 24px; }
     margin-right: 6px;
 }
 
+/* ── Screenshot Slider ───────────────────────────── */
+.screenshot-section {
+    padding: 0 24px 60px;
+    overflow: hidden;
+}
+
+.screenshot-slider {
+    max-width: 960px;
+    margin: 0 auto;
+    position: relative;
+}
+
+.screenshot-track {
+    display: flex;
+    transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+}
+
+.screenshot-slide {
+    min-width: 100%;
+    padding: 0 4px;
+    box-sizing: border-box;
+}
+
+.screenshot-slide img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--border-light);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    display: block;
+}
+
+.screenshot-caption {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.screenshot-nav {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+.screenshot-dots {
+    display: flex;
+    gap: 8px;
+}
+
+.screenshot-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border-light);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.screenshot-dot.active {
+    background: var(--accent);
+    transform: scale(1.3);
+}
+
+.screenshot-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font-sans);
+}
+
+.screenshot-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-card-hover);
+}
+
+@media (max-width: 600px) {
+    .screenshot-section { padding: 0 12px 40px; }
+    .screenshot-slide img { border-radius: 8px; }
+    .screenshot-btn { width: 32px; height: 32px; }
+}
+
 @media (max-width: 600px) {
     .chat-demo { margin: 40px 16px 32px; }
     .chat-bubble { max-width: 100%; }
@@ -717,21 +809,59 @@ footer {
 <!-- Hero -->
 <section class="hero">
     <div class="container">
-        <h1>Your AI <span class="accent">Everything</span> Team</h1>
+        <h1>Build at the speed <span class="accent">you think</span></h1>
         <p class="hero-sub">
-            Start with a tiger team. Add agents as the mission grows. You lead — Coral keeps you in control.
+            Stop feeding tasks to one AI and waiting. Coral lets you run a whole team of AI coders at once &mdash; with clear roles, live visibility, and clean handoffs.
         </p>
         <div class="hero-buttons">
             <a href="https://store.coralai.ai/checkout/buy/6e3facc8-9fe8-4126-9000-d1a006e1e71a" class="btn btn-primary">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Start Free Trial
             </a>
-            <a href="#pricing" class="btn btn-secondary">See Launch Pricing</a>
+            <a href="#features" class="btn btn-secondary">See How Coral Works</a>
         </div>
-        <p class="hero-note">macOS &amp; Linux &middot; 14-day Pro trial &middot; Full access &middot; <s>$99/yr</s> $49/yr launch special</p>
+        <p class="hero-note">macOS &amp; Linux &middot; 14-day Pro trial &middot; Bring your own agents &middot; $69/yr early adopter pricing</p>
         <div class="social-proof" style="margin-top:32px;">
-            <span>Supports Claude &amp; Codex &middot; Gemini in beta</span>
+            <span>Supports Claude, Codex &amp; Gemini &middot; One dashboard, multiple agents &middot; You bring the agents, Coral makes them a team</span>
             <a href="https://discord.gg/qhfgY57AZn">Join the CoralAI Community &rarr;</a>
+        </div>
+    </div>
+</section>
+
+<!-- Screenshots -->
+<section class="screenshot-section">
+    <div class="screenshot-slider">
+        <div class="screenshot-track" id="screenshotTrack">
+            <div class="screenshot-slide">
+                <img src="coral-home.png" alt="Coral dashboard home — team templates and agent sidebar">
+                <p class="screenshot-caption">Launch pre-built teams or create your own — all agents visible in the sidebar</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-launch-team.png" alt="Coral launch agent team dialog">
+                <p class="screenshot-caption">Configure your team composition, assign roles, and launch with one click</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-launch-agents.png" alt="Coral edit agent — choose Claude, Gemini, or Codex">
+                <p class="screenshot-caption">Pick the right AI for each role — Claude, Gemini, Codex, or custom agents</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-chat.png" alt="Coral live agent workspace with terminal and message board">
+                <p class="screenshot-caption">Watch agents work in real time — terminals, message boards, and live coordination</p>
+            </div>
+        </div>
+        <div class="screenshot-nav">
+            <button class="screenshot-btn" id="screenshotPrev" aria-label="Previous screenshot">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="screenshot-dots" id="screenshotDots">
+                <button class="screenshot-dot active" data-index="0" aria-label="Slide 1"></button>
+                <button class="screenshot-dot" data-index="1" aria-label="Slide 2"></button>
+                <button class="screenshot-dot" data-index="2" aria-label="Slide 3"></button>
+                <button class="screenshot-dot" data-index="3" aria-label="Slide 4"></button>
+            </div>
+            <button class="screenshot-btn" id="screenshotNext" aria-label="Next screenshot">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
         </div>
     </div>
 </section>
@@ -740,44 +870,44 @@ footer {
 <section class="features" id="features">
     <div class="container">
         <div class="section-label">Features</div>
-        <h2 class="section-title">The tool you need to collaborate with your AI team</h2>
-        <p class="section-sub">Coral is your workspace for AI Agents. Run Claude, Gemini, and more. Coral gives you a super harness to collaborate in real-time with an AI team.</p>
+        <h2 class="section-title">One workspace for your entire AI coding team</h2>
+        <p class="section-sub">AI agents are powerful alone, but messy together. Coral gives you one place to run them all: visible progress, isolated sessions, shared context, and less duplicated work.</p>
 
         <!-- What is a Super Harness? -->
         <div class="harness-layout">
             <div class="harness-left">
-                <h2>What is a Super Harness?</h2>
+                <h2>From single-agent harness to coordinated team</h2>
                 <p class="harness-intro">Claude Code gives an AI model the power to read files, run commands, and write code. That's a harness — it turns a model into an agent.</p>
-                <p class="harness-intro">Coral takes it one level up. It runs multiple harnesses at once — Claude Code, Gemini CLI, or any agent you use — and turns them into a team. Shared communication, assigned roles, one dashboard. That's a super harness.</p>
+                <p class="harness-intro">Coral takes it one level up. It runs multiple harnesses at once — Claude Code, Gemini CLI, Codex, or any agent you use — and turns them into a team. Shared communication, assigned roles, one dashboard, and isolated execution.</p>
                 <p class="harness-closing">You already have the agents. Coral is what makes them work together.</p>
             </div>
             <div class="harness-points">
                 <div class="harness-point">
                     <div class="harness-point-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
                     <div>
-                        <h4>Seamless Coordination</h4>
-                        <p>Your agents keep each other in the loop — sharing progress, asking for help, and building on each other's work through a shared message board.</p>
+                        <h4>Shared Context, Fewer Collisions</h4>
+                        <p>Your agents keep each other in the loop through a shared message board, reducing duplicated work, bad handoffs, and conflicting parallel changes.</p>
                     </div>
                 </div>
                 <div class="harness-point">
                     <div class="harness-point-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                     <div>
-                        <h4>See It All Come Together</h4>
-                        <p>Watch your team work from a live dashboard. See ideas take shape, problems get solved, and the whole project move forward — all in real time.</p>
+                        <h4>See Every Agent at Work</h4>
+                        <p>Watch your team from a live dashboard. See progress, stalls, and outputs in real time instead of guessing which agent is blocked or drifting off track.</p>
                     </div>
                 </div>
                 <div class="harness-point">
                     <div class="harness-point-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
                     <div>
-                        <h4>Everyone Brings Something Different</h4>
-                        <p>A researcher who goes deep. A writer who finds the right words. A reviewer who spots what everyone else missed. You pick the team — they bring their strengths.</p>
+                        <h4>Use the Right Agent for Each Role</h4>
+                        <p>A researcher who goes deep. A reviewer who catches regressions. A coding agent that ships. You choose the team shape and let each agent do specialized work.</p>
                     </div>
                 </div>
                 <div class="harness-point">
                     <div class="harness-point-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></div>
                     <div>
-                        <h4>Jump In Anytime</h4>
-                        <p>Put agents on pause, bring them back with everything they remember, or change direction mid-project. It's your team — work with them however feels right.</p>
+                        <h4>Stay in Control</h4>
+                        <p>Pause agents, wake them with full state, or redirect work mid-project. Coral keeps the team coordinated without taking control away from you.</p>
                     </div>
                 </div>
             </div>
@@ -803,14 +933,14 @@ footer {
                 <!-- Bubbles injected by JS -->
             </div>
         </div>
-        <p style="text-align:center;font-size:17px;color:var(--text-secondary);margin-top:20px;margin-bottom:48px;">Coordinate directly with the orchestrator — they coordinate directly with the team.</p>
+        <p style="text-align:center;font-size:17px;color:var(--text-secondary);margin-top:20px;margin-bottom:48px;">Coordinate through an orchestrator, keep specialists aligned, and keep the whole team visible while work is in flight.</p>
 
         <div class="features-grid">
             <div class="feature-card hero-feature">
                 <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                 <div>
                 <h3>Multi-Agent Orchestration</h3>
-                <p>Run multiple AI agents in parallel, each in its own isolated git worktree. No conflicts, no waiting — pure parallel execution across Claude, Gemini, and more.</p>
+                <p>Run multiple coding agents in parallel, each in its own isolated git worktree. Coral is built for visible, coordinated execution across Claude, Codex, Gemini, and more.</p>
                 </div>
             </div>
             <div class="feature-card">
@@ -821,7 +951,7 @@ footer {
             <div class="feature-card">
                 <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
                 <h3>Agent Teams</h3>
-                <p>Create teams of agents with shared message boards. Agents coordinate, delegate, and communicate — just like a real engineering team.</p>
+                <p>Create role-based teams with shared message boards. Agents can coordinate, delegate, and hand off work without forcing you to copy context between tools.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg></div>
@@ -847,7 +977,7 @@ footer {
     <div class="container">
         <div class="section-label">Pricing</div>
         <h2 class="section-title">Simple, transparent pricing</h2>
-        <p class="section-sub">Start with a 14-day Pro trial with full access, then lock in launch pricing while it lasts.</p>
+        <p class="section-sub">Start with a 14-day Pro trial with full access, then lock in early adopter pricing before it goes up.</p>
 
         <div class="pricing-grid">
             <!-- Free Trial -->
@@ -869,11 +999,11 @@ footer {
 
             <!-- Pro -->
             <div class="price-card featured">
-                <div class="price-badge">Launch Special</div>
+                <div class="price-badge">Early Adopter</div>
                 <h3>Pro</h3>
-                <p class="price-desc">Launch pricing for individual developers</p>
-                <div class="price-amount"><span style="text-decoration:line-through;color:var(--text-muted);font-size:24px;">$99/yr</span> $49/yr</div>
-                <p class="price-annual">Use code <strong>A3MDI0NQ</strong> at checkout</p>
+                <p class="price-desc">Early adopter pricing for individual developers</p>
+                <div class="price-amount">$69/yr</div>
+                <p class="price-annual">Price increases as we add features</p>
                 <ul class="price-features">
                     <li>1 machine activation</li>
                     <li>Unlimited Teams &amp; Agents</li>
@@ -882,7 +1012,7 @@ footer {
                     <li>Priority auto-updates for one year</li>
                     <li>Email support</li>
                 </ul>
-                <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Use promo code <strong>A3MDI0NQ</strong> for 50% off. Start with the free trial, then upgrade before the offer ends.</p>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Lock in early adopter pricing today. Start with the free trial, then upgrade anytime.</p>
                 <a href="https://store.coralai.ai/checkout/buy/1cf08999-ef06-466d-938c-b0f6ec4f92e6" class="btn btn-primary">Get Coral Pro</a>
             </div>
 
@@ -922,8 +1052,8 @@ footer {
 <section class="comparison" id="compare">
     <div class="container">
         <div class="section-label">Why Coral</div>
-        <h2 class="section-title">How Coral compares</h2>
-        <p class="section-sub">Other tools give you one agent. Coral gives you the whole team.</p>
+        <h2 class="section-title">Built for orchestration, not just generation</h2>
+        <p class="section-sub">Frameworks help developers build agent systems. Coral helps operators run mixed-agent coding teams with visibility, coordination, and process isolation.</p>
 
         <table class="comparison-table">
             <thead>
@@ -1019,7 +1149,7 @@ footer {
                 </tr>
             </tbody>
         </table>
-        <p class="comparison-note">AutoGen and CrewAI orchestrate API calls within a single process. Coral orchestrates independent agent processes — each with its own terminal, filesystem, and tools.</p>
+        <p class="comparison-note">Coral's edge is operational: it coordinates independent agent processes with their own terminals, filesystems, and tools, then gives you one place to monitor and direct the team.</p>
     </div>
 </section>
 
@@ -1044,7 +1174,7 @@ footer {
                 Windows &mdash; Coming Soon
             </a>
         </div>
-        <p class="download-note">Single binary, zero dependencies &middot; 14-day free trial &middot; Codex &amp; Gemini support in beta</p>
+        <p class="download-note">Single binary, zero dependencies &middot; 14-day free trial &middot; $69/yr early adopter pricing &middot; Codex &amp; Gemini support in beta</p>
     </div>
 </section>
 
@@ -1235,6 +1365,42 @@ footer {
         hasStarted = true;
         renderConversation('engineering');
     }
+})();
+
+// Screenshot slider
+(function() {
+    var track = document.getElementById('screenshotTrack');
+    var dots = document.querySelectorAll('.screenshot-dot');
+    var prevBtn = document.getElementById('screenshotPrev');
+    var nextBtn = document.getElementById('screenshotNext');
+    var current = 0;
+    var total = dots.length;
+    var autoTimer;
+
+    function goTo(i) {
+        current = ((i % total) + total) % total;
+        track.style.transform = 'translateX(-' + (current * 100) + '%)';
+        dots.forEach(function(d, idx) {
+            d.classList.toggle('active', idx === current);
+        });
+    }
+
+    prevBtn.addEventListener('click', function() { goTo(current - 1); resetAuto(); });
+    nextBtn.addEventListener('click', function() { goTo(current + 1); resetAuto(); });
+    dots.forEach(function(dot) {
+        dot.addEventListener('click', function() { goTo(+dot.dataset.index); resetAuto(); });
+    });
+
+    // Swipe support
+    var startX = 0;
+    track.addEventListener('touchstart', function(e) { startX = e.touches[0].clientX; }, {passive: true});
+    track.addEventListener('touchend', function(e) {
+        var dx = e.changedTouches[0].clientX - startX;
+        if (Math.abs(dx) > 50) { goTo(current + (dx < 0 ? 1 : -1)); resetAuto(); }
+    });
+
+    function resetAuto() { clearInterval(autoTimer); autoTimer = setInterval(function() { goTo(current + 1); }, 5000); }
+    resetAuto();
 })();
 </script>
 </body>
