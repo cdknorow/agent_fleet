@@ -16,6 +16,8 @@ coral-go/coral-prod
 coral-go/coral-app
 coral-go/coral-board
 coral-go/coral-dropboxers
+coral-go/coral-staging
+coral-go/coral-stage
 coral-go/launch-coral.exe
 coral-go/coral-board.exe
 coral-go/db-compare
