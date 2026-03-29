@@ -63,9 +63,8 @@ function _selectLaunchType(type) {
     if (type === "agent") {
         _loadAgentBoardProjects();
         _initAgentPresets();
-        // Check CLI availability for the selected agent type
-        const agentType = document.getElementById("launch-type")?.value;
-        if (agentType) _checkAgentCLI(agentType);
+        // Render agent config form
+        renderAgentConfigForm('launch-agent-acf', { showPreset: false, showName: true });
     } else if (type === "team") {
         _initTeamForm();
     } else {
@@ -400,9 +399,10 @@ export async function launchSession() {
         backend = document.getElementById("launch-terminal-backend")?.value;
     } else {
         dir = document.getElementById("launch-dir").value.trim();
-        type = document.getElementById("launch-type").value;
-        agentName = document.getElementById("launch-agent-name").value.trim();
-        flagsStr = document.getElementById("launch-flags").value.trim();
+        const config = getAgentConfig('launch-agent-acf');
+        type = config.agentType || 'claude';
+        agentName = config.name;
+        flagsStr = config.flags;
         backend = document.getElementById("launch-backend")?.value;
     }
 
@@ -418,8 +418,6 @@ export async function launchSession() {
         if (permResult === 'enable') {
             const permFlag = PERM_FLAGS[type] || PERM_FLAGS.claude;
             flagsStr = (flagsStr ? flagsStr + ' ' : '') + permFlag;
-            const flagsInput = document.getElementById("launch-flags");
-            if (flagsInput) flagsInput.value = flagsStr;
         }
     }
 
@@ -431,16 +429,12 @@ export async function launchSession() {
         payload.flags = flagsStr.split(/\s+/);
     }
 
-    // Agent capabilities (only for agent mode)
+    // Agent config from ACF (only for agent mode)
     if (_launchMode !== "terminal") {
-        const capabilities = _getPermissions('launch-perms');
-        if (capabilities) payload.capabilities = capabilities;
-    }
-
-    // Agent prompt and message board (only for agent mode)
-    if (_launchMode !== "terminal") {
-        const prompt = document.getElementById("launch-agent-prompt").value.trim();
-        if (prompt) payload.prompt = prompt;
+        const config = getAgentConfig('launch-agent-acf');
+        if (config.capabilities) payload.capabilities = config.capabilities;
+        if (config.prompt) payload.prompt = config.prompt;
+        if (config.model) payload.model = config.model;
 
         const boardSelect = document.getElementById("launch-board-select");
         if (boardSelect && boardSelect.value) {
@@ -580,13 +574,24 @@ function _findPersona(name) {
 }
 
 async function _saveCurrentPersona(nameInputId, promptInputId, flagsInputId) {
-    const name = document.getElementById(nameInputId).value.trim();
-    const prompt = document.getElementById(promptInputId).value.trim();
-    const flags = flagsInputId ? document.getElementById(flagsInputId).value.trim() : "";
+    let name, prompt, flags, capabilities;
+    if (nameInputId) {
+        // Legacy path with explicit element IDs
+        name = document.getElementById(nameInputId)?.value.trim() || '';
+        prompt = document.getElementById(promptInputId)?.value.trim() || '';
+        flags = flagsInputId ? document.getElementById(flagsInputId)?.value.trim() || '' : '';
+        capabilities = null;
+    } else {
+        // ACF path — read from the launch agent config form
+        const config = getAgentConfig('launch-agent-acf');
+        name = config.name;
+        prompt = config.prompt;
+        flags = config.flags;
+        capabilities = config.capabilities;
+    }
     if (!name) { showToast("Enter a name before saving", "error"); return; }
     if (AGENT_PRESETS.find(p => p.name === name)) { showToast("Can't overwrite a built-in preset", "error"); return; }
 
-    const capabilities = _getPermissions('launch-perms');
     const saved = _getSavedPersonas();
     const idx = saved.findIndex(p => p.name === name);
     const entry = { name, prompt, flags };
@@ -597,7 +602,6 @@ async function _saveCurrentPersona(nameInputId, promptInputId, flagsInputId) {
 
     // Re-render all preset containers
     _renderPresetButtons("agent-preset-selector", "window._selectAgentPreset");
-    _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
 }
 window._saveCurrentPersona = _saveCurrentPersona;
 
@@ -712,38 +716,20 @@ function _initAgentPresets() {
 }
 
 function _selectAgentPreset(name) {
-    const nameInput = document.getElementById("launch-agent-name");
-    const promptInput = document.getElementById("launch-agent-prompt");
-    const saveBtn = document.getElementById("agent-save-persona-btn");
-
-    if (name) {
-        const persona = _findPersona(name);
-        if (persona) {
-            nameInput.value = persona.name;
-            promptInput.value = persona.prompt;
-        }
-    } else {
-        nameInput.value = "";
-        promptInput.value = "";
-    }
-
-    // Populate permissions from preset
     const persona = name ? _findPersona(name) : null;
-    _setPermissions('launch-perms', persona?.capabilities || null);
-
-    // Lock fields for built-in presets (they can't be saved/overwritten)
-    const isBuiltIn = !!AGENT_PRESETS.find(p => p.name === name);
-    nameInput.readOnly = isBuiltIn;
-    promptInput.readOnly = isBuiltIn;
-    nameInput.classList.toggle("preset-locked", isBuiltIn);
-    promptInput.classList.toggle("preset-locked", isBuiltIn);
-    if (saveBtn) saveBtn.style.display = isBuiltIn ? "none" : "";
+    if (persona) {
+        setAgentConfig('launch-agent-acf', {
+            name: persona.name,
+            prompt: persona.prompt,
+            capabilities: persona.capabilities,
+        });
+    } else {
+        setAgentConfig('launch-agent-acf', {});
+    }
 
     document.querySelectorAll("#agent-preset-selector .agent-preset-btn").forEach(btn => {
         btn.classList.toggle("active", btn.dataset.preset === name);
     });
-
-    if (!isBuiltIn) nameInput.focus();
 }
 window._selectAgentPreset = _selectAgentPreset;
 
@@ -754,15 +740,8 @@ export function showAddAgentToBoard(boardName, workDir) {
     document.getElementById("add-agent-board-name").value = boardName;
     document.getElementById("add-agent-board-workdir").value = workDir;
     document.getElementById("add-agent-board-subtitle").textContent = `Board: ${boardName}`;
-    document.getElementById("add-agent-board-agent-name").value = "";
-    document.getElementById("add-agent-board-prompt").value = "";
-    document.getElementById("add-agent-board-flags").value = _getPermFlag('add-agent-board-type');
-    _syncFlagButtons("add-agent-board-flags");
-    const modelInput = document.getElementById("add-agent-board-model");
-    if (modelInput) modelInput.value = "";
-    _setPermissions('add-agent-board-perms', null);
 
-    _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
+    renderAgentConfigForm('add-agent-board-acf', { showPreset: true, showName: true });
 
     modal.style.display = "flex";
 }
@@ -796,24 +775,20 @@ window._selectBoardAgentPreset = _selectBoardAgentPreset;
 export async function launchAgentToBoard() {
     const boardName = document.getElementById("add-agent-board-name").value;
     const workDir = document.getElementById("add-agent-board-workdir").value;
-    const agentName = document.getElementById("add-agent-board-agent-name").value.trim();
-    const prompt = document.getElementById("add-agent-board-prompt").value.trim();
-    let flagsStr = document.getElementById("add-agent-board-flags").value.trim();
+    const config = getAgentConfig('add-agent-board-acf');
 
-    if (!agentName) {
+    if (!config.name) {
         showToast("Agent name is required", "error");
         return;
     }
 
     // Permission flag check
-    const boardAgentType = document.getElementById("add-agent-board-type")?.value || "claude";
-    const permResult = await _checkPermissionFlag(flagsStr, boardAgentType);
+    let flagsStr = config.flags;
+    const permResult = await _checkPermissionFlag(flagsStr, config.agentType);
     if (permResult === null) return;
     if (permResult === 'enable') {
-        const permFlag = PERM_FLAGS[boardAgentType] || PERM_FLAGS.claude;
+        const permFlag = PERM_FLAGS[config.agentType] || PERM_FLAGS.claude;
         flagsStr = (flagsStr ? flagsStr + ' ' : '') + permFlag;
-        const flagsInput = document.getElementById("add-agent-board-flags");
-        if (flagsInput) flagsInput.value = flagsStr;
     }
 
     const flags = flagsStr ? flagsStr.split(/\s+/) : [];
@@ -823,18 +798,16 @@ export async function launchAgentToBoard() {
     if (launchBtn) { launchBtn.disabled = true; launchBtn.textContent = 'Launching...'; }
 
     try {
-        const model = document.getElementById("add-agent-board-model")?.value.trim() || "";
-        const capabilities = _getPermissions('add-agent-board-perms') || undefined;
         const launchBody = {
             working_dir: workDir,
-            agent_type: document.getElementById("add-agent-board-type")?.value || "claude",
-            display_name: agentName,
+            agent_type: config.agentType,
+            display_name: config.name,
             flags,
-            prompt,
+            prompt: config.prompt,
             board_name: boardName,
         };
-        if (model) launchBody.model = model;
-        if (capabilities) launchBody.capabilities = capabilities;
+        if (config.model) launchBody.model = config.model;
+        if (config.capabilities) launchBody.capabilities = config.capabilities;
         const resp = await fetch("/api/sessions/launch", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -848,12 +821,12 @@ export async function launchAgentToBoard() {
         const result = await resp.json();
         if (result.error) {
             if (result.error.includes('not found') && result.error.includes('CLI')) {
-                _showCLINotFoundModal(boardAgentType);
+                _showCLINotFoundModal(config.agentType);
             } else {
                 showToast(result.error, "error");
             }
         } else {
-            showToast(`Launched ${agentName} on board ${boardName}`);
+            showToast(`Launched ${config.name} on board ${boardName}`);
             hideAddAgentBoardModal();
         }
     } catch (e) {
@@ -1273,11 +1246,11 @@ const BUILTIN_TEAM_TEMPLATES = [
         name: "Coding Team",
         builtin: true,
         agents: [
-            { name: "Orchestrator", prompt: "You are the orchestrator. Break down the task, assign work to the team via the message board, and track progress. Do not write code yourself — delegate to the other agents. Discuss your plan with the operator before posting assignments." },
-            { name: "Lead Developer", prompt: "You are the lead developer. Implement features, write code, and coordinate with the team via the message board. Wait for instructions from the Orchestrator before starting." },
-            { name: "QA Engineer", prompt: "You are a QA engineer. Review code, write tests, and verify the work of other agents. Wait for instructions from the Orchestrator before starting." },
-            { name: "Frontend Dev", prompt: "You are a frontend developer. Build UI components, style pages, and ensure a great user experience. Wait for instructions from the Orchestrator before starting." },
-            { name: "Security Reviewer", prompt: "You are a security expert. Review code for vulnerabilities (OWASP top 10, injection, auth issues, data exposure), audit dependencies, and recommend security best practices. Wait for instructions from the Orchestrator before starting." },
+            { name: "Orchestrator", prompt: "You are the orchestrator. Break down the task, assign work to the team via the message board, and track progress. Do not write code yourself — delegate to the other agents. Discuss your plan with the operator before posting assignments.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
+            { name: "Lead Developer", prompt: "You are the lead developer. Implement features, write code, and coordinate with the team via the message board. Wait for instructions from the Orchestrator before starting.", capabilities: { allow: ['file_read', 'file_write', 'shell', 'git_write', 'agent_spawn'] } },
+            { name: "QA Engineer", prompt: "You are a QA engineer. Review code, write tests, and verify the work of other agents. Wait for instructions from the Orchestrator before starting.", capabilities: { allow: ['file_read'], deny: ['file_write', 'shell'] } },
+            { name: "Frontend Dev", prompt: "You are a frontend developer. Build UI components, style pages, and ensure a great user experience. Wait for instructions from the Orchestrator before starting.", capabilities: { allow: ['file_read', 'file_write', 'shell:npm *', 'shell:npx *', 'web_access'] } },
+            { name: "Security Reviewer", prompt: "You are a security expert. Review code for vulnerabilities (OWASP top 10, injection, auth issues, data exposure), audit dependencies, and recommend security best practices. Wait for instructions from the Orchestrator before starting.", capabilities: { allow: ['file_read', 'web_access'] } },
         ],
         flags: "",
     },
@@ -1285,10 +1258,10 @@ const BUILTIN_TEAM_TEMPLATES = [
         name: "Marketing Team",
         builtin: true,
         agents: [
-            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the marketing team, break down campaigns, assign tasks via the message board, and track progress. Do not write content yourself — delegate to the other agents." },
-            { name: "Content Writer", prompt: "You are an expert content writer. Write blog posts, social media copy, email campaigns, and landing page content. Focus on clear, engaging writing that drives action. Coordinate with the team via the message board." },
-            { name: "SEO Strategist", prompt: "You are an SEO and analytics expert. Research keywords, analyze competitors, optimize content for search engines, and provide data-driven recommendations. Coordinate with the team via the message board." },
-            { name: "Design Director", prompt: "You are a creative director focused on visual design. Create design briefs, review visual assets, ensure brand consistency, and provide art direction. Coordinate with the team via the message board." },
+            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the marketing team, break down campaigns, assign tasks via the message board, and track progress. Do not write content yourself — delegate to the other agents.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
+            { name: "Content Writer", prompt: "You are an expert content writer. Write blog posts, social media copy, email campaigns, and landing page content. Focus on clear, engaging writing that drives action. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write', 'web_access'] } },
+            { name: "SEO Strategist", prompt: "You are an SEO and analytics expert. Research keywords, analyze competitors, optimize content for search engines, and provide data-driven recommendations. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'web_access'] } },
+            { name: "Design Director", prompt: "You are a creative director focused on visual design. Create design briefs, review visual assets, ensure brand consistency, and provide art direction. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write', 'web_access'] } },
         ],
         flags: "",
     },
@@ -1296,10 +1269,10 @@ const BUILTIN_TEAM_TEMPLATES = [
         name: "Personal Assistant",
         builtin: true,
         agents: [
-            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the assistant team, prioritize tasks, delegate work via the message board, and ensure nothing falls through the cracks." },
-            { name: "Research Analyst", prompt: "You are a thorough research analyst. Find information, summarize documents, compare options, and provide well-sourced answers. Coordinate with the team via the message board." },
-            { name: "Writer & Editor", prompt: "You are a skilled writer and editor. Draft emails, documents, presentations, and reports. Polish and proofread content for clarity and professionalism. Coordinate with the team via the message board." },
-            { name: "Scheduler & Planner", prompt: "You are an organizational expert. Help plan projects, create timelines, track deadlines, and organize information into actionable plans. Coordinate with the team via the message board." },
+            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the assistant team, prioritize tasks, delegate work via the message board, and ensure nothing falls through the cracks.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
+            { name: "Research Analyst", prompt: "You are a thorough research analyst. Find information, summarize documents, compare options, and provide well-sourced answers. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'web_access'] } },
+            { name: "Writer & Editor", prompt: "You are a skilled writer and editor. Draft emails, documents, presentations, and reports. Polish and proofread content for clarity and professionalism. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write'] } },
+            { name: "Scheduler & Planner", prompt: "You are an organizational expert. Help plan projects, create timelines, track deadlines, and organize information into actionable plans. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write'] } },
         ],
         flags: "",
     },
@@ -1307,10 +1280,10 @@ const BUILTIN_TEAM_TEMPLATES = [
         name: "Second Brain",
         builtin: true,
         agents: [
-            { name: "Orchestrator", prompt: "You are the knowledge orchestrator. Help the user organize, connect, and retrieve their knowledge. When the user shares information, delegate to the right specialist to capture, categorize, or synthesize it. Proactively suggest connections between new information and existing knowledge. Discuss with the operator before assigning tasks." },
-            { name: "Note Taker", prompt: "You are a note-taking specialist. Capture information the user shares — meetings, ideas, articles, conversations — and organize it into clear, searchable notes. Use consistent formatting with tags, dates, and source attribution. Save notes as markdown files in the working directory. Wait for instructions from the Orchestrator." },
-            { name: "Research Librarian", prompt: "You are a research librarian. When the user needs to find or recall information, search through their notes and files to surface relevant knowledge. Summarize findings, highlight connections between topics, and maintain an index of key concepts. Wait for instructions from the Orchestrator." },
-            { name: "Synthesizer", prompt: "You are a knowledge synthesizer. Take scattered notes, research, and ideas and weave them into coherent summaries, outlines, or reports. Identify patterns, contradictions, and gaps in the user's knowledge base. Create periodic digests of recent additions. Wait for instructions from the Orchestrator." },
+            { name: "Orchestrator", prompt: "You are the knowledge orchestrator. Help the user organize, connect, and retrieve their knowledge. When the user shares information, delegate to the right specialist to capture, categorize, or synthesize it. Proactively suggest connections between new information and existing knowledge. Discuss with the operator before assigning tasks.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
+            { name: "Note Taker", prompt: "You are a note-taking specialist. Capture information the user shares — meetings, ideas, articles, conversations — and organize it into clear, searchable notes. Use consistent formatting with tags, dates, and source attribution. Save notes as markdown files in the working directory. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'file_write'] } },
+            { name: "Research Librarian", prompt: "You are a research librarian. When the user needs to find or recall information, search through their notes and files to surface relevant knowledge. Summarize findings, highlight connections between topics, and maintain an index of key concepts. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'web_access'] } },
+            { name: "Synthesizer", prompt: "You are a knowledge synthesizer. Take scattered notes, research, and ideas and weave them into coherent summaries, outlines, or reports. Identify patterns, contradictions, and gaps in the user's knowledge base. Create periodic digests of recent additions. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'file_write'] } },
         ],
         flags: "",
     },
@@ -1469,19 +1442,13 @@ async function _saveTeamTemplate() {
 
     const agents = [];
     for (const row of rows) {
-        const name = row.querySelector(".team-agent-name").value.trim();
-        const prompt = row.querySelector(".team-agent-prompt").value.trim();
-        if (name) {
-            const entry = { name, prompt };
-            const permsEditor = row.querySelector('.permissions-editor');
-            if (permsEditor) {
-                const caps = _getPermissions(permsEditor.id);
-                if (caps) entry.capabilities = caps;
-            }
-            const agentTypeOverride = row.querySelector('.team-agent-type-override')?.value || '';
-            const modelOverride = row.querySelector('.team-agent-model')?.value.trim() || '';
-            if (agentTypeOverride) entry.agent_type = agentTypeOverride;
-            if (modelOverride) entry.model = modelOverride;
+        const acfId = row.dataset.acfId;
+        const config = acfId ? getAgentConfig(acfId) : {};
+        if (config.name) {
+            const entry = { name: config.name, prompt: config.prompt };
+            if (config.capabilities) entry.capabilities = config.capabilities;
+            if (config.agentType) entry.agent_type = config.agentType;
+            if (config.model) entry.model = config.model;
             agents.push(entry);
         }
     }
@@ -1518,17 +1485,16 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
     console.log('[coral] _addTeamAgent internal:', { defaultName, promptLen: (defaultPrompt||'').length });
     _teamAgentCounter++;
     const idx = _teamAgentCounter;
+    const acfId = `team-agent-acf-${idx}`;
     const list = document.getElementById("team-agents-list");
     const row = document.createElement("div");
     row.className = "team-agent-row";
     row.draggable = true;
     row.dataset.idx = idx;
+    row.dataset.acfId = acfId;
 
     const hasContent = !!(defaultName || defaultPrompt);
     const collapsed = hasContent;
-
-    const agentTypeVal = defaultAgentType || '';
-    const modelVal = defaultModel || '';
 
     row.innerHTML = `
         <div class="team-agent-card ${collapsed ? '' : 'editing'}">
@@ -1551,55 +1517,8 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
                 </div>
             </div>
             <div class="team-agent-form">
-                <div style="display:flex;gap:8px;align-items:end">
-                    <label style="flex:1">Name / Role:
-                        <input type="text" class="team-agent-name" placeholder="e.g. QA Engineer, Frontend Dev" value="${escapeAttr(defaultName || '')}"
-                            oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-role-name').textContent=this.value||'New Agent'">
-                    </label>
-                    <div style="flex-shrink:0;text-align:center">
-                        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">Icon</div>
-                        <button type="button" class="team-agent-icon-btn" onclick="openTeamIconPicker(this)" style="width:36px;height:36px;font-size:18px;border-radius:6px;border:1px solid var(--border);background:var(--bg-tertiary);cursor:pointer" data-icon="">🤖</button>
-                        <input type="hidden" class="team-agent-icon" value="">
-                    </div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:end">
-                    <label style="flex:1">Agent Type:
-                        <select class="team-agent-type-override">
-                            <option value=""${!agentTypeVal ? ' selected' : ''}>Team default</option>
-                            <option value="claude"${agentTypeVal === 'claude' ? ' selected' : ''}>Claude</option>
-                            <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
-                            <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
-                        </select>
-                    </label>
-                    <label style="flex:1">Model:
-                        <input type="text" class="team-agent-model" placeholder="e.g. opus, sonnet (default)" value="${escapeAttr(modelVal)}">
-                    </label>
-                </div>
-                <label>Behavior Prompt:
-                    <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior..."
-                        oninput="const card=this.closest('.team-agent-row'); card.querySelector('.team-agent-prompt-preview').textContent=this.value.substring(0,200)+(this.value.length>200?'\u2026':'')">${escapeHtml(defaultPrompt || '')}</textarea>
-                </label>
-                <div class="permissions-section">
-                    <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('team-perms-${idx}')">
-                        <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                        Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
-                    </button>
-                    <div id="team-perms-${idx}" class="permissions-editor" style="display:none">
-                        <div class="perms-group">
-                            <label class="perms-label">Allow:</label>
-                            <div id="team-perms-${idx}-allow" class="perms-chips"></div>
-                        </div>
-                        <div class="perms-group">
-                            <label class="perms-label">Deny:</label>
-                            <div id="team-perms-${idx}-deny" class="perms-chips"></div>
-                        </div>
-                        <div class="perms-shell-patterns" style="display:none">
-                            <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
-                            <input type="text" class="perms-shell-input team-perms-shell" placeholder="e.g. git *, npm *, npx *">
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex;gap:6px">
+                <div id="${acfId}"></div>
+                <div style="display:flex;gap:6px;margin-top:8px">
                     <button class="btn btn-small" onclick="browseAgentTemplates(this)" title="Browse community agent templates from aitmpl.com">Browse Templates</button>
                     <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
                 </div>
@@ -1608,9 +1527,34 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
     `;
     list.appendChild(row);
 
-    // Initialize permissions chips from preset defaults
+    // Render ACF inside the card
     const caps = defaultCapabilities || _findPersona(defaultName)?.capabilities || null;
-    _setPermissions(`team-perms-${idx}`, caps);
+    renderAgentConfigForm(acfId, {
+        showPreset: false,
+        showName: true,
+        value: {
+            name: defaultName || '',
+            prompt: defaultPrompt || '',
+            agentType: defaultAgentType || '',
+            model: defaultModel || '',
+            capabilities: caps,
+        },
+    });
+
+    // Wire name input to update summary
+    const nameInput = document.getElementById(acfId)?.querySelector('.acf-name');
+    if (nameInput) {
+        nameInput.addEventListener('input', () => {
+            row.querySelector('.team-agent-role-name').textContent = nameInput.value || 'New Agent';
+        });
+    }
+    const promptInput = document.getElementById(acfId)?.querySelector('.acf-prompt');
+    if (promptInput) {
+        promptInput.addEventListener('input', () => {
+            row.querySelector('.team-agent-prompt-preview').textContent =
+                promptInput.value.substring(0, 200) + (promptInput.value.length > 200 ? '\u2026' : '');
+        });
+    }
 
     // Drag-and-drop reorder handlers
     row.addEventListener('dragstart', (e) => {
@@ -1716,7 +1660,7 @@ window._showAddAgentPicker = _showAddAgentPicker;
 function _addPresetAgent(name) {
     const persona = _findPersona(name);
     if (persona) {
-        _addTeamAgent(persona.name, persona.prompt);
+        _addTeamAgent(persona.name, persona.prompt, persona.capabilities);
     }
     const picker = document.getElementById("team-agent-picker");
     if (picker) picker.style.display = "none";
@@ -1786,26 +1730,18 @@ async function launchTeam() {
 
     const agents = [];
     for (const row of rows) {
-        const name = row.querySelector(".team-agent-name").value.trim();
-        const prompt = row.querySelector(".team-agent-prompt").value.trim();
-        const icon = row.querySelector(".team-agent-icon")?.value.trim() || "";
-        if (!name) {
+        const acfId = row.dataset.acfId;
+        const config = acfId ? getAgentConfig(acfId) : {};
+        if (!config.name) {
             showToast("Each agent needs a name", true);
             return;
         }
-        const agent = { name, prompt };
+        const agent = { name: config.name, prompt: config.prompt };
+        const icon = row.querySelector(".team-agent-icon")?.value.trim() || "";
         if (icon) agent.icon = icon;
-        // Collect per-agent permissions
-        const permsEditor = row.querySelector('.permissions-editor');
-        if (permsEditor) {
-            const caps = _getPermissions(permsEditor.id);
-            if (caps) agent.capabilities = caps;
-        }
-        // Collect per-agent type and model overrides
-        const agentTypeOverride = row.querySelector('.team-agent-type-override')?.value || '';
-        const modelOverride = row.querySelector('.team-agent-model')?.value.trim() || '';
-        if (agentTypeOverride) agent.agent_type = agentTypeOverride;
-        if (modelOverride) agent.model = modelOverride;
+        if (config.capabilities) agent.capabilities = config.capabilities;
+        if (config.agentType) agent.agent_type = config.agentType;
+        if (config.model) agent.model = config.model;
         agents.push(agent);
     }
 

@@ -409,21 +409,20 @@ export function restartSession() {
 function showRestartModal() {
     const s = state.currentSession;
     document.getElementById("restart-modal-name").textContent =
-        `Session: ${s.name}`;
+        `Restarting: ${s.display_name || s.name}`;
 
-    // Pre-fill from current session data
-    const promptEl = document.getElementById("restart-prompt");
-    if (promptEl) promptEl.value = s.prompt || "";
-    const typeEl = document.getElementById("restart-agent-type");
-    if (typeEl) typeEl.value = s.agent_type || "claude";
-    const modelEl = document.getElementById("restart-model");
-    if (modelEl) modelEl.value = s.model || "";
-    document.getElementById("restart-flags").value = "";
-
-    // Pre-fill permissions from session capabilities
-    if (window._setPermissions) {
-        const caps = s.capabilities || null;
-        window._setPermissions('restart-perms', caps);
+    // Render unified config form pre-filled from session
+    if (window.renderAgentConfigForm) {
+        window.renderAgentConfigForm('restart-acf', {
+            showPreset: false,
+            showName: false,
+            value: {
+                agentType: s.agent_type || 'claude',
+                model: s.model || '',
+                prompt: s.prompt || '',
+                capabilities: s.capabilities || null,
+            },
+        });
     }
 
     document.getElementById("restart-modal").style.display = "flex";
@@ -434,11 +433,7 @@ export function hideRestartModal() {
 }
 
 export async function confirmRestart() {
-    const flagsStr = document.getElementById("restart-flags").value.trim();
-    const prompt = document.getElementById("restart-prompt")?.value.trim() || "";
-    const agentType = document.getElementById("restart-agent-type")?.value || state.currentSession.agent_type;
-    const model = document.getElementById("restart-model")?.value.trim() || "";
-    const capabilities = window._getPermissions ? window._getPermissions('restart-perms') : null;
+    const config = window.getAgentConfig ? window.getAgentConfig('restart-acf') : {};
 
     hideRestartModal();
 
@@ -447,13 +442,13 @@ export async function confirmRestart() {
         const xtermMod = await _getXtermModule();
         if (xtermMod.setRestarting) xtermMod.setRestarting(true);
         showToast(`Restarting ${state.currentSession.name}...`);
-        const payload = { agent_type: agentType, session_id: state.currentSession.session_id };
-        if (flagsStr) {
-            payload.extra_flags = flagsStr;
+        const payload = { agent_type: config.agentType || state.currentSession.agent_type, session_id: state.currentSession.session_id };
+        if (config.flags) {
+            payload.extra_flags = config.flags;
         }
-        if (prompt) payload.prompt = prompt;
-        if (model) payload.model = model;
-        if (capabilities) payload.capabilities = capabilities;
+        if (config.prompt) payload.prompt = config.prompt;
+        if (config.model) payload.model = config.model;
+        if (config.capabilities) payload.capabilities = config.capabilities;
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(state.currentSession.name)}/restart`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

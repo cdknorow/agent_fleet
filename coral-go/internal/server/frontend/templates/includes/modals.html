@@ -104,47 +104,12 @@
                                         <input type="text" id="launch-board-server" placeholder="e.g. http://remote-machine:8420">
                                     </label>
                                 </div>
-                                <label>Agent Type:
-                                    <select id="launch-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value); window._updatePermFlagButtons && window._updatePermFlagButtons(this)">
-                                        <option value="claude">Claude</option>
-                                        <option value="gemini">Gemini</option>
-                                        <option value="codex">Codex</option>
-                                    </select>
-                                    <span id="cli-check-warning" class="cli-check-warning" style="display:none"></span>
-                                </label>
                                 <label style="display:none">Backend:
                                     <select id="launch-backend">
                                         <option value="tmux">tmux</option>
                                         <option value="pty">PTY</option>
                                     </select>
                                 </label>
-                                <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                    <input type="text" id="launch-flags" placeholder="e.g. --verbose">
-                                </label>
-                                <div class="flag-shortcuts">
-                                    <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('launch-flags','--chrome')">--chrome</button>
-                                    <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('launch-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
-                                </div>
-                                <div class="permissions-section">
-                                    <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('launch-perms')">
-                                        <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                                        Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
-                                    </button>
-                                    <div id="launch-perms" class="permissions-editor" style="display:none">
-                                        <div class="perms-group">
-                                            <label class="perms-label">Allow:</label>
-                                            <div id="launch-perms-allow" class="perms-chips"></div>
-                                        </div>
-                                        <div class="perms-group">
-                                            <label class="perms-label">Deny:</label>
-                                            <div id="launch-perms-deny" class="perms-chips"></div>
-                                        </div>
-                                        <div class="perms-shell-patterns" id="launch-perms-shell" style="display:none">
-                                            <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
-                                            <input type="text" id="launch-perms-shell-input" class="perms-shell-input" placeholder="e.g. git *, npm *, npx *">
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         </details>
                     </div>
@@ -155,20 +120,16 @@
                             <p class="team-agents-desc">Choose a preset or custom.</p>
                             <div id="agent-preset-selector" class="agent-preset-selector agent-preset-vertical"></div>
                             <div class="import-export-row">
-                                <button class="btn btn-small btn-subtle" id="agent-save-persona-btn" onclick="window._saveCurrentPersona('launch-agent-name','launch-agent-prompt','launch-flags')" title="Save as reusable persona">Save Persona</button>
+                                <button class="btn btn-small btn-subtle" id="agent-save-persona-btn" onclick="window._saveCurrentPersona()" title="Save as reusable persona">Save Persona</button>
                                 <button class="btn btn-small btn-subtle" onclick="exportPersonas()" title="Export saved personas">Export</button>
                                 <button class="btn btn-small btn-subtle" onclick="importPersonas()" title="Import personas from file">Import</button>
                             </div>
                         </div>
                     </details>
                     <details class="agent-col-fields mobile-launch-section" open>
-                        <summary>Agent Prompt</summary>
+                        <summary>Agent Config</summary>
                         <div class="mobile-launch-section-body">
-                            <label>Name / Role <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                <input type="text" id="launch-agent-name" class="team-agent-name" placeholder="e.g. Auth Feature, Bug Fix #123">
-                            </label>
-                            <label class="agent-prompt-label" for="launch-agent-prompt">Behavior Prompt <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:</label>
-                            <textarea id="launch-agent-prompt" class="team-agent-prompt" rows="5" placeholder="e.g. You are a QA engineer. Review the codebase and create a test plan..."></textarea>
+                            <div id="launch-agent-acf"></div>
                         </div>
                     </details>
                 </div>
@@ -332,49 +293,7 @@
             </div>
             <div class="modal-body">
                 <p id="restart-modal-name" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px"></p>
-                <label>Behavior Prompt:
-                    <textarea id="restart-prompt" rows="4" placeholder="Agent behavior prompt..."></textarea>
-                </label>
-                <details class="team-advanced">
-                    <summary>Advanced</summary>
-                    <div class="team-advanced-body">
-                        <div style="display:flex;gap:8px;align-items:end">
-                            <label style="flex:1">Agent Type:
-                                <select id="restart-agent-type">
-                                    <option value="claude">Claude</option>
-                                    <option value="gemini">Gemini</option>
-                                    <option value="codex">Codex</option>
-                                </select>
-                            </label>
-                            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                <input type="text" id="restart-model" placeholder="e.g. opus, sonnet">
-                            </label>
-                        </div>
-                        <div class="permissions-section">
-                            <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('restart-perms')">
-                                <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                                Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
-                            </button>
-                            <div id="restart-perms" class="permissions-editor" style="display:none">
-                                <div class="perms-group">
-                                    <label class="perms-label">Allow:</label>
-                                    <div id="restart-perms-allow" class="perms-chips"></div>
-                                </div>
-                                <div class="perms-group">
-                                    <label class="perms-label">Deny:</label>
-                                    <div id="restart-perms-deny" class="perms-chips"></div>
-                                </div>
-                                <div class="perms-shell-patterns" style="display:none">
-                                    <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
-                                    <input type="text" class="perms-shell-input" id="restart-perms-shell" placeholder="e.g. git *, npm *, npx *">
-                                </div>
-                            </div>
-                        </div>
-                        <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                            <input type="text" id="restart-flags" placeholder="e.g. --verbose">
-                        </label>
-                    </div>
-                </details>
+                <div id="restart-acf"></div>
             </div>
             <div class="modal-actions modal-footer">
                 <button class="btn" onclick="hideRestartModal()">Cancel</button>
@@ -826,63 +745,10 @@
                 <p class="add-agent-board-subtitle" id="add-agent-board-subtitle"></p>
                 <input type="hidden" id="add-agent-board-name">
                 <input type="hidden" id="add-agent-board-workdir">
-                <div id="add-agent-board-presets" class="agent-preset-selector" style="margin-bottom:12px"></div>
-                <label>Name / Role:
-                    <input type="text" id="add-agent-board-agent-name" placeholder="e.g. Security Reviewer">
-                </label>
-                <label>Behavior Prompt:
-                    <textarea id="add-agent-board-prompt" rows="5" placeholder="Describe the agent's role and behavior..."></textarea>
-                </label>
-                <details class="team-advanced">
-                    <summary>Advanced</summary>
-                    <div class="team-advanced-body">
-                        <div style="display:flex;gap:8px;align-items:end">
-                            <label style="flex:1">Agent Type:
-                                <select id="add-agent-board-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value); window._updatePermFlagButtons && window._updatePermFlagButtons(this)">
-                                    <option value="claude">Claude</option>
-                                    <option value="gemini">Gemini</option>
-                                    <option value="codex">Codex</option>
-                                </select>
-                            </label>
-                            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                <input type="text" id="add-agent-board-model" placeholder="e.g. opus, sonnet">
-                            </label>
-                        </div>
-                        <div class="permissions-section">
-                            <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('add-agent-board-perms')">
-                                <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                                Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
-                            </button>
-                            <div id="add-agent-board-perms" class="permissions-editor" style="display:none">
-                                <div class="perms-group">
-                                    <label class="perms-label">Allow:</label>
-                                    <div id="add-agent-board-perms-allow" class="perms-chips"></div>
-                                </div>
-                                <div class="perms-group">
-                                    <label class="perms-label">Deny:</label>
-                                    <div id="add-agent-board-perms-deny" class="perms-chips"></div>
-                                </div>
-                                <div class="perms-shell-patterns" style="display:none">
-                                    <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
-                                    <input type="text" class="perms-shell-input" id="add-agent-board-perms-shell" placeholder="e.g. git *, npm *, npx *">
-                                </div>
-                            </div>
-                        </div>
-                        <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                            <input type="text" id="add-agent-board-flags" placeholder="e.g. --verbose">
-                        </label>
-                        <label style="display:none">Backend:
-                            <select id="add-agent-board-backend">
-                                <option value="tmux">tmux</option>
-                                <option value="pty">PTY</option>
-                            </select>
-                        </label>
-                    </div>
-                </details>
+                <div id="add-agent-board-acf"></div>
             </div>
             <div class="modal-actions modal-footer">
                 <button class="btn" onclick="hideAddAgentBoardModal()">Cancel</button>
-                <button class="btn btn-subtle" onclick="window._saveCurrentPersona('add-agent-board-agent-name','add-agent-board-prompt','add-agent-board-flags')" title="Save as reusable persona">Save Persona</button>
                 <button class="btn btn-primary" onclick="launchAgentToBoard()">Launch</button>
             </div>
         </div>
