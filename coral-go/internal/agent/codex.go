@@ -65,9 +65,9 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 		parts = append(parts, fmt.Sprintf(`-c developer_instructions="$(cat '%s')"`, sysFile))
 	}
 
-	// Whitelist Coral env vars through Codex's sandboxed shell so child processes
-	// like coral-board and hooks can access them.
-	parts = append(parts, `-c 'shell_environment_policy.inherit=["CORAL_SESSION_NAME","CORAL_SUBSCRIBER_ID","CORAL_URL","CORAL_PORT"]'`)
+	// Note: Codex's sandbox may strip env vars from child processes.
+	// coral-board handles this via board_state file fallback (reads job_title
+	// from ~/.coral/board_state_{session}.json when CORAL_SUBSCRIBER_ID is unavailable).
 
 	// Permission flags from capabilities
 	if perms := TranslateToCodexPermissions(params.Capabilities); perms != nil {
