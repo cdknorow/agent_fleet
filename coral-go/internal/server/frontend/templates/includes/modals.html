@@ -62,73 +62,85 @@
                 </div>
             </div>
 
-            <!-- Step 2a: Agent form (three-column layout) -->
+            <!-- Step 2a: Agent form -->
             <div id="launch-step-agent" class="launch-modal-step" style="display:none">
                 <h3>
                     <button class="launch-back-btn" onclick="window._selectLaunchType('back')" title="Back">&larr;</button>
                     Launch AI Agent
                 </h3>
-                <div class="agent-three-columns">
-                    <div class="agent-col-config">
-                        <label>Working Directory:
-                            <div class="dir-input-row">
-                                <input type="text" id="launch-dir" placeholder="/path/to/project" data-coral-root="{{ .CoralRoot }}" value="{{ .CoralRoot }}">
-                                <button class="btn" id="btn-browse" onclick="toggleBrowser('launch-dir','dir-browser','browser-list','browser-current-path')">Browse</button>
+                <div class="agent-launch-layout">
+                    <div class="agent-launch-sidebar">
+                        <section class="agent-launch-card">
+                            <div class="agent-launch-card-header">
+                                <h4>Workspace</h4>
+                                <p>Pick the working directory and optional board context.</p>
                             </div>
-                        </label>
-                        <div id="dir-browser" class="dir-browser" style="display:none">
-                            <div class="dir-browser-header">
-                                <button class="btn btn-small dir-browser-up" onclick="browserNavigateUp()" title="Go up">..</button>
-                                <span class="dir-browser-path" id="browser-current-path">~</span>
+                            <label>Working Directory:
+                                <div class="dir-input-row">
+                                    <input type="text" id="launch-dir" placeholder="/path/to/project" data-coral-root="{{ .CoralRoot }}" value="{{ .CoralRoot }}">
+                                    <button class="btn" id="btn-browse" onclick="toggleBrowser('launch-dir','dir-browser','browser-list','browser-current-path')">Browse</button>
+                                </div>
+                            </label>
+                            <div id="dir-browser" class="dir-browser" style="display:none">
+                                <div class="dir-browser-header">
+                                    <button class="btn btn-small dir-browser-up" onclick="browserNavigateUp()" title="Go up">..</button>
+                                    <span class="dir-browser-path" id="browser-current-path">~</span>
+                                </div>
+                                <ul class="dir-browser-list" id="browser-list">
+                                    <li class="empty-state">Loading...</li>
+                                </ul>
                             </div>
-                            <ul class="dir-browser-list" id="browser-list">
-                                <li class="empty-state">Loading...</li>
-                            </ul>
-                        </div>
-                        <details class="team-advanced">
-                            <summary>Advanced</summary>
-                            <div class="team-advanced-body">
-                                <label>Message Board <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                    <select id="launch-board-select" onchange="window._onAgentBoardChange()">
-                                        <option value="">None</option>
-                                        <option value="__new__">Create new board...</option>
-                                    </select>
-                                </label>
-                                <div id="launch-new-board-row" style="display:none">
-                                    <label>Board Name:
-                                        <input type="text" id="launch-board-name" placeholder="e.g. Auth Feature, Sprint 42">
+                            <details class="team-advanced">
+                                <summary>Advanced</summary>
+                                <div class="team-advanced-body">
+                                    <label>Message Board <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                                        <select id="launch-board-select" onchange="window._onAgentBoardChange()">
+                                            <option value="">None</option>
+                                            <option value="__new__">Create new board...</option>
+                                        </select>
+                                    </label>
+                                    <div id="launch-new-board-row" style="display:none">
+                                        <label>Board Name:
+                                            <input type="text" id="launch-board-name" placeholder="e.g. Auth Feature, Sprint 42">
+                                        </label>
+                                    </div>
+                                    <div id="launch-board-server-row" style="display:none">
+                                        <label>Remote Server <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                                            <input type="text" id="launch-board-server" placeholder="e.g. http://remote-machine:8420">
+                                        </label>
+                                    </div>
+                                    <label style="display:none">Backend:
+                                        <select id="launch-backend">
+                                            <option value="tmux">tmux</option>
+                                            <option value="pty">PTY</option>
+                                        </select>
                                     </label>
                                 </div>
-                                <div id="launch-board-server-row" style="display:none">
-                                    <label>Remote Server <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                        <input type="text" id="launch-board-server" placeholder="e.g. http://remote-machine:8420">
-                                    </label>
+                            </details>
+                        </section>
+                        <details class="agent-launch-card agent-col-presets mobile-launch-section" open>
+                            <summary>Persona</summary>
+                            <div class="mobile-launch-section-body">
+                                <div class="agent-launch-card-header">
+                                    <h4>Persona</h4>
+                                    <p>Start from a saved role or keep the setup custom.</p>
                                 </div>
-                                <label style="display:none">Backend:
-                                    <select id="launch-backend">
-                                        <option value="tmux">tmux</option>
-                                        <option value="pty">PTY</option>
-                                    </select>
-                                </label>
+                                <div id="agent-preset-selector" class="agent-preset-selector agent-preset-vertical"></div>
+                                <div class="import-export-row agent-persona-actions">
+                                    <button class="btn btn-small btn-subtle" id="agent-save-persona-btn" onclick="window._saveCurrentPersona()" title="Save as reusable persona">Save Persona</button>
+                                    <button class="btn btn-small btn-subtle" onclick="exportPersonas()" title="Export saved personas">Export</button>
+                                    <button class="btn btn-small btn-subtle" onclick="importPersonas()" title="Import personas from file">Import</button>
+                                </div>
                             </div>
                         </details>
                     </div>
-                    <details class="agent-col-presets mobile-launch-section" open>
-                        <summary>Persona</summary>
-                        <div class="mobile-launch-section-body">
-                            <strong style="font-size:13px">Persona</strong>
-                            <p class="team-agents-desc">Choose a preset or custom.</p>
-                            <div id="agent-preset-selector" class="agent-preset-selector agent-preset-vertical"></div>
-                            <div class="import-export-row">
-                                <button class="btn btn-small btn-subtle" id="agent-save-persona-btn" onclick="window._saveCurrentPersona()" title="Save as reusable persona">Save Persona</button>
-                                <button class="btn btn-small btn-subtle" onclick="exportPersonas()" title="Export saved personas">Export</button>
-                                <button class="btn btn-small btn-subtle" onclick="importPersonas()" title="Import personas from file">Import</button>
-                            </div>
-                        </div>
-                    </details>
-                    <details class="agent-col-fields mobile-launch-section" open>
+                    <details class="agent-launch-card agent-launch-main agent-col-fields mobile-launch-section" open>
                         <summary>Agent Config</summary>
                         <div class="mobile-launch-section-body">
+                            <div class="agent-launch-card-header">
+                                <h4>Agent Configuration</h4>
+                                <p>Define the role, model, behavior, and autonomy before launch.</p>
+                            </div>
                             <div id="launch-agent-acf"></div>
                         </div>
                     </details>
@@ -183,88 +195,118 @@
                 </h3>
                 <div class="team-columns">
                     <div class="team-col-left">
-                        <details class="mobile-launch-section" open>
+                        <details class="team-launch-card mobile-launch-section" open>
                             <summary>Team Composition</summary>
                             <div class="mobile-launch-section-body">
+                                <div class="team-launch-card-header">
+                                    <h4>Team Composition</h4>
+                                    <p>Choose a template or assemble the team agent by agent.</p>
+                                </div>
                                 <div class="team-agents-container">
-                            <label class="team-template-dropdown-label">Agent Team Templates:
-                                <select id="team-template-selector" onchange="window._loadTeamTemplateFromSelect(this.value)">
-                                    <option value="">Select a template...</option>
-                                </select>
-                            </label>
-                            <div class="team-template-actions">
-                                <button class="btn btn-small btn-subtle" onclick="importTeamTemplates()" title="Import team templates from file">Import Template</button>
-                                <button class="btn btn-small btn-subtle" onclick="window._importTeamFromFolder()" title="Import team from a folder with .md agent files">Import from Folder</button>
-                                <span class="info-tooltip" style="position:relative;cursor:help;font-size:13px;color:var(--text-muted)" title="Folder structure:&#10;&#10;my-team/&#10;  SKILL.md → Orchestrator prompt&#10;  agents/&#10;    role-name.md → Agent prompt&#10;&#10;Each .md file uses YAML frontmatter:&#10;---&#10;name: role-name&#10;description: What this agent does&#10;---&#10;Prompt body below...">&#9432;</span>
-                                <button class="btn btn-small btn-subtle" onclick="window._saveTeamTemplate()" title="Save team configuration as reusable template">Save as Template</button>
-                                <input type="file" id="team-folder-input" webkitdirectory directory multiple style="display:none" onchange="window._handleTeamFolderImport(this)">
-                            </div>
-                            <div class="team-agents-header">
-                                <strong style="font-size:14px">Team Agents</strong>
-                                <p class="team-agents-desc">These agents will launch together on the shared message board, each in its own session.</p>
-                            </div>
-                            <div id="team-agents-list" class="team-agents-scroll"></div>
-                            <div class="team-agents-footer" style="position:relative">
-                                <button class="btn btn-primary team-add-agent-btn team-add-agent-btn-full" onclick="window._showAddAgentPicker()">+ Add Agent</button>
-                                <div id="team-agent-picker" class="agent-picker-dropdown" style="display:none"></div>
-                            </div>
+                                    <label class="team-template-dropdown-label">Agent Team Templates:
+                                        <select id="team-template-selector" onchange="window._loadTeamTemplateFromSelect(this.value)">
+                                            <option value="">Select a template...</option>
+                                        </select>
+                                    </label>
+                                    <div class="team-template-actions">
+                                        <button class="btn btn-small btn-subtle" onclick="importTeamTemplates()" title="Import team templates from file">Import Template</button>
+                                        <button class="btn btn-small btn-subtle" onclick="window._importTeamFromFolder()" title="Import team from a folder with .md agent files">Import from Folder</button>
+                                        <button class="btn btn-small btn-subtle" onclick="window._saveTeamTemplate()" title="Save team configuration as reusable template">Save as Template</button>
+                                        <span class="team-template-info info-tooltip" title="Folder structure:&#10;&#10;my-team/&#10;  SKILL.md → Orchestrator prompt&#10;  agents/&#10;    role-name.md → Agent prompt&#10;&#10;Each .md file uses YAML frontmatter:&#10;---&#10;name: role-name&#10;description: What this agent does&#10;---&#10;Prompt body below...">&#9432;</span>
+                                        <input type="file" id="team-folder-input" webkitdirectory directory multiple style="display:none" onchange="window._handleTeamFolderImport(this)">
+                                    </div>
+                                    <div class="team-agents-header">
+                                        <strong style="font-size:14px">Team Agents</strong>
+                                        <p class="team-agents-desc">These agents launch together on the shared message board, each in its own session.</p>
+                                    </div>
+                                    <div id="team-agents-list" class="team-agents-scroll"></div>
+                                    <div class="team-agents-footer">
+                                        <button class="btn btn-primary team-add-agent-btn team-add-agent-btn-full" onclick="window.showTeamAgentModal()">+ Add Agent</button>
+                                    </div>
                                 </div>
                             </div>
                         </details>
                     </div>
                     <div class="team-col-right">
-                        <label>Team Name:
-                            <input type="text" id="team-board-name" placeholder="e.g. Auth Feature, Sprint 42" oninput="window._validateTeamName && window._validateTeamName()">
-                        </label>
-                        <div id="team-board-name-hint" class="team-field-hint">Also used as the message board name.</div>
-                        <label>Working Directory:
-                            <div class="dir-input-row">
-                                <input type="text" id="launch-team-dir" placeholder="/path/to/project" data-coral-root="{{ .CoralRoot }}" value="{{ .CoralRoot }}">
-                                <button class="btn" id="btn-browse-team" onclick="toggleBrowser('launch-team-dir','dir-browser-team','browser-list-team','browser-current-path-team')">Browse</button>
+                        <section class="team-launch-card team-launch-setup">
+                            <div class="team-launch-card-header">
+                                <h4>Launch Setup</h4>
+                                <p>Name the board, pick the workspace, and tune team defaults.</p>
                             </div>
-                        </label>
-                        <div id="dir-browser-team" class="dir-browser" style="display:none">
-                            <div class="dir-browser-header">
-                                <button class="btn btn-small dir-browser-up" onclick="browserNavigateUp()" title="Go up">..</button>
-                                <span class="dir-browser-path" id="browser-current-path-team">~</span>
+                            <label>Team Name:
+                                <input type="text" id="team-board-name" placeholder="e.g. Auth Feature, Sprint 42" oninput="window._validateTeamName && window._validateTeamName()">
+                            </label>
+                            <div id="team-board-name-hint" class="team-field-hint">This will also be used as the message board name.</div>
+                            <label>Working Directory:
+                                <div class="dir-input-row">
+                                    <input type="text" id="launch-team-dir" placeholder="/path/to/project" data-coral-root="{{ .CoralRoot }}" value="{{ .CoralRoot }}">
+                                    <button class="btn" id="btn-browse-team" onclick="toggleBrowser('launch-team-dir','dir-browser-team','browser-list-team','browser-current-path-team')">Browse</button>
+                                </div>
+                            </label>
+                            <div id="dir-browser-team" class="dir-browser" style="display:none">
+                                <div class="dir-browser-header">
+                                    <button class="btn btn-small dir-browser-up" onclick="browserNavigateUp()" title="Go up">..</button>
+                                    <span class="dir-browser-path" id="browser-current-path-team">~</span>
+                                </div>
+                                <ul class="dir-browser-list" id="browser-list-team">
+                                    <li class="empty-state">Loading...</li>
+                                </ul>
                             </div>
-                            <ul class="dir-browser-list" id="browser-list-team">
-                                <li class="empty-state">Loading...</li>
-                            </ul>
-                        </div>
-                        <details class="team-advanced">
-                            <summary>Advanced</summary>
-                            <div class="team-advanced-body">
-                                <div>
-                                    <label>Remote Server <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                                        <input type="text" id="team-board-server" placeholder="e.g. http://remote-machine:8420">
+                            <details class="team-advanced">
+                                <summary>Advanced</summary>
+                                <div class="team-advanced-body">
+                                    <div>
+                                        <label>Remote Server <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                                            <input type="text" id="team-board-server" placeholder="e.g. http://remote-machine:8420">
+                                        </label>
+                                    </div>
+                                    <div class="team-launch-type-row">
+                                        <label>Agent Type:
+                                            <select id="team-agent-type">
+                                                <option value="claude">Claude</option>
+                                                <option value="gemini">Gemini</option>
+                                                <option value="codex">Codex</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <label style="display:none">Backend:
+                                        <select id="team-backend">
+                                            <option value="tmux">tmux</option>
+                                            <option value="pty">PTY</option>
+                                        </select>
+                                    </label>
+                                    <label class="settings-toggle team-settings-toggle">
+                                        <input type="checkbox" id="team-auto-permissions" checked>
+                                        <span>
+                                            <strong>Run without permission prompts</strong>
+                                            <div class="team-settings-note">Apply the default autonomy flag to each launched team agent.</div>
+                                        </span>
                                     </label>
                                 </div>
-                                <label>Agent Type:
-                                    <select id="team-agent-type">
-                                        <option value="claude">Claude</option>
-                                        <option value="gemini">Gemini</option>
-                                        <option value="codex">Codex</option>
-                                    </select>
-                                </label>
-                                <label style="display:none">Backend:
-                                    <select id="team-backend">
-                                        <option value="tmux">tmux</option>
-                                        <option value="pty">PTY</option>
-                                    </select>
-                                </label>
-                                <label class="settings-toggle team-settings-toggle">
-                                    <input type="checkbox" id="team-auto-permissions" checked>
-                                    <span>Allow autonomous agent actions</span>
-                                </label>
-                            </div>
-                        </details>
+                            </details>
+                        </section>
                     </div>
                 </div>
                 <div class="modal-actions">
                     <button class="btn" onclick="hideLaunchModal()">Cancel</button>
                     <button class="btn btn-primary" onclick="window.launchTeam()">Launch Team</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="team-agent-modal" class="modal" style="display:none">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h3 id="team-agent-modal-title">Add Team Agent</h3>
+            </div>
+            <div class="modal-body">
+                <p id="team-agent-modal-subtitle" class="team-agent-modal-subtitle">Configure a team member, then add it to the team draft.</p>
+                <div id="team-agent-modal-acf"></div>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window.hideTeamAgentModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="window.saveTeamAgentFromModal()">Save Agent</button>
             </div>
         </div>
     </div>
@@ -365,16 +407,16 @@
 
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal" style="display:none">
-        <div class="modal-content modal-content-wide">
+        <div class="modal-content modal-content-wide settings-modal-content">
             <div class="modal-header">
                 <h3>Settings</h3>
             </div>
-            <div class="modal-body">
-                <button class="btn btn-primary settings-theme-btn" onclick="hideSettingsModal(); showThemeConfigurator()" style="width:100%;margin-bottom:12px">
+            <div class="modal-body settings-modal-body">
+                <button class="btn btn-primary settings-theme-btn" onclick="hideSettingsModal(); showThemeConfigurator()">
                     <span class="material-icons" style="font-size:16px;vertical-align:middle;margin-right:6px">palette</span>
                     Customize Theme
                 </button>
-                <dl class="info-grid">
+                <dl class="info-grid settings-grid">
                 <dt>Theme</dt>
                 <dd>
                     <select id="settings-theme" class="settings-select">
@@ -401,25 +443,42 @@
                 </dd>
                 <dt>API Key</dt>
                 <dd>
-                    <div style="display:flex;gap:8px;align-items:center">
-                        <input type="text" id="settings-api-key" class="settings-input" readonly style="font-family:var(--font-mono);font-size:12px" placeholder="Loading...">
-                        <button class="btn btn-small" onclick="navigator.clipboard.writeText(document.getElementById('settings-api-key').value); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+                    <div class="settings-api-key-row">
+                        <input type="text" id="settings-api-key" class="settings-input settings-mono-input" readonly placeholder="Loading...">
+                        <button class="btn btn-small settings-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('settings-api-key').value); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
                     </div>
                     <span class="settings-hint">Used for remote/mobile access. Keep secret.</span>
                 </dd>
                 <dt>CLI Paths</dt>
                 <dd class="settings-cli-paths">
-                    <label>Claude: <input type="text" id="settings-cli-path-claude" class="settings-input" placeholder="claude"><span id="cli-result-claude" class="cli-verify-result"></span></label>
-                    <label>Codex: <input type="text" id="settings-cli-path-codex" class="settings-input" placeholder="codex"><span id="cli-result-codex" class="cli-verify-result"></span></label>
-                    <label>Gemini: <input type="text" id="settings-cli-path-gemini" class="settings-input" placeholder="gemini"><span id="cli-result-gemini" class="cli-verify-result"></span></label>
-                    <button class="btn btn-small" onclick="window._verifyAllCLIs()" id="verify-all-btn" style="margin-top:6px">Verify All</button>
+                    <label class="settings-cli-row">
+                        <span class="settings-cli-label">Claude</span>
+                        <input type="text" id="settings-cli-path-claude" class="settings-input settings-mono-input" placeholder="claude">
+                        <span id="cli-result-claude" class="cli-verify-result"></span>
+                    </label>
+                    <label class="settings-cli-row">
+                        <span class="settings-cli-label">Codex</span>
+                        <input type="text" id="settings-cli-path-codex" class="settings-input settings-mono-input" placeholder="codex">
+                        <span id="cli-result-codex" class="cli-verify-result"></span>
+                    </label>
+                    <label class="settings-cli-row">
+                        <span class="settings-cli-label">Gemini</span>
+                        <input type="text" id="settings-cli-path-gemini" class="settings-input settings-mono-input" placeholder="gemini">
+                        <span id="cli-result-gemini" class="cli-verify-result"></span>
+                    </label>
+                    <div class="settings-cli-actions">
+                        <button class="btn btn-small" onclick="window._verifyAllCLIs()" id="verify-all-btn">Verify All</button>
+                    </div>
                     <span class="settings-hint">Full path to agent CLI binary. Leave empty to use default from PATH.</span>
                 </dd>
                 <dt>Group by Team</dt>
                 <dd>
                     <label class="settings-toggle">
                         <input type="checkbox" id="settings-group-by-team" onchange="toggleGroupByTeam()">
-                        <span>Group agents by their board/team</span>
+                        <span>
+                            <strong>Group agents by board/team</strong>
+                            <span class="toggle-desc">Keeps related agents grouped together in the sidebar</span>
+                        </span>
                     </label>
                 </dd>
                 <dt>Terminal Scrollback</dt>
@@ -474,7 +533,7 @@
                     </select>
                 </dd>
                 </dl>
-                <button class="btn btn-primary" onclick="hideSettingsModal(); showDefaultPromptsModal()" style="width:100%;margin-top:12px">
+                <button class="btn btn-primary settings-prompts-btn" onclick="hideSettingsModal(); showDefaultPromptsModal()">
                     <span style="font-size:16px;vertical-align:middle;margin-right:6px">✏️</span>
                     Edit Default Prompts
                 </button>
@@ -800,6 +859,7 @@
                 <button class="btn btn-small" onclick="navigator.clipboard.writeText(document.getElementById('mobile-connect-url').textContent); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
             </div>
             <div id="mobile-connect-qr" style="margin:0 auto 16px;display:flex;justify-content:center"></div>
+            <div id="mobile-connect-api-key" style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;margin-bottom:12px;text-align:left"></div>
             <p style="color:var(--text-muted);font-size:11px">Your phone must be on the same network as this computer.</p>
             <div class="modal-actions" style="margin-top:12px">
                 <button class="btn btn-primary" onclick="document.getElementById('mobile-connect-modal').style.display='none'">Done</button>

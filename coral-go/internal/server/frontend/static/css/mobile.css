@@ -610,22 +610,14 @@
         grid-template-columns: 1fr;
     }
 
-    .agent-three-columns {
+    .agent-launch-layout {
         display: flex;
         flex-direction: column;
         gap: 12px;
     }
 
-    .agent-col-config {
-        order: 0;
-    }
-
-    .agent-col-fields {
-        order: 1;
-    }
-
-    .agent-col-presets {
-        order: 2;
+    .agent-launch-sidebar {
+        display: contents;
     }
 
     .mobile-launch-section {
@@ -670,9 +662,40 @@
         padding: 0;
     }
 
+    .agent-launch-card {
+        background: var(--bg-tertiary);
+        box-shadow: none;
+    }
+
+    .agent-launch-card summary {
+        display: block;
+    }
+
+    .agent-launch-card .mobile-launch-section-body {
+        padding: 0 14px 14px;
+    }
+
+    .agent-persona-actions,
+    .acf-top-row {
+        grid-template-columns: 1fr;
+    }
+
+    .team-launch-card {
+        background: var(--bg-tertiary);
+        box-shadow: none;
+    }
+
+    .team-launch-card summary {
+        display: block;
+    }
+
+    .team-launch-card .mobile-launch-section-body {
+        padding: 0 14px 14px;
+    }
+
     /* Team columns stack vertically on mobile */
     .team-columns {
-        flex-direction: column !important;
+        grid-template-columns: 1fr !important;
     }
 
     .team-col-left,
@@ -1001,15 +1024,6 @@
 }
 
     /* Team modal: single column on mobile */
-    .team-columns {
-        flex-direction: column !important;
-    }
-
-    .team-col-left,
-    .team-col-right {
-        width: 100% !important;
-        min-width: 0 !important;
-    }
 }
 
 /* ── Pull-to-Refresh Indicator ────────────────────────────── */

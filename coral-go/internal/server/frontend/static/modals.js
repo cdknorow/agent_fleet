@@ -27,6 +27,7 @@ export function toggleFlag(inputId, flag) {
 // Track which launch mode is active: null (chooser), 'agent', or 'terminal'
 let _launchMode = null;
 let _existingTeamBoardNames = new Set();
+let _teamAgentModalRow = null;
 
 function _syncMobileLaunchSections(step) {
     const isMobile = window.innerWidth <= 767;
@@ -130,6 +131,71 @@ export function showLaunchModal() {
 export function hideLaunchModal() {
     document.getElementById("launch-modal").style.display = "none";
 }
+
+function _updateTeamAgentSummary(row) {
+    if (!row) return;
+    const acfId = row.dataset.acfId;
+    const config = acfId ? getAgentConfig(acfId) : {};
+    const name = config.name || 'New Agent';
+    const promptPreview = _truncatePrompt(config.prompt || '', 200);
+    const nameEl = row.querySelector('.team-agent-role-name');
+    const previewEl = row.querySelector('.team-agent-prompt-preview');
+    if (nameEl) nameEl.textContent = name;
+    if (previewEl) previewEl.textContent = promptPreview || 'No behavior prompt yet.';
+}
+
+function _defaultTeamAgentModalConfig() {
+    return {
+        name: '',
+        prompt: '',
+        agentType: document.getElementById('team-agent-type')?.value || '',
+        model: '',
+        capabilities: null,
+    };
+}
+
+function showTeamAgentModal(row = null) {
+    _teamAgentModalRow = row;
+    const title = document.getElementById('team-agent-modal-title');
+    const subtitle = document.getElementById('team-agent-modal-subtitle');
+    const modal = document.getElementById('team-agent-modal');
+    if (!title || !subtitle || !modal) return;
+
+    title.textContent = row ? 'Edit Team Agent' : 'Add Team Agent';
+    subtitle.textContent = row
+        ? 'Update this team member and save the changes back into the draft.'
+        : 'Configure a team member, then add it to the team draft.';
+
+    const acfValue = row?.dataset.acfId ? getAgentConfig(row.dataset.acfId) : _defaultTeamAgentModalConfig();
+    renderAgentConfigForm('team-agent-modal-acf', { showPreset: true, showName: true, showAutoPermissions: false, value: acfValue });
+    modal.style.display = 'flex';
+}
+window.showTeamAgentModal = showTeamAgentModal;
+
+function hideTeamAgentModal() {
+    const modal = document.getElementById('team-agent-modal');
+    if (modal) modal.style.display = 'none';
+    _teamAgentModalRow = null;
+}
+window.hideTeamAgentModal = hideTeamAgentModal;
+
+function saveTeamAgentFromModal() {
+    const config = getAgentConfig('team-agent-modal-acf');
+    if (!config.name) {
+        showToast('Agent name is required', true);
+        return;
+    }
+
+    if (_teamAgentModalRow?.dataset.acfId) {
+        setAgentConfig(_teamAgentModalRow.dataset.acfId, config);
+        _updateTeamAgentSummary(_teamAgentModalRow);
+    } else {
+        _addTeamAgent(config.name, config.prompt, config.capabilities, config.agentType, config.model);
+    }
+
+    hideTeamAgentModal();
+}
+window.saveTeamAgentFromModal = saveTeamAgentFromModal;
 
 // ── CLI Availability Check ────────────────────────────────────────────────
 
@@ -1081,14 +1147,14 @@ function renderAgentConfigForm(containerId, opts = {}) {
     if (showAutoPermissions) {
         const permFlag = _getPermFlagForAgent(agentTypeVal || 'claude');
         autoPermissionsHTML = `
-            <label class="settings-toggle" style="margin:8px 0 6px">
+            <label class="settings-toggle acf-auto-permissions-toggle">
                 <input type="checkbox" class="acf-auto-permissions"${autoPermsVal ? ' checked' : ''}>
                 <span>
                     <strong>Run without permission prompts</strong>
-                    <div class="acf-auto-permissions-note" style="margin-top:4px;font-size:12px;color:var(--text-secondary)">
+                    <div class="acf-auto-permissions-note">
                         ${escapeHtml(_getPermFlagHelp(agentTypeVal || 'claude'))}
                     </div>
-                    <div style="margin-top:6px">
+                    <div class="acf-auto-permissions-flag-wrap">
                         <code class="acf-auto-permissions-flag">${escapeHtml(permFlag)}</code>
                     </div>
                 </span>
@@ -1098,15 +1164,15 @@ function renderAgentConfigForm(containerId, opts = {}) {
     container.innerHTML = `
         ${presetHTML}
         ${nameHTML}
-        <div style="display:flex;gap:8px;align-items:end">
-            <label style="flex:1">Agent Type:
+        <div class="acf-top-row">
+            <label>Agent Type:
                 <select class="acf-agent-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value)">
                     <option value="claude"${agentTypeVal === 'claude' || !agentTypeVal ? ' selected' : ''}>Claude</option>
                     <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
                     <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
                 </select>
             </label>
-            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+            <label>Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
                 <input type="text" class="acf-model" placeholder="e.g. opus, sonnet" value="${escapeAttr(modelVal)}">
             </label>
         </div>
@@ -1134,7 +1200,7 @@ function renderAgentConfigForm(containerId, opts = {}) {
                 </div>
             </div>
         </div>
-        <details class="team-advanced">
+        <details class="team-advanced acf-flags-details">
             <summary>Flags</summary>
             <div class="team-advanced-body">
                 <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
@@ -1531,15 +1597,12 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
     row.dataset.idx = idx;
     row.dataset.acfId = acfId;
 
-    const hasContent = !!(defaultName || defaultPrompt);
-    const collapsed = hasContent;
-
     row.innerHTML = `
-        <div class="team-agent-card ${collapsed ? '' : 'editing'}">
-            <div class="team-agent-summary" onclick="this.closest('.team-agent-card').classList.toggle('editing')">
+        <div class="team-agent-card">
+            <div class="team-agent-summary" onclick="window.showTeamAgentModal(this.closest('.team-agent-row'))">
                 <div class="team-agent-summary-left">
                     <span class="team-agent-role-name">${escapeHtml(defaultName || 'New Agent')}</span>
-                    <span class="team-agent-prompt-preview">${escapeHtml(_truncatePrompt(defaultPrompt, 200))}</span>
+                    <span class="team-agent-prompt-preview">${escapeHtml(_truncatePrompt(defaultPrompt, 200) || 'No behavior prompt yet.')}</span>
                 </div>
                 <div class="team-agent-summary-actions">
                     <button class="team-agent-reorder-btn" title="Move up" onclick="event.stopPropagation(); window._moveTeamAgent(this, -1)">
@@ -1548,18 +1611,14 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
                     <button class="team-agent-reorder-btn" title="Move down" onclick="event.stopPropagation(); window._moveTeamAgent(this, 1)">
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 9l4 4 4-4"/></svg>
                     </button>
-                    <button class="team-agent-edit-btn" title="Edit" onclick="event.stopPropagation(); this.closest('.team-agent-card').classList.add('editing')">
+                    <button class="team-agent-edit-btn" title="Edit" onclick="event.stopPropagation(); window.showTeamAgentModal(this.closest('.team-agent-row'))">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                     </button>
                     <button class="team-agent-remove" onclick="event.stopPropagation(); this.closest('.team-agent-row').remove()" title="Remove">&times;</button>
                 </div>
             </div>
-            <div class="team-agent-form">
+            <div class="team-agent-form" hidden>
                 <div id="${acfId}"></div>
-                <div style="display:flex;gap:6px;margin-top:8px">
-                    <button class="btn btn-small" onclick="browseAgentTemplates(this)" title="Browse community agent templates from aitmpl.com">Browse Templates</button>
-                    <button class="btn btn-small team-agent-done-btn" onclick="this.closest('.team-agent-card').classList.remove('editing')">Done</button>
-                </div>
             </div>
         </div>
     `;
@@ -1580,20 +1639,7 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
         },
     });
 
-    // Wire name input to update summary
-    const nameInput = document.getElementById(acfId)?.querySelector('.acf-name');
-    if (nameInput) {
-        nameInput.addEventListener('input', () => {
-            row.querySelector('.team-agent-role-name').textContent = nameInput.value || 'New Agent';
-        });
-    }
-    const promptInput = document.getElementById(acfId)?.querySelector('.acf-prompt');
-    if (promptInput) {
-        promptInput.addEventListener('input', () => {
-            row.querySelector('.team-agent-prompt-preview').textContent =
-                promptInput.value.substring(0, 200) + (promptInput.value.length > 200 ? '\u2026' : '');
-        });
-    }
+    _updateTeamAgentSummary(row);
 
     // Drag-and-drop reorder handlers
     row.addEventListener('dragstart', (e) => {
@@ -1630,11 +1676,7 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultA
         }
     });
 
-    // Focus the name input if it's a new empty agent
-    if (!hasContent) {
-        const nameInput = row.querySelector('.team-agent-name');
-        if (nameInput) setTimeout(() => nameInput.focus(), 50);
-    }
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // Move a team agent card up or down
@@ -2628,24 +2670,33 @@ window._showMobileConnectModal = async function() {
         }
     } catch { /* fall back to window.location.origin */ }
 
-    // Try to fetch the API key to include in the QR URL
-    let connectUrl = baseUrl;
-    try {
-        const resp = await fetch('/api/system/api-key');
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.key) {
-                connectUrl = `${baseUrl}/auth?key=${data.key}`;
-            }
-        }
-    } catch { /* no auth configured — just use base URL */ }
-
-    document.getElementById('mobile-connect-url').textContent = connectUrl;
+    // QR code contains only the server URL (no API key)
+    document.getElementById('mobile-connect-url').textContent = baseUrl;
 
     // Generate QR code via server endpoint
     const qrContainer = document.getElementById('mobile-connect-qr');
     if (qrContainer) {
-        qrContainer.innerHTML = `<img src="/api/system/qr?url=${encodeURIComponent(connectUrl)}" alt="QR Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px" onerror="this.style.display='none'">`;
+        qrContainer.innerHTML = `<img src="/api/system/qr?url=${encodeURIComponent(baseUrl)}" alt="QR Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px" onerror="this.style.display='none'">`;
+    }
+
+    // Show API key separately below QR code
+    const apiKeyDisplay = document.getElementById('mobile-connect-api-key');
+    if (apiKeyDisplay) {
+        try {
+            const resp = await fetch('/api/system/api-key');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.key) {
+                    apiKeyDisplay.innerHTML = `<strong>API Key:</strong> <code style="user-select:all">${escapeHtml(data.key)}</code>
+                        <button class="btn btn-small" style="margin-left:6px" onclick="navigator.clipboard.writeText('${escapeAttr(data.key)}'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+                        <div style="color:var(--text-muted);font-size:11px;margin-top:4px">Send this to the mobile app via Slack or another secure channel.</div>`;
+                } else {
+                    apiKeyDisplay.style.display = 'none';
+                }
+            } else {
+                apiKeyDisplay.style.display = 'none';
+            }
+        } catch { apiKeyDisplay.style.display = 'none'; }
     }
 
     modal.style.display = 'flex';
