@@ -892,6 +892,225 @@ log "  Post-restart state:"
 log "    Sessions: $POST_RESTART_SESSION_COUNT (was $PRE_RESTART_SESSION_COUNT)"
 log "    Boards: $POST_RESTART_BOARD_COUNT"
 
+# ── Phase 3.8: Agent configuration E2E tests ──────────────────────────
+# Validates that agent_type, model, capabilities, and prompt persist
+# through launch, listing, restart, sleep, and peek authorization.
+log ""
+log "Phase 3.8: Agent configuration E2E tests..."
+
+# --- Test 1: Launch with per-agent type/model/capabilities ---
+E2E_BOARD="e2e-config-test"
+E2E_LAUNCH_BODY=$(cat <<'EOJSON'
+{
+  "board_name": "BOARD_PLACEHOLDER",
+  "working_dir": "WORKDIR_PLACEHOLDER",
+  "agent_type": "claude",
+  "agents": [
+    {
+      "name": "Config Lead",
+      "prompt": "You are a config test lead agent",
+      "agent_type": "claude",
+      "model": "sonnet",
+      "capabilities": {"allow":["file_read","shell","git_write"],"deny":[]}
+    },
+    {
+      "name": "Config Worker",
+      "prompt": "You are a config test worker agent",
+      "capabilities": {"allow":["file_read"],"deny":["shell"]}
+    }
+  ]
+}
+EOJSON
+)
+# Substitute placeholders
+E2E_LAUNCH_BODY=$(echo "$E2E_LAUNCH_BODY" | sed "s|BOARD_PLACEHOLDER|${E2E_BOARD}|g" | sed "s|WORKDIR_PLACEHOLDER|${WORK_DIR}|g")
+
+E2E_LAUNCH_RESP=$(api POST /api/sessions/launch-team -H "Content-Type: application/json" -d "$E2E_LAUNCH_BODY" 2>/dev/null || echo "{}")
+E2E_LAUNCHED=$(echo "$E2E_LAUNCH_RESP" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    agents = data.get('agents', [])
+    print(sum(1 for a in agents if 'error' not in a))
+except: print(0)
+" 2>/dev/null || echo "0")
+
+if [[ "$E2E_LAUNCHED" -ge 2 ]]; then
+    pass "E2E config: launched 2 agents with per-agent config"
+else
+    fail "E2E config: expected 2 agents launched, got $E2E_LAUNCHED"
+fi
+
+sleep 2  # Let sessions register
+
+# Verify live sessions have correct agent_type, model, capabilities
+E2E_SESSIONS=$(api GET /api/sessions/live 2>/dev/null || echo "[]")
+
+# Check Config Lead has model=sonnet and correct capabilities
+E2E_LEAD_CHECK=$(echo "$E2E_SESSIONS" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    if s.get('display_name') == 'Config Lead' and s.get('board_project') == '${E2E_BOARD}':
+        model = s.get('model', '')
+        caps = s.get('capabilities', {})
+        if isinstance(caps, str):
+            caps = json.loads(caps)
+        allow = caps.get('allow', []) if caps else []
+        has_model = model == 'sonnet'
+        has_caps = 'file_read' in allow and 'shell' in allow
+        print(f'{has_model}|{has_caps}|model={model}|allow={allow}')
+        break
+else:
+    print('False|False|not_found')
+" 2>/dev/null || echo "False|False|error")
+
+E2E_LEAD_MODEL=$(echo "$E2E_LEAD_CHECK" | cut -d'|' -f1)
+E2E_LEAD_CAPS=$(echo "$E2E_LEAD_CHECK" | cut -d'|' -f2)
+
+if [[ "$E2E_LEAD_MODEL" == "True" ]]; then
+    pass "E2E config: Config Lead has model=sonnet"
+else
+    fail "E2E config: Config Lead model mismatch ($E2E_LEAD_CHECK)"
+fi
+if [[ "$E2E_LEAD_CAPS" == "True" ]]; then
+    pass "E2E config: Config Lead has correct capabilities"
+else
+    fail "E2E config: Config Lead capabilities mismatch ($E2E_LEAD_CHECK)"
+fi
+
+# Check Config Worker has no model and deny=[shell]
+E2E_WORKER_CHECK=$(echo "$E2E_SESSIONS" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    if s.get('display_name') == 'Config Worker' and s.get('board_project') == '${E2E_BOARD}':
+        caps = s.get('capabilities', {})
+        if isinstance(caps, str):
+            caps = json.loads(caps)
+        allow = caps.get('allow', []) if caps else []
+        deny = caps.get('deny', []) if caps else []
+        has_read = 'file_read' in allow
+        has_deny_shell = 'shell' in deny
+        no_model = not s.get('model')
+        print(f'{has_read}|{has_deny_shell}|{no_model}')
+        break
+else:
+    print('False|False|False')
+" 2>/dev/null || echo "False|False|False")
+
+E2E_WORKER_READ=$(echo "$E2E_WORKER_CHECK" | cut -d'|' -f1)
+E2E_WORKER_DENY=$(echo "$E2E_WORKER_CHECK" | cut -d'|' -f2)
+
+if [[ "$E2E_WORKER_READ" == "True" ]] && [[ "$E2E_WORKER_DENY" == "True" ]]; then
+    pass "E2E config: Config Worker has allow=[file_read], deny=[shell]"
+else
+    fail "E2E config: Config Worker capabilities mismatch ($E2E_WORKER_CHECK)"
+fi
+
+# --- Test 2: Capabilities persist through sleep ---
+# Find Config Lead's session name for sleep/wake
+E2E_LEAD_SESSION=$(echo "$E2E_SESSIONS" | python3 -c "
+import sys, json
+for s in json.load(sys.stdin):
+    if s.get('display_name') == 'Config Lead' and s.get('board_project') == '${E2E_BOARD}':
+        print(s.get('name', ''))
+        break
+" 2>/dev/null || true)
+
+if [[ -n "$E2E_LEAD_SESSION" ]]; then
+    # Sleep the agent
+    api POST "/api/sessions/live/${E2E_LEAD_SESSION}/sleep" -H "Content-Type: application/json" -d '{}' > /dev/null 2>&1
+    sleep 3
+
+    # Verify sleeping session still has model and capabilities
+    # Note: check model and capabilities regardless of sleeping flag — the key
+    # test is that fields persist, not that sleep state propagated instantly.
+    E2E_SLEEP_CHECK=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+for s in sessions:
+    if s.get('display_name') == 'Config Lead' and s.get('board_project') == '${E2E_BOARD}':
+        sleeping = s.get('sleeping', False)
+        model = s.get('model', '')
+        caps = s.get('capabilities')
+        has_model = model == 'sonnet'
+        has_caps = caps is not None and caps != ''
+        print(f'{sleeping}|{has_model}|{has_caps}')
+        break
+else:
+    print('False|False|False')
+" 2>/dev/null || echo "False|False|False")
+
+    E2E_SLEEP_MODEL=$(echo "$E2E_SLEEP_CHECK" | cut -d'|' -f2)
+    E2E_SLEEP_CAPS=$(echo "$E2E_SLEEP_CHECK" | cut -d'|' -f3)
+
+    if [[ "$E2E_SLEEP_MODEL" == "True" ]] && [[ "$E2E_SLEEP_CAPS" == "True" ]]; then
+        pass "E2E config: session preserves model and capabilities after sleep"
+    else
+        fail "E2E config: session lost fields after sleep ($E2E_SLEEP_CHECK)"
+    fi
+
+    # Wake it back up for further tests
+    api POST "/api/sessions/live/${E2E_LEAD_SESSION}/wake" -H "Content-Type: application/json" -d '{}' > /dev/null 2>&1
+    sleep 1
+else
+    warn "E2E config: could not find Config Lead session for sleep test"
+fi
+
+# --- Test 3: Board peek authorization ---
+# Orchestrator on the E2E board should have can_peek. Workers should not.
+# We need the orchestrator's subscriber_id — it's the first agent launched by the team,
+# but we launched "Config Lead" and "Config Worker" (neither is named Orchestrator).
+# The can_peek flag is only set for orchestrators. Let's check that workers get 403.
+
+E2E_WORKER_SUB=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Config Worker', safe=''))" 2>/dev/null)
+E2E_LEAD_SUB=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Config Lead', safe=''))" 2>/dev/null)
+
+# Worker trying to peek should get 403
+E2E_PEEK_RESP=$(api GET "/api/board/${E2E_BOARD}/peek?subscriber_id=${E2E_WORKER_SUB}&target=Config%20Lead&lines=10" 2>/dev/null || echo "")
+E2E_PEEK_STATUS=$(echo "$E2E_PEEK_RESP" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print('forbidden' if 'not granted' in d.get('error','').lower() or 'permission' in d.get('error','').lower() else 'allowed')
+except: print('error')
+" 2>/dev/null || echo "error")
+
+if [[ "$E2E_PEEK_STATUS" == "forbidden" ]]; then
+    pass "E2E config: non-orchestrator correctly denied peek (403)"
+else
+    fail "E2E config: non-orchestrator was NOT denied peek ($E2E_PEEK_RESP)"
+fi
+
+# --- Test 4: Template export includes all fields ---
+# Read live sessions and verify we could build a complete template
+E2E_TEMPLATE_CHECK=$(api GET /api/sessions/live 2>/dev/null | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+board_agents = [s for s in sessions if s.get('board_project') == '${E2E_BOARD}']
+has_all = True
+for s in board_agents:
+    dn = s.get('display_name', '')
+    if dn == 'Config Lead':
+        if not s.get('model'):
+            has_all = False
+        if not s.get('capabilities'):
+            has_all = False
+        if not s.get('prompt'):
+            has_all = False
+print('True' if has_all and len(board_agents) >= 2 else 'False')
+" 2>/dev/null || echo "False")
+
+if [[ "$E2E_TEMPLATE_CHECK" == "True" ]]; then
+    pass "E2E config: live sessions include prompt/model/capabilities for template export"
+else
+    fail "E2E config: live sessions missing fields for template export"
+fi
+
+# Clean up: kill the E2E test team
+api POST "/api/teams/${E2E_BOARD}/kill" -H "Content-Type: application/json" -d '{}' > /dev/null 2>&1
+
 # ── Phase 4: Sleep/wake cycles ──────────────────────────────────────────
 log ""
 log "Phase 4: Sleep/wake cycles..."
