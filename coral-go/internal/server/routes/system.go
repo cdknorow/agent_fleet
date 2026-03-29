@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/cdknorow/coral/internal/agent"
@@ -599,7 +601,37 @@ func (h *SystemHandler) ImportTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, teamConfig)
 }
 
-// GenerateTeam calls Claude to generate a team configuration from natural language.
+// ── Team Generation (async) ─────────────────────────────────────────
+
+type generateJob struct {
+	Status    string         `json:"status"` // "pending", "complete", "error"
+	Result    map[string]any `json:"result,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	CreatedAt time.Time      `json:"-"`
+}
+
+var (
+	generateJobs   = make(map[string]*generateJob)
+	generateJobsMu sync.Mutex
+)
+
+func init() {
+	// Cleanup expired jobs every minute
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			generateJobsMu.Lock()
+			for id, job := range generateJobs {
+				if time.Since(job.CreatedAt) > 10*time.Minute {
+					delete(generateJobs, id)
+				}
+			}
+			generateJobsMu.Unlock()
+		}
+	}()
+}
+
+// GenerateTeam kicks off an async Claude CLI call and returns a job ID.
 // POST /api/teams/generate
 func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -633,15 +665,68 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jobID := "gen-" + uuid.New().String()
+	job := &generateJob{Status: "pending", CreatedAt: time.Now()}
+
+	generateJobsMu.Lock()
+	generateJobs[jobID] = job
+	generateJobsMu.Unlock()
+
 	prompt := teamGeneratePrompt +
 		"\n\n<inputs>" +
 		"\n<directive>\n" + body.Directive + "\n</directive>" +
 		"\n<composition>\n" + body.Composition + "\n</composition>" +
 		"\n</inputs>"
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
+	coralDir := h.cfg.CoralDir()
 
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		result, errMsg := runTeamGeneration(ctx, claudePath, prompt, coralDir)
+
+		generateJobsMu.Lock()
+		defer generateJobsMu.Unlock()
+		if errMsg != "" {
+			job.Status = "error"
+			job.Error = errMsg
+		} else {
+			job.Status = "complete"
+			job.Result = result
+		}
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID, "status": "pending"})
+}
+
+// GenerateTeamStatus returns the status of an async team generation job.
+// GET /api/teams/generate/{jobId}
+func (h *SystemHandler) GenerateTeamStatus(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobId")
+
+	generateJobsMu.Lock()
+	job, ok := generateJobs[jobID]
+	generateJobsMu.Unlock()
+
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+		return
+	}
+
+	resp := map[string]any{"job_id": jobID, "status": job.Status}
+	if job.Status == "complete" {
+		resp["result"] = job.Result
+	}
+	if job.Status == "error" {
+		resp["error"] = job.Error
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// runTeamGeneration executes Claude CLI and parses/validates the response.
+// Returns (result, errorMessage). If errorMessage is non-empty, result is nil.
+func runTeamGeneration(ctx context.Context, claudePath, prompt, coralDir string) (map[string]any, string) {
 	cmd := executil.Command(ctx, claudePath,
 		"--print",
 		"--model", "opus",
@@ -650,13 +735,12 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 	)
 	output, err := cmd.Output()
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Claude CLI failed: " + err.Error()})
-		return
+		return nil, "Claude CLI failed: " + err.Error()
 	}
 
 	// Write raw response to ~/.coral/last_generated_team.json for debugging
-	if debugPath := filepath.Join(h.cfg.CoralDir(), "last_generated_team.json"); debugPath != "" {
-		_ = os.WriteFile(debugPath, output, 0644)
+	if coralDir != "" {
+		_ = os.WriteFile(filepath.Join(coralDir, "last_generated_team.json"), output, 0644)
 	}
 
 	// Strip markdown fences if present
@@ -674,54 +758,39 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "Failed to parse LLM response as JSON", "raw": raw})
-		return
+		return nil, "Failed to parse LLM response as JSON"
 	}
 
 	// Validate that agents array exists
 	agents, ok := result["agents"].([]any)
 	if !ok || len(agents) == 0 {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "Generated team has no agents", "raw": raw})
-		return
+		return nil, "Generated team has no agents"
 	}
 
 	// Validate and normalize each agent — fill defaults for missing fields
 	for i, a := range agents {
 		ag, ok := a.(map[string]any)
 		if !ok {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-				"error": fmt.Sprintf("agent at index %d is not a valid object", i),
-			})
-			return
+			return nil, fmt.Sprintf("agent at index %d is not a valid object", i)
 		}
 
 		name, _ := ag["name"].(string)
 		if strings.TrimSpace(name) == "" {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-				"error": fmt.Sprintf("agent at index %d is missing a name", i),
-			})
-			return
+			return nil, fmt.Sprintf("agent at index %d is missing a name", i)
 		}
 
-		prompt, _ := ag["prompt"].(string)
-		if strings.TrimSpace(prompt) == "" {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-				"error": fmt.Sprintf("agent '%s' is missing a prompt", name),
-			})
-			return
+		agPrompt, _ := ag["prompt"].(string)
+		if strings.TrimSpace(agPrompt) == "" {
+			return nil, fmt.Sprintf("agent '%s' is missing a prompt", name)
 		}
 
-		// Default agent_type to "claude" if missing
 		if at, _ := ag["agent_type"].(string); at == "" {
 			ag["agent_type"] = "claude"
 		}
-
-		// Default model to empty string (system default) if missing
 		if _, exists := ag["model"]; !exists {
 			ag["model"] = ""
 		}
 
-		// Normalize capabilities — ensure allow/deny arrays exist
 		caps, _ := ag["capabilities"].(map[string]any)
 		if caps == nil {
 			caps = map[string]any{"allow": []any{"file_read"}, "deny": []any{}}
@@ -739,16 +808,14 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	result["agents"] = agents
 
-	// Default team name if missing
 	if name, _ := result["name"].(string); strings.TrimSpace(name) == "" {
 		result["name"] = "Generated Team"
 	}
-	// Default flags if missing
 	if _, exists := result["flags"]; !exists {
 		result["flags"] = ""
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	return result, ""
 }
 
 const teamGeneratePrompt = `Role and task:

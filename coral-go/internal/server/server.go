@@ -339,6 +339,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/indexer/refresh", sysHandler.RefreshIndexer)
 	r.Post("/api/teams/import", sysHandler.ImportTeam)
 	r.Post("/api/teams/generate", sysHandler.GenerateTeam)
+	r.Get("/api/teams/generate/{jobId}", sysHandler.GenerateTeamStatus)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)

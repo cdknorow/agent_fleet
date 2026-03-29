@@ -2095,6 +2095,17 @@
     color: var(--accent);
 }
 
+.team-generate-ai-btn {
+    border-color: rgba(99, 102, 241, 0.35) !important;
+    color: var(--accent) !important;
+    background: rgba(99, 102, 241, 0.08) !important;
+}
+
+.team-generate-ai-btn:hover {
+    background: rgba(99, 102, 241, 0.16) !important;
+    border-color: var(--accent) !important;
+}
+
 .team-template-info {
     display: inline-flex;
     align-items: center;

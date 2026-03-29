@@ -162,16 +162,25 @@ function showTeamWizardModal() {
     const compositionEl = document.getElementById('team-wizard-composition');
     const generateBtn = document.getElementById('team-wizard-generate-btn');
 
-    _setTeamWizardError('');
-    if (directiveEl) directiveEl.value = '';
-    if (compositionEl) compositionEl.value = '';
-    if (generateBtn) {
-        generateBtn.disabled = false;
-        generateBtn.textContent = 'Generate Team';
-        generateBtn.style.display = '';
+    // If a job is actively running, show generating state
+    if (_activeGenerateJobId) {
+        if (generateBtn) {
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            generateBtn.style.display = '';
+        }
+    } else {
+        _setTeamWizardError('');
+        if (directiveEl) directiveEl.value = '';
+        if (compositionEl) compositionEl.value = '';
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Team';
+            generateBtn.style.display = '';
+        }
     }
     modal.style.display = 'flex';
-    directiveEl?.focus();
+    if (!_activeGenerateJobId) directiveEl?.focus();
 
     // Close on backdrop click
     modal.onclick = (e) => { if (e.target === modal) hideTeamWizardModal(); };
@@ -258,6 +267,9 @@ function _populateGeneratedTeamDraft(team) {
     }
 }
 
+let _activeGenerateJobId = null;
+let _generatePollTimer = null;
+
 async function generateTeamFromWizard() {
     const directiveEl = document.getElementById('team-wizard-directive');
     const compositionEl = document.getElementById('team-wizard-composition');
@@ -287,6 +299,7 @@ async function generateTeamFromWizard() {
     }
 
     try {
+        // Submit job and get job ID
         const resp = await fetch('/api/teams/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -294,32 +307,21 @@ async function generateTeamFromWizard() {
         });
 
         let payload = null;
-        try {
-            payload = await resp.json();
-        } catch {
-            payload = null;
-        }
+        try { payload = await resp.json(); } catch { payload = null; }
 
         if (!resp.ok || payload?.error) {
             throw new Error(payload?.error || `Team generation failed (${resp.status}).`);
         }
 
-        const team = _normalizeGeneratedTeamPayload(payload);
-        _pendingGeneratedTeam = team;
-
-        // Show success state in wizard
-        const body = document.querySelector('.team-wizard-body');
-        if (body) {
-            body.innerHTML = `
-                <div class="team-wizard-success">
-                    <span class="material-icons team-wizard-success-icon">check_circle</span>
-                    <strong>Team generated!</strong>
-                    <p>${team.agents.length} agents created for "${escapeHtml(team.name)}"</p>
-                    <button class="btn btn-primary" onclick="window._reviewGeneratedTeam()">Review Team</button>
-                </div>
-            `;
+        // If backend returns a job_id, poll for results
+        if (payload?.job_id) {
+            _activeGenerateJobId = payload.job_id;
+            _startGeneratePolling(payload.job_id);
+            return;
         }
-        if (generateBtn) generateBtn.style.display = 'none';
+
+        // Synchronous response (no job_id) — handle inline
+        _handleGenerateResult(payload);
     } catch (error) {
         _setTeamWizardError(error.message || 'Team generation failed.');
         if (generateBtn) {
@@ -329,6 +331,82 @@ async function generateTeamFromWizard() {
     }
 }
 window.generateTeamFromWizard = generateTeamFromWizard;
+
+function _startGeneratePolling(jobId) {
+    if (_generatePollTimer) clearInterval(_generatePollTimer);
+    _generatePollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/teams/generate/${encodeURIComponent(jobId)}`);
+            const data = await resp.json();
+
+            if (data.status === 'pending') return; // still running
+
+            // Job finished — stop polling
+            clearInterval(_generatePollTimer);
+            _generatePollTimer = null;
+            _activeGenerateJobId = null;
+
+            if (data.status === 'error') {
+                _handleGenerateError(data.error || 'Team generation failed.');
+                return;
+            }
+
+            // Success
+            _handleGenerateResult(data.result || data);
+        } catch {
+            // Network error — keep polling
+        }
+    }, 2500);
+}
+
+function _isWizardOpen() {
+    const modal = document.getElementById('team-wizard-modal');
+    return modal && modal.style.display !== 'none';
+}
+
+function _handleGenerateResult(payload) {
+    try {
+        const team = _normalizeGeneratedTeamPayload(payload);
+        _pendingGeneratedTeam = team;
+
+        if (_isWizardOpen()) {
+            // Show success state inline in wizard
+            const body = document.querySelector('.team-wizard-body');
+            if (body) {
+                body.innerHTML = `
+                    <div class="team-wizard-success">
+                        <span class="material-icons team-wizard-success-icon">check_circle</span>
+                        <strong>Team generated!</strong>
+                        <p>${team.agents.length} agents created for "${escapeHtml(team.name)}"</p>
+                        <button class="btn btn-primary" onclick="window._reviewGeneratedTeam()">Review Team</button>
+                    </div>
+                `;
+            }
+            const generateBtn = document.getElementById('team-wizard-generate-btn');
+            if (generateBtn) generateBtn.style.display = 'none';
+        } else {
+            // Wizard was closed — show a notification toast with action
+            showToast(`AI team "${team.name}" is ready (${team.agents.length} agents)`, false);
+            // Auto-open the review flow
+            _reviewGeneratedTeam();
+        }
+    } catch (error) {
+        _handleGenerateError(error.message || 'Failed to parse generated team.');
+    }
+}
+
+function _handleGenerateError(message) {
+    if (_isWizardOpen()) {
+        _setTeamWizardError(message);
+        const generateBtn = document.getElementById('team-wizard-generate-btn');
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Team';
+        }
+    } else {
+        showToast(message, true);
+    }
+}
 
 let _pendingGeneratedTeam = null;
 
