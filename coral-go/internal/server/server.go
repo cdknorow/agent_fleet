@@ -520,7 +520,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveActivation(w http.ResponseWriter, r *http.Request) {
 	page := activationPage
-	page = strings.Replace(page, "{{STORE_URL}}", config.StoreURL, 1)
+	page = strings.ReplaceAll(page, "{{STORE_URL}}", config.StoreURL)
 	w.Write([]byte(page))
 }
 
