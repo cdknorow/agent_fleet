@@ -685,6 +685,33 @@ export function hideConfirmModal() {
     if (content) content.classList.remove('modal-content-wide', 'modal-content-extra-wide');
 }
 
+export function showPromptModal(title, label, defaultValue, onConfirm) {
+    document.getElementById("prompt-modal-title").textContent = title;
+    const labelEl = document.getElementById("prompt-modal-label");
+    if (labelEl) labelEl.textContent = label || '';
+    const input = document.getElementById("prompt-modal-input");
+    input.value = defaultValue || '';
+    const okBtn = document.getElementById("prompt-modal-ok");
+    const newBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newBtn, okBtn);
+    const modal = document.getElementById("prompt-modal");
+    const submit = () => {
+        const val = input.value.trim();
+        if (!val) { input.focus(); return; }
+        hidePromptModal();
+        onConfirm(val);
+    };
+    newBtn.addEventListener("click", submit);
+    input.onkeydown = (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') hidePromptModal(); };
+    modal.onclick = (e) => { if (e.target === modal) hidePromptModal(); };
+    modal.style.display = "flex";
+    setTimeout(() => input.focus(), 50);
+}
+
+export function hidePromptModal() {
+    document.getElementById("prompt-modal").style.display = "none";
+}
+
 export function copyFolderPath(path) {
     if (!path) return;
     navigator.clipboard.writeText(path).then(() => {
@@ -785,31 +812,30 @@ export async function shareAgentTeam(boardName) {
     showToast(`Exported team "${boardName}" (${tmpl.agents.length} agents)`);
 }
 
-export async function saveTeamFromSidebar(boardName) {
-    const templateName = window.prompt("Template name:", boardName);
-    if (!templateName) return;
+export function saveTeamFromSidebar(boardName) {
+    showPromptModal('Save Team Template', 'Template name', boardName, async (templateName) => {
+        const tmpl = _buildTeamTemplateFromBoard(boardName);
+        if (!tmpl) {
+            showToast("No agents found on this board", "error");
+            return;
+        }
+        tmpl.name = templateName;
 
-    const tmpl = _buildTeamTemplateFromBoard(boardName);
-    if (!tmpl) {
-        showToast("No agents found on this board", "error");
-        return;
-    }
-    tmpl.name = templateName;
-
-    // Save to user_settings via the settings API
-    let existing = [];
-    try {
-        existing = JSON.parse(state.settings.saved_team_templates || "[]");
-    } catch { /* ignore */ }
-    const idx = existing.findIndex(t => t.name === templateName);
-    if (idx >= 0) existing[idx] = tmpl; else existing.push(tmpl);
-    state.settings.saved_team_templates = JSON.stringify(existing);
-    await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ saved_team_templates: state.settings.saved_team_templates }),
+        // Save to user_settings via the settings API
+        let existing = [];
+        try {
+            existing = JSON.parse(state.settings.saved_team_templates || "[]");
+        } catch { /* ignore */ }
+        const idx = existing.findIndex(t => t.name === templateName);
+        if (idx >= 0) existing[idx] = tmpl; else existing.push(tmpl);
+        state.settings.saved_team_templates = JSON.stringify(existing);
+        await fetch("/api/settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ saved_team_templates: state.settings.saved_team_templates }),
+        });
+        showToast(`Saved template "${templateName}" (${tmpl.agents.length} agents)`);
     });
-    showToast(`Saved template "${templateName}" (${tmpl.agents.length} agents)`);
 }
 
 export function toggleTeamSleep(boardName, action) {

@@ -311,6 +311,90 @@
         </div>
     </div>
 
+    <div id="save-template-modal" class="modal" style="display:none">
+        <div class="modal-content" style="width:420px">
+            <div class="modal-header">
+                <h3>Save Team Template</h3>
+            </div>
+            <div class="modal-body">
+                <p class="team-agent-modal-subtitle">Name this team configuration so it shows up alongside your reusable templates.</p>
+                <label for="save-template-name">Template Name
+                    <input type="text" id="save-template-name" placeholder="e.g. Startup Launch Team">
+                </label>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window._hideSaveTemplateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="window._confirmSaveTemplate()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="team-wizard-modal" class="modal" style="display:none">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h3>Create Your Own Team</h3>
+                <p class="team-wizard-subtitle">Tell Coral what the team should achieve and how you want it staffed. You can review and edit every generated agent before launch.</p>
+            </div>
+            <div class="modal-body team-wizard-body">
+                <div class="team-wizard-intro">
+                    <div class="team-wizard-intro-icon">
+                        <span class="material-icons">auto_awesome</span>
+                    </div>
+                    <div>
+                        <strong>AI team builder</strong>
+                        <p>Coral will generate a team JSON draft that opens directly in the existing launch flow.</p>
+                    </div>
+                </div>
+                <label for="team-wizard-directive">Directive
+                    <textarea id="team-wizard-directive" rows="5" placeholder="Example: Build a launch plan for a developer tool aimed at small engineering teams. The team should uncover positioning, messaging, onboarding friction, and a realistic release strategy."></textarea>
+                </label>
+                <label for="team-wizard-composition">Team Composition
+                    <textarea id="team-wizard-composition" rows="4" placeholder="Example: Create 5 agents: an orchestrator, product strategist, GTM marketer, UX researcher, and launch copywriter. Use Claude by default, but make the researcher a stronger reasoning model."></textarea>
+                </label>
+                <div id="team-wizard-error" class="team-wizard-error" style="display:none"></div>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window.hideTeamWizardModal()">Cancel</button>
+                <button id="team-wizard-test-btn" class="btn" onclick="window.testTeamWizard()" title="Test flow with sample data (no API call)" style="font-size:12px;opacity:0.7">Test</button>
+                <button id="team-wizard-generate-btn" class="btn btn-primary" onclick="window.generateTeamFromWizard()">Generate Team</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic Prompt Modal (reusable replacement for browser prompt()) -->
+    <div id="prompt-modal" class="modal" style="display:none">
+        <div class="modal-content" style="width:420px">
+            <div class="modal-header">
+                <h3 id="prompt-modal-title">Enter value</h3>
+            </div>
+            <div class="modal-body">
+                <label id="prompt-modal-label" for="prompt-modal-input" style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:6px"></label>
+                <input type="text" id="prompt-modal-input" style="width:100%" autofocus>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window.hidePromptModal()">Cancel</button>
+                <button id="prompt-modal-ok" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Template Modal -->
+    <div id="save-template-modal" class="modal" style="display:none">
+        <div class="modal-content" style="width:400px">
+            <div class="modal-header">
+                <h3>Save Team Template</h3>
+            </div>
+            <div class="modal-body">
+                <label for="save-template-name" style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:6px">Template name</label>
+                <input type="text" id="save-template-name" placeholder="e.g. My Custom Team" style="width:100%" autofocus>
+            </div>
+            <div class="modal-actions modal-footer">
+                <button class="btn" onclick="window._hideSaveTemplateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="window._confirmSaveTemplate()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Confirm Modal (reusable) -->
     <div id="confirm-modal" class="modal" style="display:none">
         <div class="modal-content" style="width:420px">

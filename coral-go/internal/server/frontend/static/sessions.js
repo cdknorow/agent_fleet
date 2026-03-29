@@ -260,37 +260,37 @@ export async function selectHistorySession(sessionId) {
     loadHistoryAgentNotes(sessionId);
 }
 
-export async function renameAgent(name, agentType, sessionId) {
+export function renameAgent(name, agentType, sessionId) {
     const current = state.liveSessions.find(s => s.session_id === sessionId);
     const currentName = (current && current.display_name) || name;
-    const newName = prompt("Enter display name for this agent:", currentName);
-    if (!newName || newName.trim() === "" || newName.trim() === currentName) return;
-
-    try {
-        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(name)}/display-name`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ display_name: newName.trim(), session_id: sessionId }),
-        });
-        const result = await resp.json();
-        if (result.error) {
-            showToast(result.error, true);
-            return;
+    window.showPromptModal('Rename Agent', 'Display name', currentName, async (newName) => {
+        if (newName === currentName) return;
+        try {
+            const resp = await fetch(`/api/sessions/live/${encodeURIComponent(name)}/display-name`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ display_name: newName, session_id: sessionId }),
+            });
+            const result = await resp.json();
+            if (result.error) {
+                showToast(result.error, true);
+                return;
+            }
+            // Update in-memory state
+            if (current) current.display_name = newName;
+            // Update header if this is the current session
+            if (state.currentSession && state.currentSession.session_id === sessionId) {
+                state.currentSession.display_name = newName;
+                document.getElementById("session-name").textContent = newName;
+            }
+            // Re-render sidebar
+            const { renderLiveSessions } = await import('./render.js');
+            renderLiveSessions(state.liveSessions);
+            showToast("Agent renamed");
+        } catch (e) {
+            showToast("Failed to rename agent", true);
         }
-        // Update in-memory state
-        if (current) current.display_name = newName.trim();
-        // Update header if this is the current session
-        if (state.currentSession && state.currentSession.session_id === sessionId) {
-            state.currentSession.display_name = newName.trim();
-            document.getElementById("session-name").textContent = newName.trim();
-        }
-        // Re-render sidebar
-        const { renderLiveSessions } = await import('./render.js');
-        renderLiveSessions(state.liveSessions);
-        showToast("Agent renamed");
-    } catch (e) {
-        showToast("Failed to rename agent", true);
-    }
+    });
 }
 
 export async function setAgentIcon(name, agentType, sessionId) {

@@ -138,6 +138,15 @@
                 <img src="/static/coral-icon-88x88.png" alt="Coral" class="welcome-logo">
                 <h2>Welcome to Coral</h2>
                 <p>Select a session from the sidebar, or launch a team:</p>
+                <button class="welcome-wizard-card" onclick="window.showTeamWizardModal()" aria-label="Create Your Own Team">
+                    <span class="welcome-wizard-badge">AI generated</span>
+                    <span class="material-icons welcome-wizard-icon">auto_awesome</span>
+                    <div class="welcome-wizard-copy">
+                        <strong>Create Your Own Team</strong>
+                        <span>Describe the mission, choose the roles you want, and let Coral draft the team before launch.</span>
+                    </div>
+                    <span class="material-icons welcome-wizard-arrow">arrow_forward</span>
+                </button>
                 <div class="welcome-team-presets">
                     <button class="welcome-team-card" onclick="window._launchTeamPreset('Coding Team')">
                         <span class="material-icons welcome-team-icon">code</span>
@@ -179,6 +188,10 @@
                     </button>
                 </div>
                 <div class="welcome-actions">
+                    <button class="welcome-action-card welcome-action-card--create" onclick="window.showTeamWizardModal()" aria-label="Create Your Own Team">
+                        <span class="material-icons">auto_awesome</span>
+                        <span>Create Your Own Team</span>
+                    </button>
                     <button class="welcome-action-card" onclick="showLaunchModal()" aria-label="Launch Agent">
                         <span class="material-icons">add_circle</span>
                         <span>Launch Agent</span>

@@ -19,6 +19,7 @@ import (
 
 	"github.com/cdknorow/coral/internal/agent"
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/executil"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -597,6 +598,276 @@ func (h *SystemHandler) ImportTeam(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, teamConfig)
 }
+
+// GenerateTeam calls Claude to generate a team configuration from natural language.
+// POST /api/teams/generate
+func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Directive   string `json:"directive"`
+		Composition string `json:"composition"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+	if strings.TrimSpace(body.Directive) == "" {
+		errBadRequest(w, "directive is required")
+		return
+	}
+
+	const maxInputLen = 4000
+	if len(body.Directive) > maxInputLen {
+		errBadRequest(w, "directive too long (max 4000 characters)")
+		return
+	}
+	if len(body.Composition) > maxInputLen {
+		errBadRequest(w, "composition too long (max 4000 characters)")
+		return
+	}
+
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Claude CLI not found — install Claude Code (npm install -g @anthropic-ai/claude-code)",
+		})
+		return
+	}
+
+	prompt := teamGeneratePrompt +
+		"\n\n<inputs>" +
+		"\n<directive>\n" + body.Directive + "\n</directive>" +
+		"\n<composition>\n" + body.Composition + "\n</composition>" +
+		"\n</inputs>"
+
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	cmd := executil.Command(ctx, claudePath,
+		"--print",
+		"--model", "opus",
+		"--no-session-persistence",
+		prompt,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Claude CLI failed: " + err.Error()})
+		return
+	}
+
+	// Write raw response to ~/.coral/last_generated_team.json for debugging
+	if debugPath := filepath.Join(h.cfg.CoralDir(), "last_generated_team.json"); debugPath != "" {
+		_ = os.WriteFile(debugPath, output, 0644)
+	}
+
+	// Strip markdown fences if present
+	raw := strings.TrimSpace(string(output))
+	if strings.HasPrefix(raw, "```") {
+		lines := strings.Split(raw, "\n")
+		var cleaned []string
+		for _, line := range lines {
+			if !strings.HasPrefix(strings.TrimSpace(line), "```") {
+				cleaned = append(cleaned, line)
+			}
+		}
+		raw = strings.TrimSpace(strings.Join(cleaned, "\n"))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "Failed to parse LLM response as JSON", "raw": raw})
+		return
+	}
+
+	// Validate that agents array exists
+	agents, ok := result["agents"].([]any)
+	if !ok || len(agents) == 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "Generated team has no agents", "raw": raw})
+		return
+	}
+
+	// Validate and normalize each agent — fill defaults for missing fields
+	for i, a := range agents {
+		ag, ok := a.(map[string]any)
+		if !ok {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": fmt.Sprintf("agent at index %d is not a valid object", i),
+			})
+			return
+		}
+
+		name, _ := ag["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": fmt.Sprintf("agent at index %d is missing a name", i),
+			})
+			return
+		}
+
+		prompt, _ := ag["prompt"].(string)
+		if strings.TrimSpace(prompt) == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": fmt.Sprintf("agent '%s' is missing a prompt", name),
+			})
+			return
+		}
+
+		// Default agent_type to "claude" if missing
+		if at, _ := ag["agent_type"].(string); at == "" {
+			ag["agent_type"] = "claude"
+		}
+
+		// Default model to empty string (system default) if missing
+		if _, exists := ag["model"]; !exists {
+			ag["model"] = ""
+		}
+
+		// Normalize capabilities — ensure allow/deny arrays exist
+		caps, _ := ag["capabilities"].(map[string]any)
+		if caps == nil {
+			caps = map[string]any{"allow": []any{"file_read"}, "deny": []any{}}
+			ag["capabilities"] = caps
+		} else {
+			if _, ok := caps["allow"]; !ok {
+				caps["allow"] = []any{"file_read"}
+			}
+			if _, ok := caps["deny"]; !ok {
+				caps["deny"] = []any{}
+			}
+		}
+
+		agents[i] = ag
+	}
+	result["agents"] = agents
+
+	// Default team name if missing
+	if name, _ := result["name"].(string); strings.TrimSpace(name) == "" {
+		result["name"] = "Generated Team"
+	}
+	// Default flags if missing
+	if _, exists := result["flags"]; !exists {
+		result["flags"] = ""
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+const teamGeneratePrompt = `Role and task:
+You generate team configuration JSON for Coral, an AI agent orchestration platform. Read the user's directive and composition guidance, then produce a single valid team configuration object.
+
+Output contract:
+You MUST respond with ONLY one valid JSON object.
+Do not include markdown, code fences, comments, trailing commas, or explanatory text.
+Every string must be valid escaped JSON.
+The response must match this exact schema:
+
+{
+  "name": "Short team name (2-4 words)",
+  "agents": [
+    {
+      "name": "Agent Display Name",
+      "prompt": "Detailed prompt for this agent",
+      "capabilities": {
+        "allow": ["capability1", "capability2"],
+        "deny": ["capability3"]
+      },
+      "agent_type": "claude",
+      "model": ""
+    }
+  ],
+  "flags": ""
+}
+
+Hard platform rules:
+1. The first agent MUST be named "Orchestrator".
+2. Every team MUST contain 3-8 agents. If the user asks for fewer than 3, still produce 3 agents by adding the minimum supporting roles needed. If the user asks for more than 8, consolidate responsibilities to stay within 8.
+3. The Orchestrator coordinates work, delegates tasks via the message board, tracks progress, and should not do the implementation work itself.
+4. The Orchestrator must include these allowed capabilities: ["file_read", "shell:coral-board *", "agent_spawn", "web_access"].
+5. Every worker prompt must say they are automatically joined to the message board, must not run "coral-board join", must not poll or loop on "coral-board read", and must wait for instructions from the Orchestrator before starting work.
+6. The Orchestrator prompt must say it is automatically joined to the message board, must not run "coral-board join", must not poll or loop on "coral-board read", and should discuss its plan with the operator before posting assignments.
+7. Every agent object MUST include all of these keys: "name", "prompt", "capabilities", "agent_type", and "model".
+8. Every "capabilities" object MUST include both "allow" and "deny" arrays, even if "deny" is empty.
+9. Use "claude" for "agent_type" unless the user explicitly requests a different agent type.
+10. Use an empty string for "model" unless the user explicitly requests a specific model for that agent.
+11. Use an empty string for "flags" unless the user explicitly requests flags.
+
+Capability policy:
+Use only these capabilities:
+- file_read: Read files (Read, Glob, Grep tools)
+- file_write: Write/edit files (Write, Edit tools)
+- shell: Execute shell commands (Bash tool)
+- web_access: Web browsing (WebFetch, WebSearch tools)
+- git_write: Git operations (push, commit, branch, merge, rebase)
+- agent_spawn: Launch sub-agents
+- notebook: Edit Jupyter notebooks
+- shell:<pattern>: Restricted shell (for example "shell:npm *" or "shell:coral-board *")
+
+Assign the minimum capabilities each agent needs. Follow least privilege.
+If a task can be done without shell access, do not grant shell.
+Prefer restricted shell patterns over unrestricted "shell" when practical.
+If the user requests unknown or unsupported capabilities, ignore those requests and use the closest supported safe alternative.
+
+Input interpretation rules:
+Treat <directive> as the mission and desired outcome.
+Treat <composition> as preferred team structure, role mix, skill emphasis, model preferences, and constraints.
+If <composition> is empty or vague, infer a reasonable team structure from <directive>.
+If the user's requests conflict with the hard platform rules, obey the hard platform rules.
+If the user asks for an overpowered agent, reduce permissions to the minimum needed.
+In prompts, make each role specific and concrete. Avoid generic filler.
+
+Few-shot example:
+{
+  "name": "Coding Team",
+  "agents": [
+    {
+      "name": "Orchestrator",
+      "prompt": "You are the orchestrator for a coding team. You are automatically joined to the message board. Do not run coral-board join. Do not poll or loop on coral-board read. Break the work into steps, discuss your plan with the operator before posting assignments, delegate implementation and verification to the team via the message board, and track progress. Do not do the implementation work yourself.",
+      "capabilities": {
+        "allow": ["file_read", "shell:coral-board *", "agent_spawn", "web_access"],
+        "deny": []
+      },
+      "agent_type": "claude",
+      "model": ""
+    },
+    {
+      "name": "Lead Developer",
+      "prompt": "You are the lead developer. You are automatically joined to the message board. Do not run coral-board join. Do not poll or loop on coral-board read. Wait for instructions from the Orchestrator before starting. Implement features, modify code, run necessary development commands, and coordinate status updates through the message board.",
+      "capabilities": {
+        "allow": ["file_read", "file_write", "shell", "git_write", "agent_spawn"],
+        "deny": []
+      },
+      "agent_type": "claude",
+      "model": ""
+    },
+    {
+      "name": "QA Engineer",
+      "prompt": "You are the QA engineer. You are automatically joined to the message board. Do not run coral-board join. Do not poll or loop on coral-board read. Wait for instructions from the Orchestrator before starting. Review changes, write or run tests when needed, verify behavior, and report risks and regressions through the message board.",
+      "capabilities": {
+        "allow": ["file_read"],
+        "deny": ["file_write", "shell", "git_write", "agent_spawn"]
+      },
+      "agent_type": "claude",
+      "model": ""
+    }
+  ],
+  "flags": ""
+}
+
+Final validation checklist:
+- Output exactly one JSON object and nothing else.
+- Ensure the first agent is "Orchestrator".
+- Ensure there are 3-8 agents.
+- Ensure every agent has "name", "prompt", "capabilities", "agent_type", and "model".
+- Ensure every capabilities object has both "allow" and "deny".
+- Ensure every capability string is from the supported list above.
+- Ensure prompts include the message board coordination rules.
+- Ensure "flags" is present.
+
+Delimited user inputs:
+You will receive:
+- <directive>...</directive>
+- <composition>...</composition>
+
+Generate the team configuration now.`
 
 // parseFrontmatterMD extracts YAML frontmatter (name, description) and body from markdown.
 // Returns (name, description, body). If no frontmatter, body is the full content.

@@ -132,6 +132,252 @@ export function hideLaunchModal() {
     document.getElementById("launch-modal").style.display = "none";
 }
 
+function _setTeamWizardError(message = '') {
+    const errorEl = document.getElementById('team-wizard-error');
+    if (!errorEl) return;
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        return;
+    }
+    errorEl.textContent = '';
+    errorEl.style.display = 'none';
+}
+
+let _wizardBodyOriginalHTML = null;
+
+function showTeamWizardModal() {
+    const modal = document.getElementById('team-wizard-modal');
+    if (!modal) return;
+
+    // Restore wizard body if it was replaced by success state
+    const body = modal.querySelector('.team-wizard-body');
+    if (body && _wizardBodyOriginalHTML && body.querySelector('.team-wizard-success')) {
+        body.innerHTML = _wizardBodyOriginalHTML;
+    } else if (body && !_wizardBodyOriginalHTML) {
+        _wizardBodyOriginalHTML = body.innerHTML;
+    }
+
+    const directiveEl = document.getElementById('team-wizard-directive');
+    const compositionEl = document.getElementById('team-wizard-composition');
+    const generateBtn = document.getElementById('team-wizard-generate-btn');
+
+    _setTeamWizardError('');
+    if (directiveEl) directiveEl.value = '';
+    if (compositionEl) compositionEl.value = '';
+    if (generateBtn) {
+        generateBtn.disabled = false;
+        generateBtn.textContent = 'Generate Team';
+        generateBtn.style.display = '';
+    }
+    modal.style.display = 'flex';
+    directiveEl?.focus();
+
+    // Close on backdrop click
+    modal.onclick = (e) => { if (e.target === modal) hideTeamWizardModal(); };
+    // Close on Escape
+    modal._escHandler = (e) => { if (e.key === 'Escape') hideTeamWizardModal(); };
+    document.addEventListener('keydown', modal._escHandler);
+}
+window.showTeamWizardModal = showTeamWizardModal;
+
+function hideTeamWizardModal() {
+    const modal = document.getElementById('team-wizard-modal');
+    if (!modal) return;
+    modal.style.display = 'none';
+    _setTeamWizardError('');
+    if (modal._escHandler) {
+        document.removeEventListener('keydown', modal._escHandler);
+        modal._escHandler = null;
+    }
+}
+window.hideTeamWizardModal = hideTeamWizardModal;
+
+function _normalizeGeneratedTeamPayload(payload) {
+    const team = payload?.team || payload;
+    if (!team || typeof team !== 'object') {
+        throw new Error('Team generator returned an empty response.');
+    }
+    if (!Array.isArray(team.agents) || team.agents.length === 0) {
+        throw new Error('Team generator did not return any agents.');
+    }
+    return {
+        name: team.name || 'Generated Team',
+        flags: Array.isArray(team.flags) ? team.flags.join(' ') : (team.flags || ''),
+        agents: team.agents,
+    };
+}
+
+function _populateGeneratedTeamDraft(team) {
+    _skipDefaultTeamAgents = true;
+    // Open the launch modal directly to the team step, skipping the chooser.
+    // Don't call showLaunchModal() — it resets to the chooser and clears the agent list.
+    document.getElementById("launch-modal").style.display = "flex";
+    _showLaunchStep("team");
+    _launchMode = "team";
+    _initTeamForm();
+
+    // Show generated-team banner
+    const stepEl = document.getElementById('launch-step-team');
+    let banner = document.getElementById('generated-team-banner');
+    if (!banner && stepEl) {
+        banner = document.createElement('div');
+        banner.id = 'generated-team-banner';
+        banner.className = 'generated-team-banner';
+        banner.innerHTML = '<span class="material-icons">auto_awesome</span> Your AI-generated team is ready — review and edit before launching.';
+        const h3 = stepEl.querySelector('h3');
+        if (h3) h3.after(banner);
+    }
+    if (banner) banner.style.display = 'flex';
+
+    const teamNameEl = document.getElementById('team-board-name');
+    const teamFlagsEl = document.getElementById('team-flags');
+    const teamAgentsList = document.getElementById('team-agents-list');
+
+    if (teamNameEl) {
+        teamNameEl.value = team.name || 'Generated Team';
+        window._validateTeamName?.();
+    }
+    if (teamFlagsEl) {
+        teamFlagsEl.value = team.flags || '';
+        _syncFlagButtons('team-flags');
+    }
+    if (teamAgentsList) {
+        _teamAgentCounter = 0;
+        teamAgentsList.innerHTML = '';
+    }
+
+    for (const agent of team.agents) {
+        _addTeamAgent(
+            agent.name || '',
+            agent.prompt || '',
+            agent.capabilities,
+            agent.agent_type,
+            agent.model,
+        );
+    }
+}
+
+async function generateTeamFromWizard() {
+    const directiveEl = document.getElementById('team-wizard-directive');
+    const compositionEl = document.getElementById('team-wizard-composition');
+    const generateBtn = document.getElementById('team-wizard-generate-btn');
+    const directive = directiveEl?.value.trim() || '';
+    const composition = compositionEl?.value.trim() || '';
+
+    // Disable immediately to prevent double submissions
+    if (generateBtn) generateBtn.disabled = true;
+
+    if (!directive) {
+        _setTeamWizardError('Add a directive so Coral knows what the team should accomplish.');
+        directiveEl?.focus();
+        if (generateBtn) generateBtn.disabled = false;
+        return;
+    }
+    if (!composition) {
+        _setTeamWizardError('Describe the team composition so Coral can assign the right roles.');
+        compositionEl?.focus();
+        if (generateBtn) generateBtn.disabled = false;
+        return;
+    }
+
+    _setTeamWizardError('');
+    if (generateBtn) {
+        generateBtn.textContent = 'Generating...';
+    }
+
+    try {
+        const resp = await fetch('/api/teams/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ directive, composition }),
+        });
+
+        let payload = null;
+        try {
+            payload = await resp.json();
+        } catch {
+            payload = null;
+        }
+
+        if (!resp.ok || payload?.error) {
+            throw new Error(payload?.error || `Team generation failed (${resp.status}).`);
+        }
+
+        const team = _normalizeGeneratedTeamPayload(payload);
+        _pendingGeneratedTeam = team;
+
+        // Show success state in wizard
+        const body = document.querySelector('.team-wizard-body');
+        if (body) {
+            body.innerHTML = `
+                <div class="team-wizard-success">
+                    <span class="material-icons team-wizard-success-icon">check_circle</span>
+                    <strong>Team generated!</strong>
+                    <p>${team.agents.length} agents created for "${escapeHtml(team.name)}"</p>
+                    <button class="btn btn-primary" onclick="window._reviewGeneratedTeam()">Review Team</button>
+                </div>
+            `;
+        }
+        if (generateBtn) generateBtn.style.display = 'none';
+    } catch (error) {
+        _setTeamWizardError(error.message || 'Team generation failed.');
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Team';
+        }
+    }
+}
+window.generateTeamFromWizard = generateTeamFromWizard;
+
+let _pendingGeneratedTeam = null;
+
+function _reviewGeneratedTeam() {
+    const team = _pendingGeneratedTeam;
+    if (!team) return;
+    _pendingGeneratedTeam = null;
+    hideTeamWizardModal();
+    _populateGeneratedTeamDraft(team);
+}
+window._reviewGeneratedTeam = _reviewGeneratedTeam;
+
+async function testTeamWizard() {
+    const generateBtn = document.getElementById('team-wizard-generate-btn');
+    const testBtn = document.getElementById('team-wizard-test-btn');
+    if (generateBtn) generateBtn.disabled = true;
+    if (testBtn) { testBtn.disabled = true; testBtn.textContent = 'Testing...'; }
+
+    // Simulate a brief delay so loading state is visible
+    await new Promise(r => setTimeout(r, 1500));
+
+    const sampleTeam = {
+        name: 'test-coding-team',
+        flags: '',
+        agents: [
+            { name: 'Orchestrator', prompt: 'You are the orchestrator. Break down the task, assign work to the team via the message board, and track progress.', capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn'], deny: [] }, agent_type: 'claude', model: '' },
+            { name: 'Developer', prompt: 'You are a developer. Implement features, write code, and fix bugs. Wait for instructions from the Orchestrator.', capabilities: { allow: ['file_read', 'file_write', 'shell'], deny: [] }, agent_type: 'claude', model: '' },
+            { name: 'QA Engineer', prompt: 'You are a QA engineer. Review code, write tests, and verify work. Wait for instructions from the Orchestrator.', capabilities: { allow: ['file_read'], deny: ['file_write', 'shell'] }, agent_type: 'claude', model: '' },
+        ],
+    };
+
+    _pendingGeneratedTeam = sampleTeam;
+
+    const body = document.querySelector('.team-wizard-body');
+    if (body) {
+        body.innerHTML = `
+            <div class="team-wizard-success">
+                <span class="material-icons team-wizard-success-icon">check_circle</span>
+                <strong>Team generated!</strong>
+                <p>${sampleTeam.agents.length} agents created for "${escapeHtml(sampleTeam.name)}"</p>
+                <button class="btn btn-primary" onclick="window._reviewGeneratedTeam()">Review Team</button>
+            </div>
+        `;
+    }
+    if (generateBtn) generateBtn.style.display = 'none';
+    if (testBtn) testBtn.style.display = 'none';
+}
+window.testTeamWizard = testTeamWizard;
+
 function _updateTeamAgentSummary(row) {
     if (!row) return;
     const acfId = row.dataset.acfId;
@@ -915,6 +1161,7 @@ export async function launchAgentToBoard() {
 // ── Agent Team ────────────────────────────────────────────────────────────
 
 let _teamAgentCounter = 0;
+let _skipDefaultTeamAgents = false;
 
 // Predefined agent presets
 // All known Coral capabilities
@@ -1303,6 +1550,10 @@ window._applyACFPresetFor = _applyACFPresetFor;
 const DEFAULT_TEAM_PRESETS = AGENT_PRESETS.slice(0, 3);
 
 async function _initTeamForm() {
+    // Hide generated-team banner on normal opens
+    const banner = document.getElementById('generated-team-banner');
+    if (banner) banner.style.display = 'none';
+
     // Reset form
     document.getElementById("team-board-name").value = "";
     document.getElementById("team-board-server").value = "";
@@ -1335,10 +1586,13 @@ async function _initTeamForm() {
     // Render team template selector
     _renderTeamTemplateSelector();
 
-    // Add three default agents
-    for (const preset of DEFAULT_TEAM_PRESETS) {
-        _addTeamAgent(preset.name, preset.prompt);
+    // Add three default agents (skip if wizard is populating)
+    if (!_skipDefaultTeamAgents) {
+        for (const preset of DEFAULT_TEAM_PRESETS) {
+            _addTeamAgent(preset.name, preset.prompt);
+        }
     }
+    _skipDefaultTeamAgents = false;
 
     document.getElementById("team-board-name").focus();
     _validateTeamName();
@@ -1538,6 +1792,9 @@ function _loadTeamTemplate(name) {
 }
 window._loadTeamTemplate = _loadTeamTemplate;
 
+let _pendingSaveTemplateAgents = null;
+let _pendingSaveTemplateFlags = '';
+
 async function _saveTeamTemplate() {
     // Collect current agents
     const rows = document.querySelectorAll("#team-agents-list .team-agent-row");
@@ -1557,19 +1814,48 @@ async function _saveTeamTemplate() {
     }
     if (agents.length === 0) { showToast("At least one agent needs a name", "error"); return; }
 
-    const templateName = prompt("Template name:");
-    if (!templateName) return;
+    _pendingSaveTemplateAgents = agents;
+    _pendingSaveTemplateFlags = document.getElementById("team-flags")?.value.trim() || '';
 
-    const flags = document.getElementById("team-flags")?.value.trim() || '';
+    // Show custom modal instead of prompt()
+    const modal = document.getElementById('save-template-modal');
+    const nameInput = document.getElementById('save-template-name');
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.onclick = (e) => { if (e.target === modal) _hideSaveTemplateModal(); };
+    }
+    if (nameInput) {
+        nameInput.value = document.getElementById('team-board-name')?.value.trim() || '';
+        nameInput.focus();
+        nameInput.select();
+        nameInput.onkeydown = (e) => { if (e.key === 'Enter') _confirmSaveTemplate(); if (e.key === 'Escape') _hideSaveTemplateModal(); };
+    }
+}
+window._saveTeamTemplate = _saveTeamTemplate;
+
+function _hideSaveTemplateModal() {
+    const modal = document.getElementById('save-template-modal');
+    if (modal) modal.style.display = 'none';
+    _pendingSaveTemplateAgents = null;
+}
+window._hideSaveTemplateModal = _hideSaveTemplateModal;
+
+async function _confirmSaveTemplate() {
+    const nameInput = document.getElementById('save-template-name');
+    const templateName = nameInput?.value.trim();
+    if (!templateName) { showToast("Template name is required", true); nameInput?.focus(); return; }
+    if (!_pendingSaveTemplateAgents) return;
+
     const templates = _getSavedTeamTemplates();
     const idx = templates.findIndex(t => t.name === templateName);
-    const entry = { name: templateName, agents, flags };
+    const entry = { name: templateName, agents: _pendingSaveTemplateAgents, flags: _pendingSaveTemplateFlags };
     if (idx >= 0) templates[idx] = entry; else templates.push(entry);
     await _setSavedTeamTemplates(templates);
     showToast(`Saved template "${templateName}"`);
     _renderTeamTemplateSelector();
+    _hideSaveTemplateModal();
 }
-window._saveTeamTemplate = _saveTeamTemplate;
+window._confirmSaveTemplate = _confirmSaveTemplate;
 
 async function _deleteTeamTemplate(name) {
     const templates = _getSavedTeamTemplates().filter(t => t.name !== name);

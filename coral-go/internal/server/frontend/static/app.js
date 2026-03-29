@@ -8,7 +8,7 @@ import { filterState, deserializeFromUrl, serializeToUrl,
 import { connectCoralWs } from './websocket.js';
 import { sendCommand, sendCommandWithTeam, sendBoardProtocol, resendInputPrompt, sendRawKeys, sendModeToggle, cycleModeToggle, sendQuickCommand, executeMacro, addMacro, deleteMacro, showMacroModal, hideMacroModal, attachTerminal, killSession, restartSession, hideRestartModal, confirmRestart, initImageDrop, removeAttachment, editGoal, refreshGoal, requestGoal } from './controls.js';
 import { selectLiveSession, selectHistorySession, editAndResubmit, renameAgent, setAgentIcon, showEmojiPicker } from './sessions.js';
-import { toggleGroupCollapse, killGroup, killBoard, toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, copyFolderPath, moveGroupUp, moveGroupDown, toggleGroupByTeam, setBoardAccentColor, moveSessionUp, moveSessionDown } from './render.js';
+import { toggleGroupCollapse, killGroup, killBoard, toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, showPromptModal, hidePromptModal, copyFolderPath, moveGroupUp, moveGroupDown, toggleGroupByTeam, setBoardAccentColor, moveSessionUp, moveSessionDown } from './render.js';
 import { syncPaneWidth, refreshCapture } from './capture.js';
 import { showLaunchModal, hideLaunchModal, launchSession, showInfoModal, hideInfoModal, copyInfoCommand, showResumeModal, hideResumeModal, resumeIntoSession, showSettingsModal, hideSettingsModal, applySettings, loadSettings, toggleFlag, showAddAgentToBoard, hideAddAgentBoardModal, launchAgentToBoard, exportPersonas, importPersonas, exportTeamTemplates, importTeamTemplates, showDefaultPromptsModal, hideDefaultPromptsModal, resetDefaultPrompt, saveDefaultPrompts, deactivateLicense } from './modals.js';
 import { toggleBrowser, browserNavigateTo, browserNavigateUp } from './browser.js';
@@ -121,19 +121,20 @@ Object.assign(window, {
 });
 
 // ── Reset Team ───────────────────────────────────────────────────────
-async function resetTeam(boardName) {
-    if (!confirm(`Reset all agents in "${boardName}"? Their context will be cleared and they'll restart with their original prompts.`)) return;
-    try {
-        const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(boardName)}/reset`, { method: 'POST' });
-        if (resp.ok) {
-            showToast(`Team "${boardName}" is resetting...`);
-        } else {
-            const data = await resp.json().catch(() => ({}));
-            showToast(data.error || 'Reset failed', true);
+function resetTeam(boardName) {
+    showConfirmModal('Reset Team', `Reset all agents in "${boardName}"? Their context will be cleared and they'll restart with their original prompts.`, async () => {
+        try {
+            const resp = await fetch(`/api/sessions/live/team/${encodeURIComponent(boardName)}/reset`, { method: 'POST' });
+            if (resp.ok) {
+                showToast(`Team "${boardName}" is resetting...`);
+            } else {
+                const data = await resp.json().catch(() => ({}));
+                showToast(data.error || 'Reset failed', true);
+            }
+        } catch {
+            showToast('Reset failed', true);
         }
-    } catch {
-        showToast('Reset failed', true);
-    }
+    });
 }
 
 // ── Top Nav Tab Switching ─────────────────────────────────────────────
@@ -404,7 +405,7 @@ Object.assign(window, {
     moveSessionUp, moveSessionDown,
     toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents,
     shareAgentTeam, saveTeamFromSidebar,
-    showConfirmModal, hideConfirmModal,
+    showConfirmModal, hideConfirmModal, showPromptModal, hidePromptModal,
     killSessionDirect, showInfoDirect, attachDirect, restartDirect,
     toggleGroupByTeam,
     // template_browser

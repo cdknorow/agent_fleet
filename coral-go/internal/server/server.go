@@ -338,6 +338,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/filesystem/list", sysHandler.ListFilesystem)
 	r.Post("/api/indexer/refresh", sysHandler.RefreshIndexer)
 	r.Post("/api/teams/import", sysHandler.ImportTeam)
+	r.Post("/api/teams/generate", sysHandler.GenerateTeam)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)

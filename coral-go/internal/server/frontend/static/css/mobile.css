@@ -564,6 +564,33 @@
         font-size: 11px;
     }
 
+    .welcome-wizard-card {
+        grid-template-columns: auto 1fr;
+        gap: 12px;
+        width: calc(100vw - 24px);
+        margin: 0 12px 10px;
+        padding: 18px 16px;
+    }
+
+    .welcome-wizard-badge {
+        position: static;
+        grid-column: 1 / -1;
+        justify-self: start;
+        margin-bottom: 4px;
+    }
+
+    .welcome-wizard-copy strong {
+        font-size: 15px;
+    }
+
+    .welcome-wizard-copy span {
+        font-size: 12px;
+    }
+
+    .welcome-wizard-arrow {
+        display: none;
+    }
+
     .welcome-action-card .material-icons {
         font-size: 22px;
     }

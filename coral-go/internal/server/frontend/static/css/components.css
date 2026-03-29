@@ -2198,6 +2198,119 @@
     color: var(--text-secondary);
 }
 
+.team-wizard-subtitle {
+    margin: 10px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.team-wizard-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.team-wizard-intro {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(88, 166, 255, 0.14);
+    background: linear-gradient(180deg, rgba(88, 166, 255, 0.08), rgba(88, 166, 255, 0.02));
+}
+
+.team-wizard-intro-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(88, 166, 255, 0.12);
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.team-wizard-intro strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.team-wizard-intro p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.team-wizard-body textarea {
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.team-wizard-error {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    background: rgba(255, 107, 107, 0.08);
+    color: #ffb3b3;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.team-wizard-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 40px 24px;
+    text-align: center;
+}
+
+.team-wizard-success-icon {
+    font-size: 48px;
+    color: var(--success, #4caf50);
+}
+
+.team-wizard-success strong {
+    font-size: 18px;
+}
+
+.team-wizard-success p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.team-wizard-success .btn {
+    margin-top: 12px;
+}
+
+.generated-team-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08));
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.generated-team-banner .material-icons {
+    font-size: 18px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
 .team-agent-row {
     background: var(--bg-tertiary);
     border: 1px solid var(--border);

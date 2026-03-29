@@ -237,6 +237,17 @@ func (s *Store) Unsubscribe(ctx context.Context, project, subscriberID string) (
 	return n > 0, nil
 }
 
+// AdvanceReadCursor sets a subscriber's last_read_id to the current max
+// message ID on the board, so they see no stale unreads after a reset.
+func (s *Store) AdvanceReadCursor(ctx context.Context, project, subscriberID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE board_subscribers
+		 SET last_read_id = COALESCE((SELECT MAX(id) FROM board_messages WHERE project = ?), 0)
+		 WHERE project = ? AND subscriber_id = ?`,
+		project, project, subscriberID)
+	return err
+}
+
 // ListSubscribers returns all active subscribers for a project.
 func (s *Store) ListSubscribers(ctx context.Context, project string) ([]Subscriber, error) {
 	var subs []Subscriber

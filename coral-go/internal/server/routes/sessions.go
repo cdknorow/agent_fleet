@@ -2052,6 +2052,13 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 		h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
 			cfg.AgentType, boardName, displayName)
 
+		// Advance read cursor so the agent doesn't see stale messages from before reset
+		if h.bs != nil && displayName != "" {
+			if err := h.bs.AdvanceReadCursor(bgCtx, boardName, displayName); err != nil {
+				log.Printf("[reset-team] failed to advance read cursor for %s: %v", displayName, err)
+			}
+		}
+
 		launched = append(launched, map[string]any{
 			"name":         displayName,
 			"session_id":   result["session_id"],
