@@ -2714,19 +2714,24 @@ async function _loadLicenseStatus() {
 }
 
 export async function deactivateLicense() {
-    if (!confirm('Deactivate this license? You can reactivate on another machine.')) return;
-    try {
-        const resp = await fetch('/api/license/deactivate', { method: 'POST' });
-        if (resp.ok) {
-            showToast('License deactivated');
-            _loadLicenseStatus();
-        } else {
-            const data = await resp.json().catch(() => ({}));
-            showToast(data.error || 'Deactivation failed', true);
+    window.showConfirmModal?.(
+        'Deactivate License',
+        'Deactivate this license? You can reactivate it on another machine.',
+        async () => {
+            try {
+                const resp = await fetch('/api/license/deactivate', { method: 'POST' });
+                if (resp.ok) {
+                    showToast('License deactivated');
+                    _loadLicenseStatus();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    showToast(data.error || 'Deactivation failed', true);
+                }
+            } catch {
+                showToast('Deactivation failed', true);
+            }
         }
-    } catch {
-        showToast('Deactivation failed', true);
-    }
+    );
 }
 
 export function hideSettingsModal() {
@@ -2968,6 +2973,8 @@ document.addEventListener("click", (e) => {
     }
     const webhookModal = document.getElementById("webhook-modal");
     if (e.target === webhookModal) window.hideWebhookModal?.();
+    const alertModal = document.getElementById("alert-modal");
+    if (e.target === alertModal) window.hideAlertModal?.();
     const confirmModal = document.getElementById("confirm-modal");
     if (e.target === confirmModal) window.hideConfirmModal?.();
 });
@@ -2983,6 +2990,7 @@ document.addEventListener("keydown", (e) => {
         const mm = document.getElementById("macro-modal");
         if (mm) mm.style.display = "none";
         window.hideWebhookModal?.();
+        window.hideAlertModal?.();
     }
 });
 

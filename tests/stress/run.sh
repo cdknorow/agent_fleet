@@ -1255,6 +1255,25 @@ for s in json.load(sys.stdin):
         # Verify agent sessions after reset
         SESSIONS_POST_RESET=$(count_agent_sessions)
         log "  Agent sessions after reset: $SESSIONS_POST_RESET ($BACKEND)"
+
+        # Verify no stale unreads after reset (regression test for AdvanceReadCursor)
+        MB_DB="${DATA_DIR}/messageboard.db"
+        if command -v sqlite3 &>/dev/null && [[ -f "$MB_DB" ]]; then
+            # Get max message ID on this board
+            MAX_MSG_ID=$(sqlite3 "$MB_DB" "SELECT COALESCE(MAX(id), 0) FROM board_messages WHERE project='${BOARD_NAME}'" 2>/dev/null || echo "?")
+            # Count subscribers whose last_read_id is behind the max
+            STALE_READERS=$(sqlite3 "$MB_DB" "SELECT COUNT(*) FROM board_subscribers WHERE project='${BOARD_NAME}' AND is_active=1 AND last_read_id < ${MAX_MSG_ID}" 2>/dev/null || echo "?")
+            if [[ "$STALE_READERS" == "0" ]]; then
+                pass "Reset team: all agents have read cursor at max message ($MAX_MSG_ID) — no stale unreads"
+            else
+                fail "Reset team: $STALE_READERS agent(s) have stale last_read_id (behind max $MAX_MSG_ID)"
+                sqlite3 "$MB_DB" "SELECT subscriber_id, last_read_id FROM board_subscribers WHERE project='${BOARD_NAME}' AND is_active=1 AND last_read_id < ${MAX_MSG_ID}" 2>/dev/null | while read -r line; do
+                    log "    stale: $line"
+                done
+            fi
+        else
+            warn "Reset team: cannot check stale unreads (sqlite3 unavailable or DB not found at $MB_DB)"
+        fi
     else
         warn "Reset team returned unexpected response: $RESET_RESP"
     fi

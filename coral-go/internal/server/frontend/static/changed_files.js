@@ -930,13 +930,13 @@ window._savePreviewFile = async function() {
         );
         const data = await resp.json();
         if (data.error) {
-            alert('Error saving: ' + data.error);
+            window.showAlertModal?.('Save Failed', `Error saving: ${data.error}`);
         } else {
             _previewState.content = content;
             if (saveBtn) { saveBtn.textContent = 'Saved!'; setTimeout(() => { saveBtn.textContent = 'Save'; }, 1500); }
         }
     } catch (e) {
-        alert('Failed to save: ' + e.message);
+        window.showAlertModal?.('Save Failed', `Failed to save: ${e.message}`);
     } finally {
         if (saveBtn) saveBtn.disabled = false;
     }

@@ -165,7 +165,7 @@ window._saveView = async function() {
     const html = _getEditorContent();
     const editId = document.getElementById('custom-view-edit-id').value;
 
-    if (!name) { alert('View name is required'); return; }
+    if (!name) { window.showAlertModal?.('View Name Required', 'Enter a name before saving this custom view.'); return; }
 
     try {
         const url = editId ? `/api/views/${editId}` : '/api/views';
@@ -176,12 +176,12 @@ window._saveView = async function() {
             body: JSON.stringify({ name, html }),
         });
         const data = await resp.json();
-        if (data.error) { alert('Error: ' + data.error); return; }
+        if (data.error) { window.showAlertModal?.('Unable to Save View', data.error); return; }
 
         window._hideViewModal();
         await loadCustomViews();
     } catch (e) {
-        alert('Failed to save view: ' + e.message);
+        window.showAlertModal?.('Unable to Save View', `Failed to save view: ${e.message}`);
     }
 };
 
@@ -211,11 +211,12 @@ window._showViewContextMenu = function(event, viewId) {
 };
 
 window._deleteView = async function(viewId) {
-    if (!confirm('Delete this custom view?')) return;
-    try {
-        await fetch(`/api/views/${viewId}`, { method: 'DELETE' });
-        await loadCustomViews();
-    } catch (e) {
-        alert('Failed to delete view: ' + e.message);
-    }
+    window.showConfirmModal?.('Delete Custom View', 'Delete this custom view?', async () => {
+        try {
+            await fetch(`/api/views/${viewId}`, { method: 'DELETE' });
+            await loadCustomViews();
+        } catch (e) {
+            window.showAlertModal?.('Unable to Delete View', `Failed to delete view: ${e.message}`);
+        }
+    });
 };

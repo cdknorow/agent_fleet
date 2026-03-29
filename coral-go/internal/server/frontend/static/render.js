@@ -712,6 +712,27 @@ export function hidePromptModal() {
     document.getElementById("prompt-modal").style.display = "none";
 }
 
+export function showAlertModal(title, message, onClose) {
+    document.getElementById("alert-modal-title").textContent = title;
+    document.getElementById("alert-modal-message").textContent = message;
+    const okBtn = document.getElementById("alert-modal-ok");
+    const newBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newBtn, okBtn);
+    const modal = document.getElementById("alert-modal");
+    newBtn.addEventListener("click", () => {
+        hideAlertModal();
+        onClose?.();
+    });
+    modal.onclick = (e) => { if (e.target === modal) hideAlertModal(); };
+    modal.style.display = "flex";
+}
+
+export function hideAlertModal() {
+    const modal = document.getElementById("alert-modal");
+    if (!modal) return;
+    modal.style.display = "none";
+}
+
 export function copyFolderPath(path) {
     if (!path) return;
     navigator.clipboard.writeText(path).then(() => {
