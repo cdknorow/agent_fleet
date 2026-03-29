@@ -407,9 +407,25 @@ export function restartSession() {
 }
 
 function showRestartModal() {
+    const s = state.currentSession;
     document.getElementById("restart-modal-name").textContent =
-        `Session: ${state.currentSession.name}`;
-    document.getElementById("restart-flags").value = "--dangerously-skip-permissions";
+        `Session: ${s.name}`;
+
+    // Pre-fill from current session data
+    const promptEl = document.getElementById("restart-prompt");
+    if (promptEl) promptEl.value = s.prompt || "";
+    const typeEl = document.getElementById("restart-agent-type");
+    if (typeEl) typeEl.value = s.agent_type || "claude";
+    const modelEl = document.getElementById("restart-model");
+    if (modelEl) modelEl.value = s.model || "";
+    document.getElementById("restart-flags").value = "";
+
+    // Pre-fill permissions from session capabilities
+    if (window._setPermissions) {
+        const caps = s.capabilities || null;
+        window._setPermissions('restart-perms', caps);
+    }
+
     document.getElementById("restart-modal").style.display = "flex";
 }
 
@@ -419,6 +435,10 @@ export function hideRestartModal() {
 
 export async function confirmRestart() {
     const flagsStr = document.getElementById("restart-flags").value.trim();
+    const prompt = document.getElementById("restart-prompt")?.value.trim() || "";
+    const agentType = document.getElementById("restart-agent-type")?.value || state.currentSession.agent_type;
+    const model = document.getElementById("restart-model")?.value.trim() || "";
+    const capabilities = window._getPermissions ? window._getPermissions('restart-perms') : null;
 
     hideRestartModal();
 
@@ -427,10 +447,13 @@ export async function confirmRestart() {
         const xtermMod = await _getXtermModule();
         if (xtermMod.setRestarting) xtermMod.setRestarting(true);
         showToast(`Restarting ${state.currentSession.name}...`);
-        const payload = { agent_type: state.currentSession.agent_type, session_id: state.currentSession.session_id };
+        const payload = { agent_type: agentType, session_id: state.currentSession.session_id };
         if (flagsStr) {
             payload.extra_flags = flagsStr;
         }
+        if (prompt) payload.prompt = prompt;
+        if (model) payload.model = model;
+        if (capabilities) payload.capabilities = capabilities;
         const resp = await fetch(`/api/sessions/live/${encodeURIComponent(state.currentSession.name)}/restart`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

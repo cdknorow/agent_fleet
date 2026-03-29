@@ -176,7 +176,11 @@ func CleanupTempFiles(sessionID string) {
 
 // Default board system-prompt fragments (used by all agents).
 const DefaultOrchestratorSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
-	"then discuss your proposed plan with the operator (the human user) before posting assignments to the team."
+	"then discuss your proposed plan with the operator (the human user) before posting assignments to the team.\n\n" +
+	"You can peek at any agent's terminal to check their progress without waiting for them to post:\n" +
+	"  coral-board peek \"Agent Name\"           — see the last 30 lines of their terminal\n" +
+	"  coral-board peek \"Agent Name\" --lines 50 — see more lines\n" +
+	"Use this to monitor progress, diagnose stuck agents, or verify work before asking for a status update."
 
 const DefaultWorkerSystemPrompt = "Post a message with coral-board post \"<your introduction>\" that introduces yourself, " +
 	"then STOP and wait. Do NOT poll the message board in a loop. Coral will notify you when there are new messages."
@@ -184,7 +188,9 @@ const DefaultWorkerSystemPrompt = "Post a message with coral-board post \"<your 
 // Default action prompts (appended to user prompt as CLI positional arg).
 const DefaultOrchestratorActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Post a message with coral-board post "<your introduction>" that introduces yourself, then discuss your proposed plan with the operator (the human user) before posting assignments.
 
-CRITICAL: Do NOT poll or loop on 'coral-board read'. After posting your introduction or any message, STOP. Coral will send you a notification (as a user message) when new messages arrive. Only run 'coral-board read' after receiving such a notification.`
+CRITICAL: Do NOT poll or loop on 'coral-board read'. After posting your introduction or any message, STOP. Coral will send you a notification (as a user message) when new messages arrive. Only run 'coral-board read' after receiving such a notification.
+
+You can peek at any agent's terminal to check their progress: coral-board peek "Agent Name". Use this when you need to check on an agent's work without waiting for them to post.`
 
 const DefaultWorkerActionPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Do not start any actions until you receive instructions from the Orchestrator on the message board. Post a message with coral-board post "<your introduction>" that introduces yourself, then STOP.
 

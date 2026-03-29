@@ -758,6 +758,9 @@ export function showAddAgentToBoard(boardName, workDir) {
     document.getElementById("add-agent-board-prompt").value = "";
     document.getElementById("add-agent-board-flags").value = _getPermFlag('add-agent-board-type');
     _syncFlagButtons("add-agent-board-flags");
+    const modelInput = document.getElementById("add-agent-board-model");
+    if (modelInput) modelInput.value = "";
+    _setPermissions('add-agent-board-perms', null);
 
     _renderPresetButtons("add-agent-board-presets", "window._selectBoardAgentPreset");
 
@@ -820,17 +823,22 @@ export async function launchAgentToBoard() {
     if (launchBtn) { launchBtn.disabled = true; launchBtn.textContent = 'Launching...'; }
 
     try {
+        const model = document.getElementById("add-agent-board-model")?.value.trim() || "";
+        const capabilities = _getPermissions('add-agent-board-perms') || undefined;
+        const launchBody = {
+            working_dir: workDir,
+            agent_type: document.getElementById("add-agent-board-type")?.value || "claude",
+            display_name: agentName,
+            flags,
+            prompt,
+            board_name: boardName,
+        };
+        if (model) launchBody.model = model;
+        if (capabilities) launchBody.capabilities = capabilities;
         const resp = await fetch("/api/sessions/launch", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                working_dir: workDir,
-                agent_type: document.getElementById("add-agent-board-type")?.value || "claude",
-                display_name: agentName,
-                flags,
-                prompt,
-                board_name: boardName,
-            }),
+            body: JSON.stringify(launchBody),
         });
         if (resp.status === 403) {
             const err = await resp.json();
@@ -1031,6 +1039,190 @@ function _setPermissions(editorId, capabilities) {
     _renderPermChips(editorId + '-deny', 'deny', capabilities || {});
 }
 
+// ── Unified Agent Config Form ─────────────────────────────────────────
+
+let _acfCounter = 0;
+
+/**
+ * Render a unified agent configuration form into a container.
+ * @param {string} containerId - DOM element ID to render into
+ * @param {object} opts - { mode: 'full'|'compact-card', showPreset: bool, showName: bool, value: {...} }
+ */
+function renderAgentConfigForm(containerId, opts = {}) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    _acfCounter++;
+    const uid = `acf-${_acfCounter}`;
+    container.dataset.acfUid = uid;
+
+    const mode = opts.mode || 'full';
+    const showPreset = opts.showPreset !== false;
+    const showName = opts.showName !== false;
+    const v = opts.value || {};
+
+    const agentTypeVal = v.agentType || v.agent_type || '';
+    const modelVal = v.model || '';
+    const nameVal = v.name || '';
+    const promptVal = v.prompt || '';
+    const flagsVal = v.flags || '';
+
+    // Build permissions summary text
+    const caps = v.capabilities || null;
+    let permsSummary = 'default';
+    if (caps) {
+        const parts = [];
+        if (caps.allow?.length) parts.push(`${caps.allow.length} allow`);
+        if (caps.deny?.length) parts.push(`${caps.deny.length} deny`);
+        permsSummary = parts.length ? parts.join(', ') : 'default';
+    }
+
+    let presetHTML = '';
+    if (showPreset) {
+        presetHTML = `<div id="${uid}-presets" class="agent-preset-selector" style="margin-bottom:8px"></div>`;
+    }
+
+    let nameHTML = '';
+    if (showName) {
+        nameHTML = `
+            <label>Name / Role:
+                <input type="text" class="acf-name" placeholder="e.g. QA Engineer, Frontend Dev" value="${escapeAttr(nameVal)}">
+            </label>`;
+    }
+
+    container.innerHTML = `
+        ${presetHTML}
+        ${nameHTML}
+        <div style="display:flex;gap:8px;align-items:end">
+            <label style="flex:1">Agent Type:
+                <select class="acf-agent-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value)">
+                    <option value="claude"${agentTypeVal === 'claude' || !agentTypeVal ? ' selected' : ''}>Claude</option>
+                    <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
+                    <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
+                </select>
+            </label>
+            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                <input type="text" class="acf-model" placeholder="e.g. opus, sonnet" value="${escapeAttr(modelVal)}">
+            </label>
+        </div>
+        <label>Behavior Prompt:
+            <textarea class="acf-prompt" rows="4" placeholder="Describe the agent's role and behavior...">${escapeHtml(promptVal)}</textarea>
+        </label>
+        <div class="permissions-section">
+            <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('${uid}-perms')">
+                <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                Permissions <span class="acf-perms-summary" style="color:var(--text-muted);font-weight:normal;font-size:11px">(${escapeHtml(permsSummary)})</span>
+            </button>
+            <div id="${uid}-perms" class="permissions-editor" style="display:none">
+                <div class="perms-group">
+                    <label class="perms-label">Allow:</label>
+                    <div id="${uid}-perms-allow" class="perms-chips"></div>
+                </div>
+                <div class="perms-group">
+                    <label class="perms-label">Deny:</label>
+                    <div id="${uid}-perms-deny" class="perms-chips"></div>
+                </div>
+                <div class="perms-shell-patterns" style="display:none">
+                    <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
+                    <input type="text" class="perms-shell-input" placeholder="e.g. git *, npm *, npx *">
+                </div>
+            </div>
+        </div>
+        <details class="team-advanced">
+            <summary>Flags</summary>
+            <div class="team-advanced-body">
+                <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                    <input type="text" class="acf-flags" placeholder="e.g. --verbose" value="${escapeAttr(flagsVal)}">
+                </label>
+            </div>
+        </details>
+    `;
+
+    // Initialize permissions chips
+    _setPermissions(`${uid}-perms`, caps);
+
+    // Render presets if enabled
+    if (showPreset) {
+        _renderPresetButtons(`${uid}-presets`, `window._applyACFPreset`);
+        container.querySelectorAll(`#${uid}-presets .agent-preset-btn`).forEach(btn => {
+            btn.dataset.acfContainer = containerId;
+        });
+    }
+}
+window.renderAgentConfigForm = renderAgentConfigForm;
+
+/**
+ * Get current values from an AgentConfigForm.
+ * @param {string} containerId - The container ID
+ * @returns {object} { name, agentType, model, prompt, flags, capabilities }
+ */
+function getAgentConfig(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return {};
+    const uid = container.dataset.acfUid;
+
+    return {
+        name: container.querySelector('.acf-name')?.value.trim() || '',
+        agentType: container.querySelector('.acf-agent-type')?.value || 'claude',
+        model: container.querySelector('.acf-model')?.value.trim() || '',
+        prompt: container.querySelector('.acf-prompt')?.value.trim() || '',
+        flags: container.querySelector('.acf-flags')?.value.trim() || '',
+        capabilities: uid ? _getPermissions(`${uid}-perms`) : null,
+    };
+}
+window.getAgentConfig = getAgentConfig;
+
+/**
+ * Set/pre-fill values in an AgentConfigForm.
+ * @param {string} containerId - The container ID
+ * @param {object} values - { name, agentType, model, prompt, flags, capabilities }
+ */
+function setAgentConfig(containerId, values) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const uid = container.dataset.acfUid;
+    const v = values || {};
+
+    const nameEl = container.querySelector('.acf-name');
+    if (nameEl) nameEl.value = v.name || '';
+    const typeEl = container.querySelector('.acf-agent-type');
+    if (typeEl) typeEl.value = v.agentType || v.agent_type || 'claude';
+    const modelEl = container.querySelector('.acf-model');
+    if (modelEl) modelEl.value = v.model || '';
+    const promptEl = container.querySelector('.acf-prompt');
+    if (promptEl) promptEl.value = v.prompt || '';
+    const flagsEl = container.querySelector('.acf-flags');
+    if (flagsEl) flagsEl.value = v.flags || '';
+
+    if (uid) _setPermissions(`${uid}-perms`, v.capabilities || null);
+}
+window.setAgentConfig = setAgentConfig;
+
+/** Apply a preset to an AgentConfigForm */
+function _applyACFPreset(name) {
+    // Find the button that was clicked to get the container
+    const activeBtn = document.querySelector(`.agent-preset-btn[data-preset="${name}"]`);
+    const containerId = activeBtn?.dataset.acfContainer;
+    if (!containerId) return;
+
+    const persona = name ? _findPersona(name) : null;
+    if (persona) {
+        setAgentConfig(containerId, {
+            name: persona.name,
+            prompt: persona.prompt,
+            capabilities: persona.capabilities,
+        });
+    } else {
+        setAgentConfig(containerId, {});
+    }
+
+    // Update active state on preset buttons
+    const container = document.getElementById(containerId);
+    container?.querySelectorAll('.agent-preset-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.preset === name);
+    });
+}
+window._applyACFPreset = _applyACFPreset;
+
 // Default team: first 3 presets
 const DEFAULT_TEAM_PRESETS = AGENT_PRESETS.slice(0, 3);
 
@@ -1218,7 +1410,12 @@ window._quickLaunchTeam = async function() {
                 working_dir: workDir,
                 agent_type: agentType,
                 flags: [permFlag],
-                agents: tmpl.agents.map(a => ({ name: a.name, prompt: a.prompt, capabilities: a.capabilities })),
+                agents: tmpl.agents.map(a => {
+                    const entry = { name: a.name, prompt: a.prompt, capabilities: a.capabilities };
+                    if (a.agent_type) entry.agent_type = a.agent_type;
+                    if (a.model) entry.model = a.model;
+                    return entry;
+                }),
             }),
         });
         if (resp.status === 403) {
@@ -1255,7 +1452,7 @@ function _loadTeamTemplate(name) {
     for (const agent of tmpl.agents) {
         const agentName = agent.name || agent.role || '';
         const agentPrompt = agent.prompt || agent.description || '';
-        _addTeamAgent(agentName, agentPrompt, agent.capabilities);
+        _addTeamAgent(agentName, agentPrompt, agent.capabilities, agent.agent_type, agent.model);
     }
     if (tmpl.flags) {
         const tfEl = document.getElementById("team-flags");
@@ -1281,6 +1478,10 @@ async function _saveTeamTemplate() {
                 const caps = _getPermissions(permsEditor.id);
                 if (caps) entry.capabilities = caps;
             }
+            const agentTypeOverride = row.querySelector('.team-agent-type-override')?.value || '';
+            const modelOverride = row.querySelector('.team-agent-model')?.value.trim() || '';
+            if (agentTypeOverride) entry.agent_type = agentTypeOverride;
+            if (modelOverride) entry.model = modelOverride;
             agents.push(entry);
         }
     }
@@ -1313,7 +1514,7 @@ function _truncatePrompt(text, maxLen) {
     return text.substring(0, maxLen) + "\u2026";
 }
 
-function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities) {
+function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities, defaultAgentType, defaultModel) {
     console.log('[coral] _addTeamAgent internal:', { defaultName, promptLen: (defaultPrompt||'').length });
     _teamAgentCounter++;
     const idx = _teamAgentCounter;
@@ -1325,6 +1526,9 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities) {
 
     const hasContent = !!(defaultName || defaultPrompt);
     const collapsed = hasContent;
+
+    const agentTypeVal = defaultAgentType || '';
+    const modelVal = defaultModel || '';
 
     row.innerHTML = `
         <div class="team-agent-card ${collapsed ? '' : 'editing'}">
@@ -1357,6 +1561,19 @@ function _addTeamAgent(defaultName, defaultPrompt, defaultCapabilities) {
                         <button type="button" class="team-agent-icon-btn" onclick="openTeamIconPicker(this)" style="width:36px;height:36px;font-size:18px;border-radius:6px;border:1px solid var(--border);background:var(--bg-tertiary);cursor:pointer" data-icon="">🤖</button>
                         <input type="hidden" class="team-agent-icon" value="">
                     </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:end">
+                    <label style="flex:1">Agent Type:
+                        <select class="team-agent-type-override">
+                            <option value=""${!agentTypeVal ? ' selected' : ''}>Team default</option>
+                            <option value="claude"${agentTypeVal === 'claude' ? ' selected' : ''}>Claude</option>
+                            <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
+                            <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
+                        </select>
+                    </label>
+                    <label style="flex:1">Model:
+                        <input type="text" class="team-agent-model" placeholder="e.g. opus, sonnet (default)" value="${escapeAttr(modelVal)}">
+                    </label>
                 </div>
                 <label>Behavior Prompt:
                     <textarea class="team-agent-prompt" rows="3" placeholder="Describe this agent's role and behavior..."
@@ -1584,6 +1801,11 @@ async function launchTeam() {
             const caps = _getPermissions(permsEditor.id);
             if (caps) agent.capabilities = caps;
         }
+        // Collect per-agent type and model overrides
+        const agentTypeOverride = row.querySelector('.team-agent-type-override')?.value || '';
+        const modelOverride = row.querySelector('.team-agent-model')?.value.trim() || '';
+        if (agentTypeOverride) agent.agent_type = agentTypeOverride;
+        if (modelOverride) agent.model = modelOverride;
         agents.push(agent);
     }
 

@@ -277,14 +277,23 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Fallback: board_name from live_sessions DB for agents not yet subscribed
 	liveBoardNames := make(map[string][2]string) // session_id -> [board_name, display_name]
 	liveSleeping := make(map[string]bool)         // session_id -> is_sleeping
+	type liveExtra struct {
+		Prompt       *string
+		Model        *string
+		Capabilities *string
+	}
+	liveExtras := make(map[string]liveExtra) // session_id -> extra fields
 	{
 		var rows []struct {
-			SessionID   string  `db:"session_id"`
-			BoardName   *string `db:"board_name"`
-			DisplayName *string `db:"display_name"`
-			IsSleeping  int     `db:"is_sleeping"`
+			SessionID    string  `db:"session_id"`
+			BoardName    *string `db:"board_name"`
+			DisplayName  *string `db:"display_name"`
+			IsSleeping   int     `db:"is_sleeping"`
+			Prompt       *string `db:"prompt"`
+			Model        *string `db:"model"`
+			Capabilities *string `db:"capabilities"`
 		}
-		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name, is_sleeping FROM live_sessions"); err == nil {
+		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name, is_sleeping, prompt, model, capabilities FROM live_sessions"); err == nil {
 			for _, r := range rows {
 				if r.BoardName != nil {
 					bn := *r.BoardName
@@ -294,6 +303,9 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 				}
 				if r.IsSleeping == 1 {
 					liveSleeping[r.SessionID] = true
+				}
+				liveExtras[r.SessionID] = liveExtra{
+					Prompt: r.Prompt, Model: r.Model, Capabilities: r.Capabilities,
 				}
 			}
 		}
@@ -399,6 +411,18 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			"log_path":           agent.LogPath,
 			"sleeping":           liveSleeping[sid],
 		}
+		// Include prompt, model, and capabilities from live_sessions DB
+		if extra, ok := liveExtras[sid]; ok {
+			if extra.Prompt != nil {
+				entry["prompt"] = *extra.Prompt
+			}
+			if extra.Model != nil && *extra.Model != "" {
+				entry["model"] = *extra.Model
+			}
+			if extra.Capabilities != nil && *extra.Capabilities != "" && json.Valid([]byte(*extra.Capabilities)) {
+				entry["capabilities"] = json.RawMessage(*extra.Capabilities)
+			}
+		}
 
 		// Track status/summary for event deduplication
 		h.trackStatusSummary(ctx, agent.AgentName, status, summary, sid)
@@ -448,6 +472,17 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			"log_path":           "",
 			"sleeping":           true,
 		})
+		// Include prompt, model, and capabilities for sleeping sessions too
+		entry := sessions[len(sessions)-1]
+		if ls.Prompt != nil {
+			entry["prompt"] = *ls.Prompt
+		}
+		if ls.Model != nil && *ls.Model != "" {
+			entry["model"] = *ls.Model
+		}
+		if ls.Capabilities != nil && *ls.Capabilities != "" && json.Valid([]byte(*ls.Capabilities)) {
+			entry["capabilities"] = json.RawMessage(*ls.Capabilities)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, emptyIfNil(sessions))
@@ -1639,6 +1674,7 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		BoardServer  string             `json:"board_server"`
 		Backend      string             `json:"backend"`
 		BoardType    string             `json:"board_type"`
+		Model        string             `json:"model"`
 		Capabilities *agent.Capabilities `json:"capabilities"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1661,8 +1697,13 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Add model flag if specified
+	launchFlags := body.Flags
+	if body.Model != "" {
+		launchFlags = append(append([]string{}, body.Flags...), "--model", body.Model)
+	}
 	result, err := h.launchSession(r.Context(), body.WorkingDir, body.AgentType, body.DisplayName,
-		"", body.Flags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, body.Capabilities)
+		"", launchFlags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, body.Model, body.Capabilities)
 	if err != nil {
 		errInternalServer(w, err.Error())
 		return
@@ -1693,6 +1734,8 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 			Name         string              `json:"name"`
 			Prompt       string              `json:"prompt"`
 			Capabilities *agent.Capabilities `json:"capabilities"`
+			AgentType    string              `json:"agent_type"`
+			Model        string              `json:"model"`
 		} `json:"agents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1734,8 +1777,22 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		if agentDef.Name == "" {
 			continue
 		}
-		result, err := h.launchSession(ctx, body.WorkingDir, body.AgentType, agentDef.Name,
-			"", body.Flags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, agentDef.Capabilities)
+
+		// Per-agent type/model override team-level defaults
+		agentType := body.AgentType
+		if agentDef.AgentType != "" {
+			agentType = agentDef.AgentType
+		}
+
+		// Build per-agent flags: start with team-level, add model if specified
+		agentFlags := make([]string, len(body.Flags))
+		copy(agentFlags, body.Flags)
+		if agentDef.Model != "" {
+			agentFlags = append(agentFlags, "--model", agentDef.Model)
+		}
+
+		result, err := h.launchSession(ctx, body.WorkingDir, agentType, agentDef.Name,
+			"", agentFlags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, agentDef.Model, agentDef.Capabilities)
 		if err != nil {
 			log.Printf("[launch-team] failed to launch agent %s: %v", agentDef.Name, err)
 			launched = append(launched, map[string]any{"name": agentDef.Name, "error": err.Error()})
@@ -1745,7 +1802,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		// Board subscription handled by setupBoardAndPrompt (prompt passed as CLI arg)
 		if body.BoardName != "" {
 			h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
-				body.AgentType, body.BoardName, agentDef.Name)
+				agentType, body.BoardName, agentDef.Name)
 		}
 
 		launched = append(launched, map[string]any{
@@ -1783,14 +1840,16 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 
 	// Save each agent's config before killing
 	type agentConfig struct {
-		DisplayName *string
-		WorkingDir  string
-		AgentType   string
-		Flags       *string
-		Prompt      *string
-		BoardServer *string
-		BoardType   *string
-		Icon        *string
+		DisplayName  *string
+		WorkingDir   string
+		AgentType    string
+		Flags        *string
+		Prompt       *string
+		BoardServer  *string
+		BoardType    *string
+		Icon         *string
+		Capabilities *string
+		Model        *string
 	}
 	configs := make([]agentConfig, 0, len(sessions))
 	for _, s := range sessions {
@@ -1802,14 +1861,16 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		configs = append(configs, agentConfig{
-			DisplayName: dn,
-			WorkingDir:  s.WorkingDir,
-			AgentType:   s.AgentType,
-			Flags:       s.Flags,
-			Prompt:      s.Prompt,
-			BoardServer: s.BoardServer,
-			BoardType:   s.BoardType,
-			Icon:        s.Icon,
+			DisplayName:  dn,
+			WorkingDir:   s.WorkingDir,
+			AgentType:    s.AgentType,
+			Flags:        s.Flags,
+			Prompt:       s.Prompt,
+			BoardServer:  s.BoardServer,
+			BoardType:    s.BoardType,
+			Icon:         s.Icon,
+			Capabilities: s.Capabilities,
+			Model:        s.Model,
 		})
 	}
 
@@ -1856,8 +1917,22 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 			displayName = *cfg.DisplayName
 		}
 
+		// Restore model and capabilities from saved config
+		modelStr := ""
+		if cfg.Model != nil {
+			modelStr = *cfg.Model
+		}
+		var caps *agent.Capabilities
+		if cfg.Capabilities != nil && *cfg.Capabilities != "" {
+			caps = &agent.Capabilities{}
+			json.Unmarshal([]byte(*cfg.Capabilities), caps)
+		}
+		// Add model flag if stored
+		if modelStr != "" {
+			flags = append(flags, "--model", modelStr)
+		}
 		result, err := h.launchSession(bgCtx, cfg.WorkingDir, cfg.AgentType, displayName,
-			"", flags, prompt, boardName, boardServer, "", boardType, nil)
+			"", flags, prompt, boardName, boardServer, "", boardType, modelStr, caps)
 		if err != nil {
 			log.Printf("[reset-team] failed to re-launch %s: %v", displayName, err)
 			launched = append(launched, map[string]any{"name": displayName, "error": err.Error()})
@@ -2127,7 +2202,7 @@ func generateUUID() string {
 
 // launchSession creates a new agent session using the specified backend (tmux or pty).
 func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType, displayName, resumeSessionID string,
-	flags []string, prompt, boardName, boardServer, backend, boardType string, capabilities *agent.Capabilities) (map[string]any, error) {
+	flags []string, prompt, boardName, boardServer, backend, boardType, model string, capabilities *agent.Capabilities) (map[string]any, error) {
 
 	absDir, err := filepath.Abs(workDir)
 	if err != nil || !isDir(absDir) {
@@ -2279,6 +2354,8 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		BoardServer:  strPtr(boardServer),
 		Backend:      strPtr(backend),
 		BoardType:    strPtr(boardType),
+		Capabilities: store.MarshalCapabilities(capabilities),
+		Model:        strPtr(model),
 	})
 
 	if displayName != "" {
@@ -2320,7 +2397,7 @@ func (h *SessionsHandler) setupBoardAndPrompt(sessionID, sessionName, agentType,
 			receiveMode = existing.ReceiveMode
 		}
 
-		if _, err := h.bs.Subscribe(ctx, boardName, subscriberID, role, sessionName, nil, nil, receiveMode); err != nil {
+		if _, err := h.bs.Subscribe(ctx, boardName, subscriberID, role, sessionName, nil, nil, receiveMode, isOrchestrator); err != nil {
 			log.Printf("Failed to subscribe session %s to board %s: %v", sessionID[:8], boardName, err)
 		}
 	}

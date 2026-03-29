@@ -423,6 +423,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Message board
 	boardHandler := routes.NewBoardHandler(s.boardStore)
+	boardHandler.SetTerminal(s.terminal)
 	s.boardHandler = boardHandler
 	sessHandler.SetBoardHandler(boardHandler)
 	r.Get("/api/board/projects", boardHandler.ListProjects)
@@ -434,6 +435,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/board/{project}/messages/check", boardHandler.CheckUnread)
 	r.Delete("/api/board/{project}/messages/{messageID}", boardHandler.DeleteMessage)
 	r.Get("/api/board/{project}/subscribers", boardHandler.ListSubscribers)
+	r.Get("/api/board/{project}/peek", boardHandler.PeekAgent)
 	r.Post("/api/board/{project}/pause", boardHandler.PauseBoard)
 	r.Post("/api/board/{project}/resume", boardHandler.ResumeBoard)
 	r.Get("/api/board/{project}/paused", boardHandler.GetPaused)

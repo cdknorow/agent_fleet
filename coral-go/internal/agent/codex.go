@@ -28,12 +28,13 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 	bin := resolveBinary(params.CLIPath, "codex")
 	var parts []string
 
-	// Environment variable prefix — use single quotes to prevent shell expansion
+	// Export env vars so child processes (coral-board, hooks) inherit them.
+	// Single quotes prevent shell expansion; SanitizeShellValue strips metacharacters.
 	if params.SessionName != "" {
-		parts = append(parts, fmt.Sprintf(`CORAL_SESSION_NAME='%s'`, SanitizeShellValue(params.SessionName)))
+		parts = append(parts, fmt.Sprintf(`export CORAL_SESSION_NAME='%s' &&`, SanitizeShellValue(params.SessionName)))
 	}
 	if params.Role != "" {
-		parts = append(parts, fmt.Sprintf(`CORAL_SUBSCRIBER_ID='%s'`, SanitizeShellValue(params.Role)))
+		parts = append(parts, fmt.Sprintf(`export CORAL_SUBSCRIBER_ID='%s' &&`, SanitizeShellValue(params.Role)))
 	}
 
 	// NOTE: PATH injection is handled by callers via WrapWithBundlePath()
@@ -83,15 +84,18 @@ func (a *CodexAgent) BuildLaunchCommand(params LaunchParams) string {
 		}
 	}
 
-	// User-provided flags (translate Claude-specific flags)
+	// User-provided flags — translate or drop Claude-specific flags
 	claudeOnlyFlags := map[string]bool{
 		"--settings": true, "--session-id": true, "--resume": true,
 	}
 	for _, flag := range params.Flags {
 		if flag == "--dangerously-skip-permissions" {
-			flag = "--full-auto"
-		} else if claudeOnlyFlags[flag] {
-			slog.Warn("Claude-specific flag passed to Codex agent, may not work as expected", "flag", flag)
+			parts = append(parts, "--full-auto")
+			continue
+		}
+		if claudeOnlyFlags[flag] {
+			slog.Warn("dropping Claude-specific flag for Codex agent", "flag", flag)
+			continue
 		}
 		parts = append(parts, flag)
 	}

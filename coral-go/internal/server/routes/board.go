@@ -13,11 +13,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/cdknorow/coral/internal/board"
+	"github.com/cdknorow/coral/internal/ptymanager"
 )
 
 // BoardHandler handles message board HTTP endpoints.
 type BoardHandler struct {
 	bs       *board.Store
+	terminal ptymanager.SessionTerminal
 	mu       sync.RWMutex
 	paused   map[string]bool // in-memory set of paused project names
 	notifyFn func()          // triggers immediate board notification pass
@@ -28,6 +30,11 @@ func NewBoardHandler(bs *board.Store) *BoardHandler {
 		bs:     bs,
 		paused: make(map[string]bool),
 	}
+}
+
+// SetTerminal sets the terminal backend for peek functionality.
+func (h *BoardHandler) SetTerminal(t ptymanager.SessionTerminal) {
+	h.terminal = t
 }
 
 func (h *BoardHandler) isPaused(project string) bool {
@@ -337,6 +344,82 @@ func (h *BoardHandler) ListSubscribers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, emptyIfNil(subs))
+}
+
+// PeekAgent captures terminal output of another agent on the same board.
+// GET /api/board/{project}/peek?target=<name>&subscriber_id=<caller>&lines=30
+func (h *BoardHandler) PeekAgent(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	callerID := r.URL.Query().Get("subscriber_id")
+	target := r.URL.Query().Get("target")
+	lines := queryInt(r, "lines", 30)
+
+	if lines > 500 {
+		lines = 500
+	}
+
+	if callerID == "" || target == "" {
+		errBadRequest(w, "subscriber_id and target are required")
+		return
+	}
+
+	// Check caller has can_peek permission — use project-scoped lookup
+	// to prevent cross-board authorization bypass.
+	allSubs, err := h.bs.ListSubscribers(r.Context(), project)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
+	// Find caller in this board's subscribers
+	var caller *board.Subscriber
+	for i, s := range allSubs {
+		if s.SubscriberID == callerID {
+			caller = &allSubs[i]
+			break
+		}
+	}
+	if caller == nil {
+		errForbidden(w, "not subscribed to this board")
+		return
+	}
+	if caller.CanPeek == 0 {
+		errForbidden(w, "peek permission not granted for this subscriber")
+		return
+	}
+
+	// Find target in same board's subscribers
+	var targetSub *board.Subscriber
+	for i, s := range allSubs {
+		if s.SubscriberID == target || s.JobTitle == target {
+			targetSub = &allSubs[i]
+			break
+		}
+	}
+	if targetSub == nil {
+		errNotFound(w, "target subscriber not found on this board")
+		return
+	}
+
+	if h.terminal == nil {
+		errInternalServer(w, "terminal backend not available")
+		return
+	}
+
+	// Capture terminal output using the target's session name
+	output, err := h.terminal.CaptureOutput(r.Context(), targetSub.SessionName, lines, "", "")
+	if err != nil {
+		slog.Warn("peek capture failed", "target", target, "error", err)
+		errInternalServer(w, "failed to capture terminal output")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"target":       target,
+		"session_name": targetSub.SessionName,
+		"lines":        lines,
+		"output":       output,
+	})
 }
 
 // PauseBoard pauses reads for a board.

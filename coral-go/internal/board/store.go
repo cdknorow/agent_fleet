@@ -30,6 +30,7 @@ type Subscriber struct {
 	LastReadID   int64   `db:"last_read_id" json:"last_read_id"`
 	SubscribedAt string  `db:"subscribed_at" json:"subscribed_at"`
 	IsActive     int     `db:"is_active" json:"is_active"`
+	CanPeek      int     `db:"can_peek" json:"can_peek"`
 	// Legacy column — kept for DB compat, mirrors SubscriberID for new rows.
 	SessionID string `db:"session_id" json:"-"`
 }
@@ -134,6 +135,7 @@ func (s *Store) ensureSchema(ctx context.Context) error {
 	// Stable board identity migration: add subscriber_id and session_name columns.
 	// subscriber_id is the stable identity (role name); session_name is the mutable tmux session.
 	// The legacy session_id column is kept and mirrored to subscriber_id for UNIQUE constraint compat.
+	s.db.ExecContext(ctx, "ALTER TABLE board_subscribers ADD COLUMN can_peek INTEGER NOT NULL DEFAULT 0")
 	s.db.ExecContext(ctx, "ALTER TABLE board_subscribers ADD COLUMN subscriber_id TEXT")
 	s.db.ExecContext(ctx, "ALTER TABLE board_subscribers ADD COLUMN session_name TEXT")
 	s.db.ExecContext(ctx, "ALTER TABLE board_messages ADD COLUMN subscriber_id TEXT")
@@ -175,7 +177,7 @@ func nowUTC() string {
 
 // Subscribe adds or updates a subscriber on a board project.
 // subscriberID is the stable identity (role name). sessionName is the current tmux/pty session.
-func (s *Store) Subscribe(ctx context.Context, project, subscriberID, jobTitle, sessionName string, webhookURL, originServer *string, receiveMode string) (*Subscriber, error) {
+func (s *Store) Subscribe(ctx context.Context, project, subscriberID, jobTitle, sessionName string, webhookURL, originServer *string, receiveMode string, canPeek ...bool) (*Subscriber, error) {
 	if receiveMode == "" {
 		receiveMode = "mentions"
 	}
@@ -193,10 +195,16 @@ func (s *Store) Subscribe(ctx context.Context, project, subscriberID, jobTitle, 
 			project)
 	}
 
+	// Resolve can_peek flag from variadic arg
+	peekFlag := 0
+	if len(canPeek) > 0 && canPeek[0] {
+		peekFlag = 1
+	}
+
 	// session_id mirrors subscriber_id so UNIQUE(project, session_id) enforces subscriber uniqueness.
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO board_subscribers (project, session_id, subscriber_id, session_name, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		`INSERT INTO board_subscribers (project, session_id, subscriber_id, session_name, job_title, webhook_url, origin_server, receive_mode, last_read_id, subscribed_at, is_active, can_peek)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
 		 ON CONFLICT(project, session_id) DO UPDATE SET
 		     job_title = excluded.job_title,
 		     webhook_url = excluded.webhook_url,
@@ -204,8 +212,9 @@ func (s *Store) Subscribe(ctx context.Context, project, subscriberID, jobTitle, 
 		     receive_mode = excluded.receive_mode,
 		     session_name = excluded.session_name,
 		     subscriber_id = excluded.subscriber_id,
-		     is_active = 1`,
-		project, subscriberID, subscriberID, sessionName, jobTitle, webhookURL, originServer, receiveMode, carryForwardCursor, now)
+		     is_active = 1,
+		     can_peek = excluded.can_peek`,
+		project, subscriberID, subscriberID, sessionName, jobTitle, webhookURL, originServer, receiveMode, carryForwardCursor, now, peekFlag)
 	if err != nil {
 		return nil, err
 	}

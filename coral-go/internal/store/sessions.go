@@ -62,6 +62,8 @@ type LiveSession struct {
 	IsSleeping   int     `db:"is_sleeping" json:"is_sleeping"`
 	BoardType    *string `db:"board_type" json:"board_type,omitempty"`
 	GitDiffMode  *string `db:"git_diff_mode" json:"git_diff_mode,omitempty"`
+	Capabilities *string `db:"capabilities" json:"capabilities,omitempty"`
+	Model        *string `db:"model" json:"model,omitempty"`
 	CreatedAt    string  `db:"created_at" json:"created_at"`
 }
 
@@ -730,11 +732,12 @@ func (s *SessionStore) RegisterLiveSession(ctx context.Context, ls *LiveSession)
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO live_sessions
-		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ls.SessionID, ls.AgentType, ls.AgentName, ls.WorkingDir,
 		ls.DisplayName, ls.ResumeFromID, ls.Flags, ls.IsJob,
-		ls.Prompt, ls.BoardName, ls.BoardServer, ls.Backend, ls.Icon, ls.IsSleeping, ls.BoardType, ls.CreatedAt)
+		ls.Prompt, ls.BoardName, ls.BoardServer, ls.Backend, ls.Icon, ls.IsSleeping, ls.BoardType,
+		ls.Capabilities, ls.Model, ls.CreatedAt)
 	return err
 }
 
@@ -750,7 +753,7 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, capabilities, model, created_at
 		 FROM live_sessions ORDER BY created_at`)
 	return sessions, err
 }
@@ -760,7 +763,7 @@ func (s *SessionStore) GetBoardSessions(ctx context.Context, boardName string) (
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, capabilities, model, created_at
 		 FROM live_sessions WHERE board_name = ? ORDER BY created_at`, boardName)
 	return sessions, err
 }
@@ -806,7 +809,7 @@ func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*L
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, git_diff_mode, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, created_at
 		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1000,6 +1003,19 @@ func MarshalFlags(flags []string) *string {
 		return nil
 	}
 	b, err := json.Marshal(flags)
+	if err != nil {
+		return nil
+	}
+	s := string(b)
+	return &s
+}
+
+// MarshalCapabilities serializes capabilities to a JSON string pointer for DB storage.
+func MarshalCapabilities(caps any) *string {
+	if caps == nil {
+		return nil
+	}
+	b, err := json.Marshal(caps)
 	if err != nil {
 		return nil
 	}

@@ -744,37 +744,35 @@ export async function killBoard(boardName) {
     );
 }
 
-export async function shareAgentTeam(boardName) {
-    // Find all sessions on this board
+function _buildTeamTemplateFromBoard(boardName) {
     const boardSessions = (state.liveSessions || []).filter(s => s.board_project === boardName);
-    if (!boardSessions.length) {
-        showToast("No agents found on this board", "error");
-        return;
-    }
+    if (!boardSessions.length) return null;
 
-    // Fetch each agent's prompt from session info
     const agents = [];
     for (const s of boardSessions) {
-        let agentPrompt = "";
-        try {
-            const resp = await fetch(`/api/sessions/live/${encodeURIComponent(s.name)}/info?session_id=${encodeURIComponent(s.session_id || "")}`);
-            const info = await resp.json();
-            agentPrompt = info.prompt || "";
-        } catch { /* use empty prompt */ }
-        agents.push({
+        const agent = {
             name: s.display_name || s.board_job_title || s.name,
-            prompt: agentPrompt,
-        });
+            prompt: s.prompt || '',
+        };
+        if (s.agent_type) agent.agent_type = s.agent_type;
+        if (s.model) agent.model = s.model;
+        if (s.capabilities) agent.capabilities = s.capabilities;
+        agents.push(agent);
+    }
+    return { name: boardName, agents, flags: '' };
+}
+
+export async function shareAgentTeam(boardName) {
+    const tmpl = _buildTeamTemplateFromBoard(boardName);
+    if (!tmpl) {
+        showToast("No agents found on this board", "error");
+        return;
     }
 
     const template = {
         version: 1,
         type: "coral-team-templates",
-        templates: [{
-            name: boardName,
-            agents,
-            flags: "",
-        }],
+        templates: [tmpl],
     };
 
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: "application/json" });
@@ -784,33 +782,19 @@ export async function shareAgentTeam(boardName) {
     a.download = `coral-team-${boardName.replace(/[^a-zA-Z0-9-_]/g, "_")}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Exported team "${boardName}" (${agents.length} agents)`);
+    showToast(`Exported team "${boardName}" (${tmpl.agents.length} agents)`);
 }
 
 export async function saveTeamFromSidebar(boardName) {
-    const boardSessions = (state.liveSessions || []).filter(s => s.board_project === boardName);
-    if (!boardSessions.length) {
-        showToast("No agents found on this board", "error");
-        return;
-    }
-
     const templateName = window.prompt("Template name:", boardName);
     if (!templateName) return;
 
-    // Fetch each agent's prompt from session info
-    const agents = [];
-    for (const s of boardSessions) {
-        let agentPrompt = "";
-        try {
-            const resp = await fetch(`/api/sessions/live/${encodeURIComponent(s.name)}/info?session_id=${encodeURIComponent(s.session_id || "")}`);
-            const info = await resp.json();
-            agentPrompt = info.prompt || "";
-        } catch { /* use empty prompt */ }
-        agents.push({
-            name: s.display_name || s.board_job_title || s.name,
-            prompt: agentPrompt,
-        });
+    const tmpl = _buildTeamTemplateFromBoard(boardName);
+    if (!tmpl) {
+        showToast("No agents found on this board", "error");
+        return;
     }
+    tmpl.name = templateName;
 
     // Save to user_settings via the settings API
     let existing = [];
@@ -818,15 +802,14 @@ export async function saveTeamFromSidebar(boardName) {
         existing = JSON.parse(state.settings.saved_team_templates || "[]");
     } catch { /* ignore */ }
     const idx = existing.findIndex(t => t.name === templateName);
-    const entry = { name: templateName, agents, flags: "" };
-    if (idx >= 0) existing[idx] = entry; else existing.push(entry);
+    if (idx >= 0) existing[idx] = tmpl; else existing.push(tmpl);
     state.settings.saved_team_templates = JSON.stringify(existing);
     await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ saved_team_templates: state.settings.saved_team_templates }),
     });
-    showToast(`Saved template "${templateName}" (${agents.length} agents)`);
+    showToast(`Saved template "${templateName}" (${tmpl.agents.length} agents)`);
 }
 
 export function toggleTeamSleep(boardName, action) {

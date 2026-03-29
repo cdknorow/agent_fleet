@@ -326,19 +326,55 @@
 
     <!-- Restart Modal -->
     <div id="restart-modal" class="modal" style="display:none">
-        <div class="modal-content" style="width:480px">
+        <div class="modal-content modal-content-wide">
             <div class="modal-header">
                 <h3>Restart Session</h3>
             </div>
             <div class="modal-body">
                 <p id="restart-modal-name" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px"></p>
-                <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
-                    <input type="text" id="restart-flags" placeholder="e.g. --verbose">
+                <label>Behavior Prompt:
+                    <textarea id="restart-prompt" rows="4" placeholder="Agent behavior prompt..."></textarea>
                 </label>
-                <div class="flag-shortcuts">
-                    <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('restart-flags','--chrome')">--chrome</button>
-                    <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('restart-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
-                </div>
+                <details class="team-advanced">
+                    <summary>Advanced</summary>
+                    <div class="team-advanced-body">
+                        <div style="display:flex;gap:8px;align-items:end">
+                            <label style="flex:1">Agent Type:
+                                <select id="restart-agent-type">
+                                    <option value="claude">Claude</option>
+                                    <option value="gemini">Gemini</option>
+                                    <option value="codex">Codex</option>
+                                </select>
+                            </label>
+                            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                                <input type="text" id="restart-model" placeholder="e.g. opus, sonnet">
+                            </label>
+                        </div>
+                        <div class="permissions-section">
+                            <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('restart-perms')">
+                                <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                                Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
+                            </button>
+                            <div id="restart-perms" class="permissions-editor" style="display:none">
+                                <div class="perms-group">
+                                    <label class="perms-label">Allow:</label>
+                                    <div id="restart-perms-allow" class="perms-chips"></div>
+                                </div>
+                                <div class="perms-group">
+                                    <label class="perms-label">Deny:</label>
+                                    <div id="restart-perms-deny" class="perms-chips"></div>
+                                </div>
+                                <div class="perms-shell-patterns" style="display:none">
+                                    <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
+                                    <input type="text" class="perms-shell-input" id="restart-perms-shell" placeholder="e.g. git *, npm *, npx *">
+                                </div>
+                            </div>
+                        </div>
+                        <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                            <input type="text" id="restart-flags" placeholder="e.g. --verbose">
+                        </label>
+                    </div>
+                </details>
             </div>
             <div class="modal-actions modal-footer">
                 <button class="btn" onclick="hideRestartModal()">Cancel</button>
@@ -800,19 +836,41 @@
                 <details class="team-advanced">
                     <summary>Advanced</summary>
                     <div class="team-advanced-body">
-                        <label>Agent Type:
-                            <select id="add-agent-board-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value); window._updatePermFlagButtons && window._updatePermFlagButtons(this)">
-                                <option value="claude">Claude</option>
-                                <option value="gemini">Gemini</option>
-                                <option value="codex">Codex</option>
-                            </select>
-                        </label>
+                        <div style="display:flex;gap:8px;align-items:end">
+                            <label style="flex:1">Agent Type:
+                                <select id="add-agent-board-type" onchange="window._checkAgentCLI && window._checkAgentCLI(this.value); window._updatePermFlagButtons && window._updatePermFlagButtons(this)">
+                                    <option value="claude">Claude</option>
+                                    <option value="gemini">Gemini</option>
+                                    <option value="codex">Codex</option>
+                                </select>
+                            </label>
+                            <label style="flex:1">Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
+                                <input type="text" id="add-agent-board-model" placeholder="e.g. opus, sonnet">
+                            </label>
+                        </div>
+                        <div class="permissions-section">
+                            <button type="button" class="permissions-toggle-btn" onclick="window._togglePermissions('add-agent-board-perms')">
+                                <svg class="permissions-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                                Permissions <span style="color:var(--text-muted);font-weight:normal;font-size:11px">(optional)</span>
+                            </button>
+                            <div id="add-agent-board-perms" class="permissions-editor" style="display:none">
+                                <div class="perms-group">
+                                    <label class="perms-label">Allow:</label>
+                                    <div id="add-agent-board-perms-allow" class="perms-chips"></div>
+                                </div>
+                                <div class="perms-group">
+                                    <label class="perms-label">Deny:</label>
+                                    <div id="add-agent-board-perms-deny" class="perms-chips"></div>
+                                </div>
+                                <div class="perms-shell-patterns" style="display:none">
+                                    <label class="perms-label">Shell patterns <span style="color:var(--text-muted);font-weight:normal">(comma-separated)</span>:</label>
+                                    <input type="text" class="perms-shell-input" id="add-agent-board-perms-shell" placeholder="e.g. git *, npm *, npx *">
+                                </div>
+                            </div>
+                        </div>
                         <label>Flags <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
                             <input type="text" id="add-agent-board-flags" placeholder="e.g. --verbose">
                         </label>
-                        <div class="flag-shortcuts">
-                            <button class="btn btn-small flag-shortcut-btn" onclick="toggleFlag('add-agent-board-flags','--dangerously-skip-permissions')">--dangerously-skip-permissions</button>
-                        </div>
                         <label style="display:none">Backend:
                             <select id="add-agent-board-backend">
                                 <option value="tmux">tmux</option>

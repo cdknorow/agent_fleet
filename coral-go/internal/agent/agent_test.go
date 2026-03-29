@@ -841,21 +841,25 @@ func TestSanitizeShellValue_StripsDangerousChars(t *testing.T) {
 	}
 }
 
-func TestCodex_EnvVarsSingleQuoted(t *testing.T) {
+func TestCodex_EnvVarsExported(t *testing.T) {
 	a := &CodexAgent{}
 	cmd := a.BuildLaunchCommand(LaunchParams{SessionName: "codex-abc123", Role: "developer"})
-	if !strings.Contains(cmd, "CORAL_SESSION_NAME='codex-abc123'") ||
-		!strings.Contains(cmd, "CORAL_SUBSCRIBER_ID='developer'") {
-		t.Errorf("expected single-quoted env vars, got %q", cmd)
+	if !strings.Contains(cmd, "export CORAL_SESSION_NAME='codex-abc123' &&") {
+		t.Errorf("expected exported single-quoted session name, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "export CORAL_SUBSCRIBER_ID='developer' &&") {
+		t.Errorf("expected exported single-quoted role, got %q", cmd)
 	}
 }
 
-func TestGemini_EnvVarsSingleQuoted(t *testing.T) {
+func TestGemini_EnvVarsExported(t *testing.T) {
 	a := &GeminiAgent{}
 	cmd := a.BuildLaunchCommand(LaunchParams{SessionName: "gemini-xyz789", Role: "qa"})
-	if !strings.Contains(cmd, "CORAL_SESSION_NAME='gemini-xyz789'") ||
-		!strings.Contains(cmd, "CORAL_SUBSCRIBER_ID='qa'") {
-		t.Errorf("expected single-quoted env vars, got %q", cmd)
+	if !strings.Contains(cmd, "export CORAL_SESSION_NAME='gemini-xyz789' &&") {
+		t.Errorf("expected exported single-quoted session name, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "export CORAL_SUBSCRIBER_ID='qa' &&") {
+		t.Errorf("expected exported single-quoted role, got %q", cmd)
 	}
 }
 

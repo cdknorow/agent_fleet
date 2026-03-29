@@ -44,17 +44,18 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 		sysParts = append(sysParts, boardSysPrompt)
 	}
 
+	// Export env vars so child processes (coral-board, hooks) inherit them.
+	// Single quotes prevent shell expansion; SanitizeShellValue strips metacharacters.
 	if len(sysParts) > 0 {
 		sysFile := writeTempFile("gemini_sys", params.SessionID, "md", []byte(strings.Join(sysParts, "\n\n")))
-		parts = append(parts, fmt.Sprintf(`GEMINI_SYSTEM_MD="%s"`, sysFile))
+		parts = append(parts, fmt.Sprintf(`export GEMINI_SYSTEM_MD="%s" &&`, sysFile))
 	}
 
-	// Environment variable prefix — use single quotes to prevent shell expansion
 	if params.SessionName != "" {
-		parts = append(parts, fmt.Sprintf(`CORAL_SESSION_NAME='%s'`, SanitizeShellValue(params.SessionName)))
+		parts = append(parts, fmt.Sprintf(`export CORAL_SESSION_NAME='%s' &&`, SanitizeShellValue(params.SessionName)))
 	}
 	if params.Role != "" {
-		parts = append(parts, fmt.Sprintf(`CORAL_SUBSCRIBER_ID='%s'`, SanitizeShellValue(params.Role)))
+		parts = append(parts, fmt.Sprintf(`export CORAL_SUBSCRIBER_ID='%s' &&`, SanitizeShellValue(params.Role)))
 	}
 
 	// NOTE: PATH injection is handled by callers via WrapWithBundlePath()
@@ -77,13 +78,14 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 		}
 	}
 
-	// User-provided flags (warn about Claude-specific flags)
+	// User-provided flags — drop Claude-specific flags that Gemini doesn't understand
 	claudeOnlyFlags := map[string]bool{
 		"--settings": true, "--session-id": true, "--dangerously-skip-permissions": true,
 	}
 	for _, flag := range params.Flags {
 		if claudeOnlyFlags[flag] {
-			slog.Warn("Claude-specific flag passed to Gemini agent, may not work as expected", "flag", flag)
+			slog.Warn("dropping Claude-specific flag for Gemini agent", "flag", flag)
+			continue
 		}
 		parts = append(parts, flag)
 	}

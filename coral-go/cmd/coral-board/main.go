@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,8 @@ func main() {
 		cmdDelete()
 	case "export":
 		cmdExport()
+	case "peek":
+		cmdPeek()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
@@ -164,6 +167,7 @@ Commands:
   check [--quiet]              Check unread count
   projects                     List all boards
   subscribers                  List board subscribers
+  peek "<agent>" [--lines N]   Peek at agent's terminal (orchestrator only)
   leave                        Unsubscribe from board
   delete                       Delete board and messages
   export [--output FILE] [--format json|markdown|html] [--merge FILE]
@@ -281,6 +285,62 @@ func cmdRead() {
 		}
 		content, _ := m["content"].(string)
 		fmt.Printf("[%s] %s: %s\n", ts, role, content)
+	}
+}
+
+func cmdPeek() {
+	st := loadState()
+	if st == nil {
+		fmt.Fprintln(os.Stderr, "Not subscribed to any board.")
+		os.Exit(1)
+	}
+
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: coral-board peek \"<agent-name>\" [--lines N]")
+		os.Exit(1)
+	}
+
+	target := os.Args[2]
+	lines := 30
+	for i, arg := range os.Args {
+		if arg == "--lines" && i+1 < len(os.Args) {
+			fmt.Sscanf(os.Args[i+1], "%d", &lines)
+		}
+	}
+
+	subscriberID := resolveSubscriberID()
+	path := fmt.Sprintf("/%s/peek?target=%s&subscriber_id=%s&lines=%d",
+		st.Project, url.QueryEscape(target), url.QueryEscape(subscriberID), lines)
+
+	resp, err := http.Get(serverURL + "/api/board" + path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusForbidden {
+		var errResp map[string]string
+		json.Unmarshal(data, &errResp)
+		fmt.Fprintf(os.Stderr, "Permission denied: %s\n", errResp["error"])
+		os.Exit(1)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		json.Unmarshal(data, &errResp)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", errResp["error"])
+		os.Exit(1)
+	}
+
+	var result map[string]any
+	json.Unmarshal(data, &result)
+	output, _ := result["output"].(string)
+	if output == "" {
+		fmt.Println("(no output captured)")
+	} else {
+		fmt.Print(output)
 	}
 }
 
