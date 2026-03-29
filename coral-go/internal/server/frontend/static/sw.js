@@ -1,6 +1,6 @@
 /* Coral Service Worker — caches app shell for fast loads */
 
-const CACHE_NAME = 'coral-v1';
+const CACHE_NAME = 'coral-v2';
 const SHELL_ASSETS = [
     '/',
     '/static/style.css',
@@ -32,7 +32,21 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets: cache-first
+    // Static JS/CSS: network-first (ensures code updates load after restart)
+    if (url.pathname.startsWith('/static/') && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
+        event.respondWith(
+            fetch(event.request)
+                .then((response) => {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                    return response;
+                })
+                .catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // Other static assets (images, fonts): cache-first
     if (url.pathname.startsWith('/static/')) {
         event.respondWith(
             caches.match(event.request).then((cached) => cached || fetch(event.request))

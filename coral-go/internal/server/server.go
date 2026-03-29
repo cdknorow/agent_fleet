@@ -465,7 +465,7 @@ func (s *Server) buildRouter() chi.Router {
 		w.Header().Set("Content-Type", "application/javascript")
 		http.ServeFileFS(w, r, staticFS, "frontend/static/sw.js")
 	})
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	r.Handle("/static/*", http.StripPrefix("/static/", noCacheHandler(http.FileServer(http.FS(staticSub)))))
 
 	// API spec for custom views
 	r.Get("/api/spec.json", func(w http.ResponseWriter, r *http.Request) {
@@ -482,6 +482,18 @@ func (s *Server) buildRouter() chi.Router {
 	// ── Dashboard SPA ───────────────────────────────────────────
 	r.Get("/", s.serveIndex)
 	return r
+}
+
+// noCacheHandler wraps an http.Handler to set Cache-Control headers that force
+// the browser to revalidate on every request. This prevents stale JS/CSS after
+// a server rebuild.
+func noCacheHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		h.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
