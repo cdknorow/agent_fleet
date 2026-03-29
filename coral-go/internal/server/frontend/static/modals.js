@@ -2140,7 +2140,15 @@ async function _loadLicenseTierBadge() {
             const label = data.product_name || 'Coral Pro';
             badge.innerHTML = `<span class="tier-label tier-pro">${escapeHtml(label)}</span>`;
         } else {
-            badge.innerHTML = '<span class="tier-label tier-trial">Free Trial</span>';
+            // Fetch store URL for upgrade link
+            let storeProURL = 'https://store.coralai.ai';
+            try {
+                const sResp = await fetch('/api/system/status');
+                const sData = await sResp.json();
+                if (sData.store_pro_url) storeProURL = sData.store_pro_url;
+            } catch (_) {}
+            badge.innerHTML = '<span class="tier-label tier-trial">Free Trial</span>' +
+                `<a href="${storeProURL}" target="_blank" rel="noopener" style="font-size:11px;color:#58a6ff;margin-left:8px;text-decoration:none">Upgrade to Pro</a>`;
         }
         badge.style.display = '';
     } catch { /* silent — non-critical */ }
