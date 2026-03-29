@@ -48,10 +48,25 @@ func TranslateToClaudePermissions(caps *Capabilities) *ClaudePermissions {
 
 	var allow, deny []string
 
+	// Check if allow has any shell:<pattern> entries
+	hasShellPatterns := false
+	for _, cap := range caps.Allow {
+		if strings.HasPrefix(cap, "shell:") {
+			hasShellPatterns = true
+			break
+		}
+	}
+
 	for _, cap := range caps.Allow {
 		allow = append(allow, mapCapToClaudeTools(cap)...)
 	}
 	for _, cap := range caps.Deny {
+		// Skip blanket Bash deny when specific shell patterns are allowed —
+		// the allow whitelist is sufficient, and a blanket deny would override
+		// the specific Bash(pattern) allows in Claude Code.
+		if cap == CapShell && hasShellPatterns {
+			continue
+		}
 		deny = append(deny, mapCapToClaudeTools(cap)...)
 	}
 

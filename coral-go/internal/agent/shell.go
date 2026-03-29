@@ -87,6 +87,33 @@ func AppBundleBinDir() string {
 	return ""
 }
 
+// CoralToolsDir returns the directory containing coral-board and other Coral
+// CLI tools. Tries AppBundleBinDir() first, then checks known install locations.
+func CoralToolsDir() string {
+	if dir := AppBundleBinDir(); dir != "" {
+		return dir
+	}
+
+	// Fallback: check known locations for coral-board
+	candidates := []string{
+		"/Applications/Coral.app/Contents/MacOS",
+	}
+	// Also check next to the current executable
+	if exe, err := os.Executable(); err == nil {
+		if exe, err = filepath.EvalSymlinks(exe); err == nil {
+			candidates = append([]string{filepath.Dir(exe)}, candidates...)
+		}
+	}
+
+	for _, dir := range candidates {
+		boardPath := filepath.Join(dir, "coral-board")
+		if _, err := os.Stat(boardPath); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
 // SanitizeShellValue strips characters that could enable shell injection.
 // Only allows alphanumeric characters, hyphens, underscores, dots, and spaces.
 // This is used for values interpolated into shell command strings.
@@ -122,7 +149,7 @@ func PrefixWithPathEnv(binDir string) string {
 // WrapWithBundlePath prepends the app bundle bin directory to PATH in the
 // given command string, if running from a packaged install. No-op otherwise.
 func WrapWithBundlePath(cmd string) string {
-	if prefix := PrefixWithPathEnv(AppBundleBinDir()); prefix != "" {
+	if prefix := PrefixWithPathEnv(CoralToolsDir()); prefix != "" {
 		return prefix + cmd
 	}
 	return cmd

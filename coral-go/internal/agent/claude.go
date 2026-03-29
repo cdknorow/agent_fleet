@@ -79,9 +79,9 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 		merged["env"] = envMap
 	}
 
-	// If running inside a .app bundle, add the MacOS dir to PATH in env settings
-	// so that coral hooks (coral-hook-task-sync, etc.) can be found.
-	if macosDir := appBundleMacOSDir(); macosDir != "" {
+	// Add Coral tools dir to PATH in env settings so that coral-board,
+	// coral hooks, etc. can be found by Claude CLI and its subprocesses.
+	if macosDir := CoralToolsDir(); macosDir != "" {
 		envMap, _ := merged["env"].(map[string]interface{})
 		if envMap == nil {
 			envMap = make(map[string]interface{})

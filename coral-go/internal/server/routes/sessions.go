@@ -2440,6 +2440,17 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 			if err := tmuxTerm.Client().SetEnvironment(ctx, sessionName, "CORAL_SUBSCRIBER_ID", role); err != nil {
 				log.Printf("[launch] failed to set CORAL_SUBSCRIBER_ID for %s: %v", sessionName, err)
 			}
+			// Prepend Coral tools dir to PATH so coral-board and hooks are
+			// discoverable by subshells Claude spawns (e.g. Bash tool).
+			if binDir := agent.CoralToolsDir(); binDir != "" {
+				currentPath := os.Getenv("PATH")
+				if !strings.Contains(currentPath, binDir) {
+					currentPath = binDir + ":" + currentPath
+				}
+				if err := tmuxTerm.Client().SetEnvironment(ctx, sessionName, "PATH", currentPath); err != nil {
+					log.Printf("[launch] failed to set PATH for %s: %v", sessionName, err)
+				}
+			}
 		}
 
 		// Setup pipe-pane logging
