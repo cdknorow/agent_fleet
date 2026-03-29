@@ -283,8 +283,10 @@ func TestBuildBoardSystemPrompt_PromptOnly(t *testing.T) {
 
 func TestCodex_BasicLaunch(t *testing.T) {
 	a := &CodexAgent{}
-	if cmd := a.BuildLaunchCommand(LaunchParams{}); cmd != "codex" {
-		t.Errorf("expected bare 'codex', got %q", cmd)
+	cmd := a.BuildLaunchCommand(LaunchParams{})
+	expected := `codex -c shell_environment_policy.inherit=["CORAL_SESSION_NAME","CORAL_SUBSCRIBER_ID","CORAL_URL","CORAL_PORT"]`
+	if cmd != expected {
+		t.Errorf("expected %q, got %q", expected, cmd)
 	}
 }
 

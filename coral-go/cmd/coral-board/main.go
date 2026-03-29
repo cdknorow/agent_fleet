@@ -85,11 +85,16 @@ func resolveSessionName() string {
 }
 
 // resolveSubscriberID returns the stable board identity for this agent.
-// Uses CORAL_SUBSCRIBER_ID (role name) if set, otherwise falls back to
-// the session name for backwards compatibility.
+// Uses CORAL_SUBSCRIBER_ID (role name) if set, falls back to the board_state
+// file's job_title (works in sandboxed environments that strip env vars),
+// then to session name for backwards compatibility.
 func resolveSubscriberID() string {
 	if id := os.Getenv("CORAL_SUBSCRIBER_ID"); id != "" {
 		return id
+	}
+	// Fallback: read from board_state file (works inside Codex sandbox)
+	if st := loadState(); st != nil && st.JobTitle != "" {
+		return st.JobTitle
 	}
 	return resolveSessionName()
 }
