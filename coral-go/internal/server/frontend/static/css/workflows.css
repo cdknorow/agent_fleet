@@ -1,0 +1,662 @@
+/* ============================================================
+   Workflows — List, detail, run views, and create modal
+   ============================================================ */
+
+.workflows-view {
+    padding: 20px 24px;
+    overflow-y: auto;
+    height: 100%;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+
+.wf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.wf-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.wf-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.wf-count-badge {
+    font-size: 11px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.wf-header-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* ── Empty state ──────────────────────────────────────────── */
+
+.wf-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.wf-empty-icon {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: 12px;
+}
+
+.wf-empty p {
+    margin: 8px 0 4px;
+    font-size: 15px;
+    color: var(--text-primary);
+}
+
+.wf-empty-hint {
+    font-size: 13px;
+}
+
+/* ── Workflow list ────────────────────────────────────────── */
+
+.wf-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wf-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.wf-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-tertiary);
+}
+
+.wf-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.wf-card-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.wf-card-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.wf-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.wf-badge-enabled {
+    background: rgba(46, 160, 67, 0.15);
+    color: #3fb950;
+}
+
+.wf-badge-disabled {
+    background: rgba(139, 148, 158, 0.15);
+    color: var(--text-secondary);
+}
+
+.wf-badge-steps {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.wf-card-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.wf-card-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.wf-last-run-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.wf-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.wf-status-dot.completed { background: #3fb950; }
+.wf-status-dot.running { background: #58a6ff; animation: wf-pulse 1.5s infinite; }
+.wf-status-dot.failed { background: #f85149; }
+.wf-status-dot.killed { background: #d29922; }
+.wf-status-dot.pending { background: #8b949e; }
+
+@keyframes wf-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ── Workflow detail ──────────────────────────────────────── */
+
+.wf-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.wf-detail-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.wf-detail-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.wf-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.wf-detail-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.wf-detail-meta .material-icons {
+    font-size: 15px;
+    color: var(--text-muted);
+}
+
+/* ── Steps list ───────────────────────────────────────────── */
+
+.wf-steps-section {
+    margin-bottom: 20px;
+}
+
+.wf-steps-section h3 {
+    font-size: 14px;
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+}
+
+.wf-step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wf-step-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.wf-step-index {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.wf-step-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.wf-step-type {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+/* ── Runs table ───────────────────────────────────────────── */
+
+.wf-runs-section h3 {
+    font-size: 14px;
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+}
+
+.wf-runs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.wf-runs-table th,
+.wf-runs-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.wf-runs-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.wf-runs-table tr {
+    cursor: pointer;
+}
+
+.wf-runs-table tr:hover td {
+    background: var(--bg-tertiary);
+}
+
+/* ── Progress bar ─────────────────────────────────────────── */
+
+.wf-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.wf-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.wf-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.wf-progress-fill.completed { background: #3fb950; }
+.wf-progress-fill.running { background: #58a6ff; }
+.wf-progress-fill.failed { background: #f85149; }
+.wf-progress-fill.killed { background: #d29922; }
+.wf-progress-fill.pending { background: #8b949e; }
+
+.wf-progress-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* ── Run detail ───────────────────────────────────────────── */
+
+.wf-run-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.wf-run-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.wf-run-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.wf-run-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.wf-run-meta .material-icons {
+    font-size: 15px;
+    color: var(--text-muted);
+}
+
+.wf-run-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* ── Timeline layout ──────────────────────────────────────── */
+
+.wf-timeline {
+    position: relative;
+    padding-left: 16px;
+    gap: 0 !important;
+}
+
+.wf-timeline .wf-run-step {
+    display: flex;
+    gap: 12px;
+    border: none;
+    background: none;
+    padding: 0 0 16px 0;
+    border-radius: 0;
+    position: relative;
+}
+
+.wf-timeline-node {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+    z-index: 1;
+    border: 2px solid var(--border);
+    background: var(--bg-primary);
+}
+
+.wf-timeline-node.completed { border-color: #3fb950; background: #3fb950; }
+.wf-timeline-node.running { border-color: #58a6ff; background: #58a6ff; animation: wf-pulse 1.5s infinite; }
+.wf-timeline-node.failed { border-color: #f85149; background: #f85149; }
+.wf-timeline-node.killed { border-color: #d29922; background: #d29922; }
+.wf-timeline-node.skipped { border-color: #8b949e; background: transparent; }
+.wf-timeline-node.pending { border-color: #8b949e; background: transparent; }
+
+.wf-run-step-connected::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 18px;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+}
+
+.wf-run-step-content {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+}
+
+.wf-run-step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.wf-run-step-status {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.wf-run-step-status.completed { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
+.wf-run-step-status.running { background: rgba(88, 166, 255, 0.15); color: #58a6ff; }
+.wf-run-step-status.failed { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+.wf-run-step-status.killed { background: rgba(210, 153, 34, 0.15); color: #d29922; }
+.wf-run-step-status.skipped { background: rgba(139, 148, 158, 0.15); color: #8b949e; }
+.wf-run-step-status.pending { background: rgba(139, 148, 158, 0.1); color: #8b949e; }
+
+.wf-run-step-name {
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.wf-run-step-timing {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.wf-run-step-output-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    margin-top: 6px;
+    user-select: none;
+}
+
+.wf-run-step-output-toggle:hover {
+    color: var(--text-secondary);
+}
+
+.wf-run-step-output {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    transition: max-height 0.3s ease;
+}
+
+.wf-run-step-output.wf-expanded {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.wf-toggle-arrow {
+    transition: transform 0.2s;
+}
+
+.wf-expanded + .wf-toggle-arrow,
+.wf-run-step-output.wf-expanded ~ .wf-toggle-arrow {
+    transform: rotate(180deg);
+}
+
+.wf-timing-active {
+    color: #58a6ff;
+}
+
+.wf-step-agent-link {
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.wf-step-agent-link:hover {
+    text-decoration: underline;
+}
+
+/* ── Create modal ─────────────────────────────────────────── */
+
+.wf-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wf-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.wf-hint {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.wf-input {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.wf-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* ── Step editor ──────────────────────────────────────────── */
+
+.wf-steps-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wf-step-editor-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.wf-step-editor-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.wf-step-editor-top select,
+.wf-step-editor-top input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.wf-step-editor-top select { width: 80px; }
+.wf-step-editor-top input { flex: 1; }
+
+.wf-step-remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.wf-step-remove-btn:hover {
+    color: #f85149;
+}
+
+.wf-step-editor-body textarea {
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+    resize: vertical;
+    min-height: 36px;
+    font-family: monospace;
+}
+
+.wf-add-step-btn {
+    align-self: flex-start;
+    margin-top: 4px;
+}
+
+.wf-modal-error {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    color: #f85149;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+/* ── Status badge (reused) ────────────────────────────────── */
+
+.wf-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.wf-status-badge.completed { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
+.wf-status-badge.running { background: rgba(88, 166, 255, 0.15); color: #58a6ff; }
+.wf-status-badge.failed { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+.wf-status-badge.killed { background: rgba(210, 153, 34, 0.15); color: #d29922; }
+.wf-status-badge.pending { background: rgba(139, 148, 158, 0.15); color: #8b949e; }

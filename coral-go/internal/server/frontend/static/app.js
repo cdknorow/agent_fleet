@@ -38,6 +38,7 @@ import { initLiveJobs, renderLiveJobs, selectLiveJobRun } from './live_jobs.js';
 import { showThemeConfigurator, hideThemeConfigurator } from './theme_config.js';
 import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, toggleBoardSleep, deleteBoardMessage, showExportBoardModal, doExportBoard } from './message_board.js';
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
+import { initWorkflows, showWorkflowsTab, selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow, showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow, workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList } from './workflows.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 import { platform } from './platform/detect.js';
 import { initNative } from './platform/native.js';
@@ -108,6 +109,10 @@ Object.assign(window, {
     deleteMessageBoardProject, confirmDeleteBoard: deleteMessageBoardProject,
     toggleBoardPause, toggleBoardSleep, deleteBoardMessage,
     showExportBoardModal, doExportBoard,
+    // workflows
+    selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow,
+    showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow,
+    workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList,
     // folder_tags
     showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag,
     // utils
@@ -160,6 +165,8 @@ function switchNavTab(tab) {
         showView('messageboard-view');
     } else if (tab === 'jobs') {
         showView('scheduler-view');
+    } else if (tab === 'workflows') {
+        showWorkflowsTab();
     } else if (tab === 'history') {
         // Keep current main view, just switch sidebar content
     } else if (tab === 'agents') {

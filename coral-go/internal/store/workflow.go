@@ -1,0 +1,354 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+)
+
+// Workflow represents a reusable multi-step automation definition.
+type Workflow struct {
+	ID               int64  `db:"id" json:"id"`
+	Name             string `db:"name" json:"name"`
+	Description      string `db:"description" json:"description"`
+	StepsJSON        string `db:"steps_json" json:"-"`
+	DefaultAgentJSON string `db:"default_agent_json" json:"-"`
+	RepoPath         string `db:"repo_path" json:"repo_path"`
+	BaseBranch       string `db:"base_branch" json:"base_branch"`
+	MaxDurationS     int    `db:"max_duration_s" json:"max_duration_s"`
+	CleanupWorktree  int    `db:"cleanup_worktree" json:"cleanup_worktree"`
+	Enabled          int    `db:"enabled" json:"enabled"`
+	CreatedAt        string `db:"created_at" json:"created_at"`
+	UpdatedAt        string `db:"updated_at" json:"updated_at"`
+
+	// Computed fields (not stored in DB directly, populated by JSON unmarshal)
+	Steps        []json.RawMessage `db:"-" json:"steps,omitempty"`
+	DefaultAgent json.RawMessage   `db:"-" json:"default_agent,omitempty"`
+	StepCount    int               `db:"-" json:"step_count,omitempty"`
+	LastRun      *WorkflowRunBrief `db:"-" json:"last_run,omitempty"`
+}
+
+// WorkflowRunBrief is a summary of the most recent run, included in list responses.
+type WorkflowRunBrief struct {
+	ID          int64   `json:"id"`
+	Status      string  `json:"status"`
+	TriggerType string  `json:"trigger_type"`
+	StartedAt   *string `json:"started_at"`
+	FinishedAt  *string `json:"finished_at"`
+}
+
+// WorkflowRun represents a single execution of a workflow.
+type WorkflowRun struct {
+	ID             int64   `db:"id" json:"id"`
+	WorkflowID     int64   `db:"workflow_id" json:"workflow_id"`
+	TriggerType    string  `db:"trigger_type" json:"trigger_type"`
+	TriggerContext *string `db:"trigger_context" json:"trigger_context,omitempty"`
+	Status         string  `db:"status" json:"status"`
+	CurrentStep    int     `db:"current_step" json:"current_step"`
+	StepResults    string  `db:"step_results" json:"-"`
+	WorktreePath   string  `db:"worktree_path" json:"worktree_path,omitempty"`
+	StartedAt      *string `db:"started_at" json:"started_at,omitempty"`
+	FinishedAt     *string `db:"finished_at" json:"finished_at,omitempty"`
+	ErrorMsg       *string `db:"error_msg" json:"error_msg,omitempty"`
+	CreatedAt      string  `db:"created_at" json:"created_at"`
+
+	// Computed fields populated by queries
+	WorkflowName *string             `db:"workflow_name" json:"workflow_name,omitempty"`
+	Steps        []json.RawMessage   `db:"-" json:"steps,omitempty"`
+}
+
+// HydrateSteps parses StepsJSON and DefaultAgentJSON into their typed fields.
+func (w *Workflow) HydrateSteps() {
+	if w.StepsJSON != "" && w.StepsJSON != "[]" {
+		json.Unmarshal([]byte(w.StepsJSON), &w.Steps)
+	}
+	if w.DefaultAgentJSON != "" {
+		w.DefaultAgent = json.RawMessage(w.DefaultAgentJSON)
+	}
+	w.StepCount = len(w.Steps)
+}
+
+// HydrateStepResults parses the StepResults JSON into the Steps field.
+func (r *WorkflowRun) HydrateStepResults() {
+	if r.StepResults != "" && r.StepResults != "[]" {
+		json.Unmarshal([]byte(r.StepResults), &r.Steps)
+	}
+}
+
+// WorkflowStore provides CRUD for workflows and workflow runs.
+type WorkflowStore struct {
+	db *DB
+}
+
+// NewWorkflowStore creates a new WorkflowStore.
+func NewWorkflowStore(db *DB) *WorkflowStore {
+	return &WorkflowStore{db: db}
+}
+
+// DB returns the underlying database connection.
+func (s *WorkflowStore) DB() *DB {
+	return s.db
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────
+
+// CreateWorkflow creates a new workflow definition.
+func (s *WorkflowStore) CreateWorkflow(ctx context.Context, w *Workflow) (*Workflow, error) {
+	now := nowUTC()
+	w.CreatedAt = now
+	w.UpdatedAt = now
+
+	if w.BaseBranch == "" {
+		w.BaseBranch = "main"
+	}
+	if w.MaxDurationS == 0 {
+		w.MaxDurationS = 3600
+	}
+	if w.StepsJSON == "" {
+		w.StepsJSON = "[]"
+	}
+
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO workflows
+		 (name, description, steps_json, default_agent_json, repo_path,
+		  base_branch, max_duration_s, cleanup_worktree, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.Name, w.Description, w.StepsJSON, w.DefaultAgentJSON, w.RepoPath,
+		w.BaseBranch, w.MaxDurationS, w.CleanupWorktree, w.Enabled, now, now)
+	if err != nil {
+		return nil, err
+	}
+	w.ID, _ = result.LastInsertId()
+	w.HydrateSteps()
+	return w, nil
+}
+
+// GetWorkflow returns a workflow by ID.
+func (s *WorkflowStore) GetWorkflow(ctx context.Context, id int64) (*Workflow, error) {
+	var w Workflow
+	err := s.db.GetContext(ctx, &w, "SELECT * FROM workflows WHERE id = ?", id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	w.HydrateSteps()
+	return &w, nil
+}
+
+// GetWorkflowByName returns a workflow by its unique name.
+func (s *WorkflowStore) GetWorkflowByName(ctx context.Context, name string) (*Workflow, error) {
+	var w Workflow
+	err := s.db.GetContext(ctx, &w, "SELECT * FROM workflows WHERE name = ?", name)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	w.HydrateSteps()
+	return &w, nil
+}
+
+// ListWorkflows returns all workflows with optional last_run summary.
+func (s *WorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, error) {
+	var workflows []Workflow
+	err := s.db.SelectContext(ctx, &workflows,
+		"SELECT * FROM workflows ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+
+	// Hydrate steps and attach last_run for each workflow
+	for i := range workflows {
+		workflows[i].HydrateSteps()
+
+		var brief WorkflowRunBrief
+		err := s.db.GetContext(ctx, &brief,
+			`SELECT id, status, trigger_type, started_at, finished_at
+			 FROM workflow_runs WHERE workflow_id = ?
+			 ORDER BY created_at DESC LIMIT 1`, workflows[i].ID)
+		if err == nil {
+			workflows[i].LastRun = &brief
+		}
+	}
+
+	return workflows, nil
+}
+
+// UpdateWorkflow updates allowed fields on a workflow.
+func (s *WorkflowStore) UpdateWorkflow(ctx context.Context, id int64, fields map[string]interface{}) (*Workflow, error) {
+	err := dynamicUpdate(ctx, s.db, "workflows", id, fields, map[string]bool{
+		"name": true, "description": true, "steps_json": true,
+		"default_agent_json": true, "repo_path": true, "base_branch": true,
+		"max_duration_s": true, "cleanup_worktree": true, "enabled": true,
+	}, map[string]bool{
+		"cleanup_worktree": true, "enabled": true,
+	}, true)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetWorkflow(ctx, id)
+}
+
+// DeleteWorkflow deletes a workflow (cascades to runs via FK).
+func (s *WorkflowStore) DeleteWorkflow(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM workflows WHERE id = ?", id)
+	return err
+}
+
+// ── Workflow Runs ─────────────────────────────────────────────────────
+
+// CreateWorkflowRun creates a new run record for a workflow.
+func (s *WorkflowStore) CreateWorkflowRun(ctx context.Context, workflowID int64, triggerType string, triggerContext *string) (*WorkflowRun, error) {
+	now := nowUTC()
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO workflow_runs
+		 (workflow_id, trigger_type, trigger_context, status, current_step, step_results, created_at)
+		 VALUES (?, ?, ?, 'pending', 0, '[]', ?)`,
+		workflowID, triggerType, triggerContext, now)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := result.LastInsertId()
+	return &WorkflowRun{
+		ID:             id,
+		WorkflowID:     workflowID,
+		TriggerType:    triggerType,
+		TriggerContext: triggerContext,
+		Status:         "pending",
+		CurrentStep:    0,
+		StepResults:    "[]",
+		CreatedAt:      now,
+	}, nil
+}
+
+// GetWorkflowRun returns a run by ID with workflow name.
+func (s *WorkflowStore) GetWorkflowRun(ctx context.Context, runID int64) (*WorkflowRun, error) {
+	var run WorkflowRun
+	err := s.db.GetContext(ctx, &run,
+		`SELECT r.*, w.name as workflow_name
+		 FROM workflow_runs r
+		 JOIN workflows w ON w.id = r.workflow_id
+		 WHERE r.id = ?`, runID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	run.HydrateStepResults()
+	return &run, nil
+}
+
+// UpdateWorkflowRun updates allowed fields on a run.
+func (s *WorkflowStore) UpdateWorkflowRun(ctx context.Context, runID int64, fields map[string]interface{}) error {
+	return dynamicUpdate(ctx, s.db, "workflow_runs", runID, fields, map[string]bool{
+		"status": true, "current_step": true, "step_results": true,
+		"worktree_path": true, "started_at": true, "finished_at": true,
+		"error_msg": true,
+	}, nil, false)
+}
+
+// ListRunsForWorkflow returns runs for a specific workflow with optional filtering.
+func (s *WorkflowStore) ListRunsForWorkflow(ctx context.Context, workflowID int64, limit, offset int, status *string) ([]WorkflowRun, error) {
+	var runs []WorkflowRun
+	query := "SELECT * FROM workflow_runs WHERE workflow_id = ?"
+	args := []interface{}{workflowID}
+	if status != nil {
+		query += " AND status = ?"
+		args = append(args, *status)
+	}
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	err := s.db.SelectContext(ctx, &runs, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range runs {
+		runs[i].HydrateStepResults()
+	}
+	return runs, err
+}
+
+// ListRecentRuns returns recent runs across all workflows with workflow name.
+func (s *WorkflowStore) ListRecentRuns(ctx context.Context, limit, offset int, status *string) ([]WorkflowRun, error) {
+	var runs []WorkflowRun
+	query := `SELECT r.*, w.name as workflow_name
+		 FROM workflow_runs r
+		 JOIN workflows w ON w.id = r.workflow_id`
+	args := []interface{}{}
+	if status != nil {
+		query += " WHERE r.status = ?"
+		args = append(args, *status)
+	}
+	query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	err := s.db.SelectContext(ctx, &runs, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range runs {
+		runs[i].HydrateStepResults()
+	}
+	return runs, err
+}
+
+// GetActiveRunsForWorkflow returns pending/running runs for a workflow.
+func (s *WorkflowStore) GetActiveRunsForWorkflow(ctx context.Context, workflowID int64) ([]WorkflowRun, error) {
+	var runs []WorkflowRun
+	err := s.db.SelectContext(ctx, &runs,
+		`SELECT * FROM workflow_runs
+		 WHERE workflow_id = ? AND status IN ('pending', 'running')
+		 ORDER BY created_at DESC`, workflowID)
+	return runs, err
+}
+
+// SetRunStatus is a convenience for updating just the status (and optionally error_msg) of a run.
+func (s *WorkflowStore) SetRunStatus(ctx context.Context, runID int64, status string, errorMsg *string) error {
+	fields := map[string]interface{}{"status": status}
+	if errorMsg != nil {
+		fields["error_msg"] = *errorMsg
+	}
+	now := nowUTC()
+	switch status {
+	case "running":
+		fields["started_at"] = now
+	case "completed", "failed", "killed":
+		fields["finished_at"] = now
+	}
+	return s.UpdateWorkflowRun(ctx, runID, fields)
+}
+
+// UpdateStepResults updates the step_results JSON and current_step for a run.
+func (s *WorkflowStore) UpdateStepResults(ctx context.Context, runID int64, currentStep int, stepResults string) error {
+	return s.UpdateWorkflowRun(ctx, runID, map[string]interface{}{
+		"current_step": currentStep,
+		"step_results": stepResults,
+	})
+}
+
+// GetWorkflowRunDirect returns a run by ID without joining workflow name (for internal use).
+func (s *WorkflowStore) GetWorkflowRunDirect(ctx context.Context, runID int64) (*WorkflowRun, error) {
+	var run WorkflowRun
+	err := s.db.GetContext(ctx, &run, "SELECT * FROM workflow_runs WHERE id = ?", runID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	run.HydrateStepResults()
+	return &run, nil
+}
+
+// StepsJSONFromRaw marshals a slice of step definitions to JSON for storage.
+func StepsJSONFromRaw(steps []json.RawMessage) (string, error) {
+	b, err := json.Marshal(steps)
+	if err != nil {
+		return "", fmt.Errorf("marshal steps: %w", err)
+	}
+	return string(b), nil
+}

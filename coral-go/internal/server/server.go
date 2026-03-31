@@ -49,10 +49,11 @@ type Server struct {
 	keyStore      *auth.KeyStore
 	router        chi.Router
 	indexTmpl     *template.Template
-	tasksHandler   *routes.TasksHandler
-	boardHandler   *routes.BoardHandler
-	historyHandler *routes.HistoryHandler
-	systemHandler  *routes.SystemHandler
+	tasksHandler    *routes.TasksHandler
+	boardHandler    *routes.BoardHandler
+	historyHandler  *routes.HistoryHandler
+	systemHandler   *routes.SystemHandler
+	workflowHandler *routes.WorkflowHandler
 }
 
 // templateData is passed to Go templates during rendering.
@@ -104,6 +105,7 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		"frontend/templates/includes/views/live_session.html",
 		"frontend/templates/includes/views/history_session.html",
 		"frontend/templates/includes/views/message_board.html",
+		"frontend/templates/includes/views/workflows.html",
 	)
 	if err != nil {
 		log.Printf("Warning: failed to parse index template: %v (serving placeholder)", err)
@@ -135,6 +137,13 @@ func (s *Server) SetScheduler(sched *background.JobScheduler) {
 func (s *Server) SetIndexer(idx routes.Indexer) {
 	if s.systemHandler != nil {
 		s.systemHandler.SetIndexer(idx)
+	}
+}
+
+// SetWorkflowRunner injects the workflow runner into the workflow handler for triggering/killing.
+func (s *Server) SetWorkflowRunner(wr *background.WorkflowRunner) {
+	if s.workflowHandler != nil {
+		s.workflowHandler.SetWorkflowRunner(wr)
 	}
 }
 
@@ -262,6 +271,8 @@ func (s *Server) buildRouter() chi.Router {
 	s.historyHandler = histHandler
 	schedHandler := routes.NewScheduleHandler(s.db, s.cfg)
 	whHandler := routes.NewWebhooksHandler(s.db, s.cfg)
+	workflowHandler := routes.NewWorkflowHandler(s.db, s.cfg)
+	s.workflowHandler = workflowHandler
 	themeHandler := routes.NewThemesHandler(s.cfg)
 
 	// Live sessions
@@ -380,6 +391,20 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/scheduled/runs/recent", schedHandler.GetRecentRuns)
 	r.Post("/api/scheduled/validate-cron", schedHandler.ValidateCron)
 
+	// Workflows
+	r.Get("/api/workflows", workflowHandler.ListWorkflows)
+	r.Post("/api/workflows", workflowHandler.CreateWorkflow)
+	r.Get("/api/workflows/runs/recent", workflowHandler.ListRecentRuns)
+	r.Get("/api/workflows/by-name/{name}", workflowHandler.GetWorkflowByName)
+	r.Post("/api/workflows/by-name/{name}/trigger", workflowHandler.TriggerWorkflowByName)
+	r.Get("/api/workflows/{workflowID}", workflowHandler.GetWorkflow)
+	r.Put("/api/workflows/{workflowID}", workflowHandler.UpdateWorkflow)
+	r.Delete("/api/workflows/{workflowID}", workflowHandler.DeleteWorkflow)
+	r.Post("/api/workflows/{workflowID}/trigger", workflowHandler.TriggerWorkflow)
+	r.Get("/api/workflows/{workflowID}/runs", workflowHandler.ListWorkflowRuns)
+	r.Get("/api/workflows/runs/{runID}", workflowHandler.GetWorkflowRun)
+	r.Post("/api/workflows/runs/{runID}/kill", workflowHandler.KillWorkflowRun)
+
 	// Webhooks
 	r.Get("/api/webhooks", whHandler.ListWebhooks)
 	r.Post("/api/webhooks", whHandler.CreateWebhook)
@@ -458,6 +483,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/board/{project}/tasks/claim", boardHandler.ClaimTask)
 	r.Post("/api/board/{project}/tasks/{taskID}/complete", boardHandler.CompleteTaskByID)
 	r.Post("/api/board/{project}/tasks/{taskID}/cancel", boardHandler.CancelTaskByID)
+	r.Post("/api/board/{project}/tasks/{taskID}/reassign", boardHandler.ReassignTask)
 
 	// One-shot tasks
 	tasksHandler := routes.NewTasksHandler(s.db, s.cfg)

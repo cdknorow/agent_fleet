@@ -371,4 +371,39 @@ CREATE INDEX IF NOT EXISTS idx_git_changed_files_session
 
 CREATE INDEX IF NOT EXISTS idx_git_changed_files_agent
 	ON git_changed_files(agent_name);
+
+CREATE TABLE IF NOT EXISTS workflows (
+	id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+	name               TEXT NOT NULL UNIQUE,
+	description        TEXT DEFAULT '',
+	steps_json         TEXT NOT NULL DEFAULT '[]',
+	default_agent_json TEXT DEFAULT '',
+	repo_path          TEXT DEFAULT '',
+	base_branch        TEXT DEFAULT 'main',
+	max_duration_s     INTEGER NOT NULL DEFAULT 3600,
+	cleanup_worktree   INTEGER NOT NULL DEFAULT 1,
+	enabled            INTEGER NOT NULL DEFAULT 1,
+	created_at         TEXT NOT NULL,
+	updated_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	workflow_id     INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+	trigger_type    TEXT NOT NULL DEFAULT 'api',
+	trigger_context TEXT,
+	status          TEXT NOT NULL DEFAULT 'pending',
+	current_step    INTEGER NOT NULL DEFAULT 0,
+	step_results    TEXT NOT NULL DEFAULT '[]',
+	worktree_path   TEXT DEFAULT '',
+	started_at      TEXT,
+	finished_at     TEXT,
+	error_msg       TEXT,
+	created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow
+	ON workflow_runs(workflow_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status
+	ON workflow_runs(status);
 `

@@ -1,0 +1,593 @@
+package background
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/cdknorow/coral/internal/store"
+)
+
+// wfMockRuntime implements AgentRuntime for workflow runner testing.
+type wfMockRuntime struct {
+	alive    map[string]bool
+	spawned  []string
+	killed   []string
+}
+
+func newWfMockRuntime() *wfMockRuntime {
+	return &wfMockRuntime{alive: make(map[string]bool)}
+}
+
+func (m *wfMockRuntime) SpawnAgent(_ context.Context, name, _, _, _ string) error {
+	m.spawned = append(m.spawned, name)
+	m.alive[name] = true
+	return nil
+}
+func (m *wfMockRuntime) SendInput(_ context.Context, _, _ string) error { return nil }
+func (m *wfMockRuntime) KillAgent(_ context.Context, name string) error {
+	m.killed = append(m.killed, name)
+	delete(m.alive, name)
+	return nil
+}
+func (m *wfMockRuntime) IsAlive(_ context.Context, name string) bool { return m.alive[name] }
+func (m *wfMockRuntime) ListAgents(_ context.Context) ([]AgentInfo, error) { return nil, nil }
+
+func setupTestDB(t *testing.T) *store.DB {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func createTestWorkflow(t *testing.T, wfStore *store.WorkflowStore, repoPath string, stepsJSON string) *store.Workflow {
+	t.Helper()
+	wf := &store.Workflow{
+		Name:         "test-workflow",
+		Description:  "Test workflow",
+		StepsJSON:    stepsJSON,
+		RepoPath:     repoPath,
+		MaxDurationS: 60,
+		Enabled:      1,
+	}
+	created, err := wfStore.CreateWorkflow(context.Background(), wf)
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	return created
+}
+
+func TestExpandTemplates(t *testing.T) {
+	env := []string{
+		"CORAL_WORKFLOW_RUN_DIR=/tmp/runs/42",
+		"CORAL_WORKFLOW_RUN_ID=42",
+		"CORAL_WORKFLOW_STEP_DIR=/tmp/runs/42/step_1",
+		"CORAL_PREV_DIR=/tmp/runs/42/step_0",
+		"CORAL_PREV_STDOUT=/tmp/runs/42/step_0/stdout.txt",
+		"CORAL_PREV_STDERR=/tmp/runs/42/step_0/stderr.txt",
+		"CORAL_STEP_0_DIR=/tmp/runs/42/step_0",
+		"CORAL_STEP_0_STDOUT=/tmp/runs/42/step_0/stdout.txt",
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"run_dir", "{{run_dir}}", "/tmp/runs/42"},
+		{"run_id", "id={{run_id}}", "id=42"},
+		{"step_dir", "{{step_dir}}", "/tmp/runs/42/step_1"},
+		{"prev_stdout", "cat {{prev_stdout}}", "cat /tmp/runs/42/step_0/stdout.txt"},
+		{"step_N_dir", "{{step_0_dir}}", "/tmp/runs/42/step_0"},
+		{"step_N_stdout", "{{step_0_stdout}}", "/tmp/runs/42/step_0/stdout.txt"},
+		{"unknown", "{{unknown}}", "{{unknown}}"},
+		{"no templates", "echo hello", "echo hello"},
+		{"multiple", "{{run_dir}}/{{run_id}}", "/tmp/runs/42/42"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expandTemplates(tt.input, env)
+			if got != tt.expected {
+				t.Errorf("expandTemplates(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMergeAgentConfig(t *testing.T) {
+	t.Run("both nil", func(t *testing.T) {
+		if got := mergeAgentConfig(nil, nil); got != nil {
+			t.Errorf("expected nil, got %+v", got)
+		}
+	})
+
+	t.Run("default only", func(t *testing.T) {
+		def := &AgentStepConfig{AgentType: "claude", Model: "sonnet"}
+		got := mergeAgentConfig(def, nil)
+		if got.AgentType != "claude" || got.Model != "sonnet" {
+			t.Errorf("expected default values, got %+v", got)
+		}
+	})
+
+	t.Run("step only", func(t *testing.T) {
+		step := &AgentStepConfig{AgentType: "gemini"}
+		got := mergeAgentConfig(nil, step)
+		if got.AgentType != "gemini" {
+			t.Errorf("expected step values, got %+v", got)
+		}
+	})
+
+	t.Run("step overrides default", func(t *testing.T) {
+		def := &AgentStepConfig{AgentType: "claude", Model: "sonnet"}
+		step := &AgentStepConfig{Model: "opus"}
+		got := mergeAgentConfig(def, step)
+		if got.AgentType != "claude" || got.Model != "opus" {
+			t.Errorf("expected merged values, got %+v", got)
+		}
+	})
+}
+
+func TestBuildStepEnv(t *testing.T) {
+	wf := &store.Workflow{
+		Name:     "test-wf",
+		RepoPath: "/repo",
+	}
+	wr := &WorkflowRunner{}
+	runDir := "/repo/.coral/workflows/runs/1"
+	stepDir := "/repo/.coral/workflows/runs/1/step_2"
+
+	env := wr.buildStepEnv(wf, 1, runDir, 2, stepDir, 5)
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitFirst(e, '=')
+		envMap[parts[0]] = parts[1]
+	}
+
+	if envMap["CORAL_WORKFLOW_NAME"] != "test-wf" {
+		t.Error("missing CORAL_WORKFLOW_NAME")
+	}
+	if envMap["CORAL_WORKFLOW_RUN_DIR"] != runDir {
+		t.Error("bad CORAL_WORKFLOW_RUN_DIR")
+	}
+	if envMap["CORAL_WORKFLOW_STEP"] != "2" {
+		t.Error("bad CORAL_WORKFLOW_STEP")
+	}
+	if envMap["CORAL_PREV_DIR"] != "/repo/.coral/workflows/runs/1/step_1" {
+		t.Error("bad CORAL_PREV_DIR")
+	}
+	if _, ok := envMap["CORAL_STEP_0_DIR"]; !ok {
+		t.Error("missing CORAL_STEP_0_DIR")
+	}
+	if _, ok := envMap["CORAL_STEP_1_DIR"]; !ok {
+		t.Error("missing CORAL_STEP_1_DIR")
+	}
+}
+
+func TestBuildStepEnvStep0NoPrev(t *testing.T) {
+	wf := &store.Workflow{Name: "test", RepoPath: "/repo"}
+	wr := &WorkflowRunner{}
+	env := wr.buildStepEnv(wf, 1, "/rundir", 0, "/stepdir", 3)
+
+	for _, e := range env {
+		if len(e) > 10 && e[:10] == "CORAL_PREV" {
+			t.Errorf("step 0 should not have CORAL_PREV_* env vars, got %s", e)
+		}
+	}
+}
+
+func TestListStepFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "stdout.txt"), []byte("out"), 0644)
+	os.WriteFile(filepath.Join(dir, "stderr.txt"), []byte("err"), 0644)
+	os.MkdirAll(filepath.Join(dir, "artifacts"), 0755)
+	os.WriteFile(filepath.Join(dir, "artifacts", "report.json"), []byte("{}"), 0644)
+
+	files := listStepFiles(dir)
+	if len(files) != 3 {
+		t.Fatalf("expected 3 files, got %d: %v", len(files), files)
+	}
+
+	has := map[string]bool{}
+	for _, f := range files {
+		has[f] = true
+	}
+	for _, expected := range []string{"stdout.txt", "stderr.txt", "artifacts/report.json"} {
+		if !has[expected] {
+			t.Errorf("missing expected file %s in %v", expected, files)
+		}
+	}
+}
+
+func TestReadTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "output.txt")
+	lines := make([]string, 200)
+	for i := range lines {
+		lines[i] = "line " + strconv.Itoa(i)
+	}
+	os.WriteFile(path, []byte(joinLines(lines)), 0644)
+
+	tail := readTail(path, 5)
+	if tail == "" {
+		t.Fatal("expected non-empty tail")
+	}
+	// Should contain the last few lines
+	if !containsStr(tail, "line 199") {
+		t.Errorf("expected tail to contain 'line 199', got %q", tail)
+	}
+}
+
+func TestShellStepExecution(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "echo", Type: "shell", Command: "echo hello world"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+
+	trigger := "api"
+	run, err := runner.TriggerWorkflow(context.Background(), wf, trigger, nil)
+	if err != nil {
+		t.Fatalf("trigger workflow: %v", err)
+	}
+
+	// Wait for execution to complete
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		r, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+		if r != nil && (r.Status == "completed" || r.Status == "failed") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	finalRun, err := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if finalRun.Status != "completed" {
+		t.Errorf("expected completed, got %s (error: %v)", finalRun.Status, finalRun.ErrorMsg)
+	}
+
+	// Verify stdout was captured
+	stdoutPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "stdout.txt")
+	content, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if got := string(content); got != "hello world\n" {
+		t.Errorf("stdout = %q, want %q", got, "hello world\n")
+	}
+
+	// Verify step results
+	var results []StepResult
+	json.Unmarshal([]byte(finalRun.StepResults), &results)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Status != "completed" {
+		t.Errorf("step status = %s, want completed", results[0].Status)
+	}
+	if results[0].ExitCode == nil || *results[0].ExitCode != 0 {
+		t.Errorf("step exit_code = %v, want 0", results[0].ExitCode)
+	}
+}
+
+func TestShellStepFailure(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "fail", Type: "shell", Command: "exit 1"},
+		{Name: "skip", Type: "shell", Command: "echo should not run"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	waitForRun(t, wfStore, run.ID, 10*time.Second)
+
+	finalRun, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	if finalRun.Status != "failed" {
+		t.Errorf("expected failed, got %s", finalRun.Status)
+	}
+
+	var results []StepResult
+	json.Unmarshal([]byte(finalRun.StepResults), &results)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Status != "failed" {
+		t.Errorf("step 0 status = %s, want failed", results[0].Status)
+	}
+	if results[1].Status != "skipped" {
+		t.Errorf("step 1 status = %s, want skipped", results[1].Status)
+	}
+}
+
+func TestShellStepContinueOnFailure(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "fail", Type: "shell", Command: "exit 1", ContinueOnFailure: true},
+		{Name: "continue", Type: "shell", Command: "echo continued"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	waitForRun(t, wfStore, run.ID, 10*time.Second)
+
+	finalRun, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	if finalRun.Status != "completed" {
+		t.Errorf("expected completed, got %s", finalRun.Status)
+	}
+
+	var results []StepResult
+	json.Unmarshal([]byte(finalRun.StepResults), &results)
+	if results[0].Status != "failed" {
+		t.Errorf("step 0 status = %s, want failed", results[0].Status)
+	}
+	if results[1].Status != "completed" {
+		t.Errorf("step 1 status = %s, want completed", results[1].Status)
+	}
+}
+
+func TestMultiStepWithTemplates(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "produce", Type: "shell", Command: "echo test-output"},
+		{Name: "consume", Type: "shell", Command: "cat {{prev_stdout}}"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	waitForRun(t, wfStore, run.ID, 10*time.Second)
+
+	finalRun, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	if finalRun.Status != "completed" {
+		t.Errorf("expected completed, got %s (error: %v)", finalRun.Status, finalRun.ErrorMsg)
+	}
+
+	// Step 1 should have consumed step 0's output
+	step1Stdout := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_1", "stdout.txt")
+	content, err := os.ReadFile(step1Stdout)
+	if err != nil {
+		t.Fatalf("read step 1 stdout: %v", err)
+	}
+	if got := string(content); got != "test-output\n" {
+		t.Errorf("step 1 stdout = %q, want %q", got, "test-output\n")
+	}
+}
+
+func TestKillRun(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "slow", Type: "shell", Command: "sleep 60"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	// Wait for run to start
+	time.Sleep(500 * time.Millisecond)
+
+	killed := runner.KillRun(context.Background(), run.ID)
+	if !killed {
+		t.Error("expected kill to return true")
+	}
+
+	// Wait a bit for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	finalRun, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	if finalRun.Status != "killed" {
+		t.Errorf("expected killed, got %s", finalRun.Status)
+	}
+}
+
+func TestArtifactDirectoryCreation(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "write-artifact", Type: "shell", Command: "echo report > $CORAL_WORKFLOW_STEP_DIR/artifacts/report.txt"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	waitForRun(t, wfStore, run.ID, 10*time.Second)
+
+	// Check artifact file exists
+	artifactPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "artifacts", "report.txt")
+	if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
+		t.Error("expected artifact file to exist")
+	}
+
+	// Check step results include the artifact file
+	finalRun, _ := wfStore.GetWorkflowRunDirect(context.Background(), run.ID)
+	var results []StepResult
+	json.Unmarshal([]byte(finalRun.StepResults), &results)
+
+	has := false
+	for _, f := range results[0].Files {
+		if f == "artifacts/report.txt" {
+			has = true
+		}
+	}
+	if !has {
+		t.Errorf("expected artifacts/report.txt in files list, got %v", results[0].Files)
+	}
+}
+
+func TestContextJSON(t *testing.T) {
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	rt := newWfMockRuntime()
+	launcher := &AgentLauncher{runtime: rt}
+	runner := NewWorkflowRunner(wfStore, launcher, rt)
+
+	repoPath := t.TempDir()
+	steps := []StepDef{
+		{Name: "noop", Type: "shell", Command: "true"},
+	}
+	stepsJSON, _ := json.Marshal(steps)
+
+	wf := createTestWorkflow(t, wfStore, repoPath, string(stepsJSON))
+	run, err := runner.TriggerWorkflow(context.Background(), wf, "api", nil)
+	if err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	waitForRun(t, wfStore, run.ID, 10*time.Second)
+
+	contextPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "context.json")
+	data, err := os.ReadFile(contextPath)
+	if err != nil {
+		t.Fatalf("read context.json: %v", err)
+	}
+
+	var ctx map[string]interface{}
+	if err := json.Unmarshal(data, &ctx); err != nil {
+		t.Fatalf("parse context.json: %v", err)
+	}
+	if ctx["workflow_name"] != "test-workflow" {
+		t.Errorf("context workflow_name = %v, want test-workflow", ctx["workflow_name"])
+	}
+}
+
+// --- helpers ---
+
+func waitForRun(t *testing.T, wfStore *store.WorkflowStore, runID int64, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		r, _ := wfStore.GetWorkflowRunDirect(context.Background(), runID)
+		if r != nil && r.Status != "pending" && r.Status != "running" {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("run %d did not finish within %v", runID, timeout)
+}
+
+func splitFirst(s string, sep byte) [2]string {
+	idx := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == sep {
+			idx = i
+			break
+		}
+	}
+	return [2]string{s[:idx], s[idx+1:]}
+}
+
+func joinLines(lines []string) string {
+	result := ""
+	for _, l := range lines {
+		result += l + "\n"
+	}
+	return result
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	for _, l := range splitByNewline(s) {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func splitByNewline(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		result = append(result, s[start:])
+	}
+	return result
+}

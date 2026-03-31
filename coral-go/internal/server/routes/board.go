@@ -593,11 +593,11 @@ func (h *BoardHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		var notification string
 		if task.AssignedTo != nil && *task.AssignedTo != "" {
-			notification = fmt.Sprintf("@%s [New Task #%d (%s)] %s — run 'coral-board task claim' to pick it up", *task.AssignedTo, task.ID, task.Priority, task.Title)
+			notification = fmt.Sprintf("@%s [Task #%d (%s)] %s — assigned to you, run 'coral-board task claim' to start", *task.AssignedTo, task.ID, task.Priority, task.Title)
 		} else {
 			notification = fmt.Sprintf("@notify-all [New Task #%d (%s)] %s — run 'coral-board task claim' to pick it up", task.ID, task.Priority, task.Title)
 		}
-		h.bs.PostMessage(context.Background(), project, "", notification, nil)
+		h.bs.PostMessage(context.Background(), project, "Task Queue", notification, nil)
 	}()
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -641,7 +641,7 @@ func (h *BoardHandler) ClaimTask(w http.ResponseWriter, r *http.Request) {
 	// Post board notification asynchronously to avoid DB contention
 	go func() {
 		notification := fmt.Sprintf("[Task #%d claimed by %s] %s", task.ID, body.SubscriberID, task.Title)
-		h.bs.PostMessage(context.Background(), project, "", notification, nil)
+		h.bs.PostMessage(context.Background(), project, "Task Queue", notification, nil)
 	}()
 	writeJSON(w, http.StatusOK, task)
 }
@@ -679,7 +679,7 @@ func (h *BoardHandler) CompleteTaskByID(w http.ResponseWriter, r *http.Request) 
 			msg = *body.Message
 		}
 		notification := fmt.Sprintf("[Task #%d completed by %s] %s", task.ID, body.SubscriberID, msg)
-		h.bs.PostMessage(context.Background(), project, "", notification, nil)
+		h.bs.PostMessage(context.Background(), project, "Task Queue", notification, nil)
 	}()
 	writeJSON(w, http.StatusOK, task)
 }
@@ -712,7 +712,41 @@ func (h *BoardHandler) CancelTaskByID(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		notification := fmt.Sprintf("[Task #%d cancelled by %s] %s", task.ID, body.SubscriberID, task.Title)
-		h.bs.PostMessage(context.Background(), project, "", notification, nil)
+		h.bs.PostMessage(context.Background(), project, "Task Queue", notification, nil)
+	}()
+	writeJSON(w, http.StatusOK, task)
+}
+
+// ReassignTask resets a task to pending with an optional new assignee.
+// POST /api/board/{project}/tasks/{taskID}/reassign
+func (h *BoardHandler) ReassignTask(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "taskID"), 10, 64)
+	if err != nil {
+		errBadRequest(w, "invalid task ID")
+		return
+	}
+	var body struct {
+		SubscriberID string `json:"subscriber_id"`
+		Assignee     string `json:"assignee"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+	task, err := h.bs.ReassignTask(r.Context(), project, taskID, body.Assignee)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	go func() {
+		var notification string
+		if body.Assignee != "" {
+			notification = fmt.Sprintf("@%s [Task #%d reassigned to you] %s — run 'coral-board task claim' to start", body.Assignee, task.ID, task.Title)
+		} else {
+			notification = fmt.Sprintf("@notify-all [Task #%d reassigned — now unassigned] %s — run 'coral-board task claim' to pick it up", task.ID, task.Title)
+		}
+		h.bs.PostMessage(context.Background(), project, "Task Queue", notification, nil)
 	}()
 	writeJSON(w, http.StatusOK, task)
 }

@@ -1,0 +1,674 @@
+// Package background — workflow_runner.go provides the workflow execution engine.
+// It runs multi-step workflows (shell commands + agent prompts) sequentially,
+// capturing output, managing timeouts, and tracking progress in the database.
+package background
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/cdknorow/coral/internal/store"
+)
+
+// StepDef represents a single step definition parsed from the workflow's steps_json.
+type StepDef struct {
+	Name              string           `json:"name"`
+	Type              string           `json:"type"` // "shell" or "agent"
+	Command           string           `json:"command,omitempty"`
+	Prompt            string           `json:"prompt,omitempty"`
+	TimeoutS          int              `json:"timeout_s,omitempty"`
+	ContinueOnFailure bool             `json:"continue_on_failure,omitempty"`
+	Agent             *AgentStepConfig `json:"agent,omitempty"`
+}
+
+// AgentStepConfig holds the agent configuration for an agent step.
+type AgentStepConfig struct {
+	AgentType    string            `json:"agent_type,omitempty"`
+	Model        string            `json:"model,omitempty"`
+	Capabilities json.RawMessage   `json:"capabilities,omitempty"`
+	Tools        []string          `json:"tools,omitempty"`
+	MCPServers   json.RawMessage   `json:"mcpServers,omitempty"`
+	Flags        []string          `json:"flags,omitempty"`
+}
+
+// StepResult tracks the outcome of a single step execution.
+type StepResult struct {
+	Index       int     `json:"index"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Status      string  `json:"status"` // pending, running, completed, failed, skipped
+	ExitCode    *int    `json:"exit_code,omitempty"`
+	OutputTail  string  `json:"output_tail,omitempty"`
+	SessionID   string  `json:"session_id,omitempty"`
+	SessionName string  `json:"session_name,omitempty"`
+	Files       []string `json:"files"`
+	StartedAt   *string `json:"started_at,omitempty"`
+	FinishedAt  *string `json:"finished_at,omitempty"`
+}
+
+// activeChild tracks the currently executing process or session for kill dispatch.
+type activeChild struct {
+	stepType    string    // "shell" or "agent"
+	cmd         *exec.Cmd // non-nil for shell steps
+	sessionName string    // non-empty for agent steps
+}
+
+// WorkflowRunner executes workflow runs step-by-step.
+type WorkflowRunner struct {
+	store    *store.WorkflowStore
+	launcher *AgentLauncher
+	runtime  AgentRuntime
+	logger   *slog.Logger
+
+	// mu protects activeChildren and runCancels
+	mu             sync.Mutex
+	activeChildren map[int64]*activeChild    // runID -> active child
+	runCancels     map[int64]context.CancelFunc // runID -> cancel func
+}
+
+// NewWorkflowRunner creates a new WorkflowRunner.
+func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime) *WorkflowRunner {
+	return &WorkflowRunner{
+		store:          wfStore,
+		launcher:       launcher,
+		runtime:        runtime,
+		logger:         slog.Default().With("service", "workflow_runner"),
+		activeChildren: make(map[int64]*activeChild),
+		runCancels:     make(map[int64]context.CancelFunc),
+	}
+}
+
+// TriggerWorkflow creates a run record and starts execution in a goroutine.
+// Returns the created run. Callers can track progress via GetWorkflowRun.
+func (wr *WorkflowRunner) TriggerWorkflow(ctx context.Context, workflow *store.Workflow, triggerType string, triggerContext *string) (*store.WorkflowRun, error) {
+	run, err := wr.store.CreateWorkflowRun(ctx, workflow.ID, triggerType, triggerContext)
+	if err != nil {
+		return nil, fmt.Errorf("create workflow run: %w", err)
+	}
+
+	go wr.executeRun(run.ID, workflow)
+	return run, nil
+}
+
+// KillRun terminates a running workflow. Returns true if the run was killed.
+func (wr *WorkflowRunner) KillRun(ctx context.Context, runID int64) bool {
+	run, err := wr.store.GetWorkflowRunDirect(ctx, runID)
+	if err != nil || run == nil {
+		return false
+	}
+	if run.Status != "pending" && run.Status != "running" {
+		return false
+	}
+
+	wr.mu.Lock()
+	child := wr.activeChildren[runID]
+	cancel := wr.runCancels[runID]
+	wr.mu.Unlock()
+
+	// Kill the active child based on step type
+	if child != nil {
+		switch child.stepType {
+		case "shell":
+			if child.cmd != nil && child.cmd.Process != nil {
+				// Send SIGTERM to process group
+				pgid := child.cmd.Process.Pid
+				syscall.Kill(-pgid, syscall.SIGTERM)
+				// Wait up to 5s, then SIGKILL
+				done := make(chan struct{})
+				go func() {
+					child.cmd.Wait()
+					close(done)
+				}()
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					syscall.Kill(-pgid, syscall.SIGKILL)
+				}
+			}
+		case "agent":
+			if child.sessionName != "" && wr.runtime != nil {
+				wr.runtime.KillAgent(ctx, child.sessionName)
+			}
+		}
+	}
+
+	// Cancel the run's context to stop the execution loop
+	if cancel != nil {
+		cancel()
+	}
+
+	// Mark remaining steps as skipped and run as killed
+	wr.markRunKilled(ctx, runID)
+	return true
+}
+
+// executeRun is the main execution loop for a workflow run.
+func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(workflow.MaxDurationS)*time.Second)
+	defer cancel()
+
+	wr.mu.Lock()
+	wr.runCancels[runID] = cancel
+	wr.mu.Unlock()
+
+	defer func() {
+		wr.mu.Lock()
+		delete(wr.runCancels, runID)
+		delete(wr.activeChildren, runID)
+		wr.mu.Unlock()
+	}()
+
+	// Parse step definitions
+	var steps []StepDef
+	if err := json.Unmarshal([]byte(workflow.StepsJSON), &steps); err != nil {
+		errMsg := fmt.Sprintf("failed to parse steps: %v", err)
+		wr.store.SetRunStatus(ctx, runID, "failed", &errMsg)
+		return
+	}
+
+	// Parse default agent config
+	var defaultAgent *AgentStepConfig
+	if workflow.DefaultAgentJSON != "" {
+		defaultAgent = &AgentStepConfig{}
+		if err := json.Unmarshal([]byte(workflow.DefaultAgentJSON), defaultAgent); err != nil {
+			errMsg := fmt.Sprintf("failed to parse default_agent: %v", err)
+			wr.store.SetRunStatus(ctx, runID, "failed", &errMsg)
+			return
+		}
+	}
+
+	// Create the run directory
+	runDir := filepath.Join(workflow.RepoPath, ".coral", "workflows", "runs", strconv.FormatInt(runID, 10))
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		errMsg := fmt.Sprintf("failed to create run directory: %v", err)
+		wr.store.SetRunStatus(ctx, runID, "failed", &errMsg)
+		return
+	}
+
+	// Write context.json
+	contextData, _ := json.MarshalIndent(map[string]interface{}{
+		"workflow_name": workflow.Name,
+		"workflow_id":   workflow.ID,
+		"run_id":        runID,
+		"steps":         steps,
+	}, "", "  ")
+	os.WriteFile(filepath.Join(runDir, "context.json"), contextData, 0644)
+
+	// Initialize step results
+	results := make([]StepResult, len(steps))
+	for i, step := range steps {
+		results[i] = StepResult{
+			Index:  i,
+			Name:   step.Name,
+			Type:   step.Type,
+			Status: "pending",
+			Files:  []string{},
+		}
+	}
+
+	// Mark run as running
+	wr.store.SetRunStatus(ctx, runID, "running", nil)
+	wr.persistResults(ctx, runID, 0, results)
+
+	// Execute steps sequentially
+	for i, step := range steps {
+		// Check if context is cancelled (timeout or kill)
+		if ctx.Err() != nil {
+			// Mark remaining steps as skipped
+			for j := i; j < len(steps); j++ {
+				results[j].Status = "skipped"
+			}
+			wr.persistResults(ctx, runID, i, results)
+
+			status := "killed"
+			var errMsg *string
+			if ctx.Err() == context.DeadlineExceeded {
+				msg := "workflow timeout exceeded"
+				errMsg = &msg
+			}
+			wr.store.SetRunStatus(context.Background(), runID, status, errMsg)
+			return
+		}
+
+		// Create step directory
+		stepDir := filepath.Join(runDir, fmt.Sprintf("step_%d", i))
+		os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0755)
+
+		// Build environment variables
+		env := wr.buildStepEnv(workflow, runID, runDir, i, stepDir, len(steps))
+
+		// Mark step as running
+		now := time.Now().UTC().Format(isoFormat)
+		results[i].Status = "running"
+		results[i].StartedAt = &now
+		wr.persistResults(ctx, runID, i, results)
+
+		// Execute step
+		var stepErr error
+		switch step.Type {
+		case "shell":
+			stepErr = wr.executeShellStep(ctx, runID, step, stepDir, workflow.RepoPath, env, &results[i])
+		case "agent":
+			stepErr = wr.executeAgentStep(ctx, runID, step, stepDir, workflow.RepoPath, env, defaultAgent, &results[i])
+		default:
+			stepErr = fmt.Errorf("unknown step type: %s", step.Type)
+		}
+
+		// Record step completion
+		finishedAt := time.Now().UTC().Format(isoFormat)
+		results[i].FinishedAt = &finishedAt
+
+		// List files in step directory
+		results[i].Files = listStepFiles(stepDir)
+
+		if stepErr != nil {
+			results[i].Status = "failed"
+			wr.persistResults(ctx, runID, i, results)
+
+			if !step.ContinueOnFailure {
+				// Skip remaining steps
+				for j := i + 1; j < len(steps); j++ {
+					results[j].Status = "skipped"
+				}
+				wr.persistResults(ctx, runID, i, results)
+				errMsg := fmt.Sprintf("step %d (%s) failed: %v", i, step.Name, stepErr)
+				wr.store.SetRunStatus(context.Background(), runID, "failed", &errMsg)
+				return
+			}
+		} else {
+			results[i].Status = "completed"
+		}
+
+		wr.persistResults(ctx, runID, i, results)
+	}
+
+	// All steps completed
+	wr.store.SetRunStatus(context.Background(), runID, "completed", nil)
+}
+
+// executeShellStep runs a shell command, capturing stdout/stderr.
+func (wr *WorkflowRunner) executeShellStep(ctx context.Context, runID int64, step StepDef, stepDir, repoPath string, env []string, result *StepResult) error {
+	timeout := step.TimeoutS
+	if timeout <= 0 {
+		timeout = 300 // default 5 min for shell
+	}
+	stepCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	// Expand template variables in the command for agent prompt convenience,
+	// but use pre-computed absolute paths only (no user-controlled content).
+	command := expandTemplates(step.Command, env)
+
+	cmd := exec.CommandContext(stepCtx, "sh", "-c", command)
+	cmd.Dir = repoPath
+	cmd.Env = append(os.Environ(), env...)
+	// Set process group for clean kill
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Capture stdout and stderr to files
+	stdoutFile, err := os.Create(filepath.Join(stepDir, "stdout.txt"))
+	if err != nil {
+		return fmt.Errorf("create stdout file: %w", err)
+	}
+	defer stdoutFile.Close()
+
+	stderrFile, err := os.Create(filepath.Join(stepDir, "stderr.txt"))
+	if err != nil {
+		return fmt.Errorf("create stderr file: %w", err)
+	}
+	defer stderrFile.Close()
+
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stderrFile
+
+	// Track active child for kill
+	wr.mu.Lock()
+	wr.activeChildren[runID] = &activeChild{stepType: "shell", cmd: cmd}
+	wr.mu.Unlock()
+
+	err = cmd.Run()
+
+	wr.mu.Lock()
+	delete(wr.activeChildren, runID)
+	wr.mu.Unlock()
+
+	// Write exit code
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	result.ExitCode = &exitCode
+	os.WriteFile(filepath.Join(stepDir, "exit_code"), []byte(strconv.Itoa(exitCode)), 0644)
+
+	// Capture output tail for the result
+	result.OutputTail = readTail(filepath.Join(stepDir, "stdout.txt"), 100)
+
+	if exitCode != 0 {
+		return fmt.Errorf("exit code %d", exitCode)
+	}
+	return nil
+}
+
+// executeAgentStep launches an agent with a prompt and waits for it to finish.
+func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, step StepDef, stepDir, repoPath string, env []string, defaultAgent *AgentStepConfig, result *StepResult) error {
+	timeout := step.TimeoutS
+	if timeout <= 0 {
+		timeout = 600 // default 10 min for agent
+	}
+	stepCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	// Resolve agent config: step overrides default
+	agentCfg := mergeAgentConfig(defaultAgent, step.Agent)
+	if agentCfg == nil || agentCfg.AgentType == "" {
+		return fmt.Errorf("agent step missing agent_type")
+	}
+
+	// Expand template variables in prompt (safe — not shell-interpreted)
+	prompt := expandTemplates(step.Prompt, env)
+
+	// Build flags
+	var flags []string
+	if agentCfg.Model != "" {
+		flags = append(flags, "--model", agentCfg.Model)
+	}
+	flags = append(flags, agentCfg.Flags...)
+
+	// Launch agent
+	displayName := fmt.Sprintf("workflow-run-%d-step-%s", runID, step.Name)
+	launchResult, err := wr.launcher.LaunchAgent(
+		stepCtx, repoPath, agentCfg.AgentType, displayName,
+		"", flags, true, prompt, "", "",
+	)
+	if err != nil {
+		return fmt.Errorf("launch agent: %w", err)
+	}
+
+	result.SessionID = launchResult.SessionID
+	result.SessionName = launchResult.SessionName
+
+	// Track active child for kill
+	wr.mu.Lock()
+	wr.activeChildren[runID] = &activeChild{stepType: "agent", sessionName: launchResult.SessionName}
+	wr.mu.Unlock()
+
+	// Send prompt after initialization delay
+	go func() {
+		sendCtx := context.Background()
+		wr.launcher.SendPrompt(sendCtx, launchResult.SessionID, launchResult.SessionName, agentCfg.AgentType, prompt)
+	}()
+
+	// Poll for session completion — 5s interval for workflow steps
+	err = wr.watchSessionFast(stepCtx, launchResult.SessionName)
+
+	wr.mu.Lock()
+	delete(wr.activeChildren, runID)
+	wr.mu.Unlock()
+
+	if err != nil {
+		return fmt.Errorf("agent session: %w", err)
+	}
+	return nil
+}
+
+// watchSessionFast polls for session existence every 5 seconds (faster than default 30s).
+func (wr *WorkflowRunner) watchSessionFast(ctx context.Context, sessionName string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if !wr.runtime.IsAlive(context.Background(), sessionName) {
+				return nil
+			}
+		}
+	}
+}
+
+// markRunKilled marks remaining pending steps as skipped and the run as killed.
+func (wr *WorkflowRunner) markRunKilled(ctx context.Context, runID int64) {
+	run, err := wr.store.GetWorkflowRunDirect(context.Background(), runID)
+	if err != nil || run == nil {
+		return
+	}
+
+	var results []StepResult
+	if run.StepResults != "" && run.StepResults != "[]" {
+		json.Unmarshal([]byte(run.StepResults), &results)
+	}
+
+	now := time.Now().UTC().Format(isoFormat)
+	for i := range results {
+		if results[i].Status == "pending" || results[i].Status == "running" {
+			results[i].Status = "skipped"
+			results[i].FinishedAt = &now
+		}
+	}
+
+	resultsJSON, _ := json.Marshal(results)
+	wr.store.UpdateStepResults(context.Background(), runID, run.CurrentStep, string(resultsJSON))
+	wr.store.SetRunStatus(context.Background(), runID, "killed", nil)
+}
+
+// persistResults marshals step results to JSON and updates the database.
+func (wr *WorkflowRunner) persistResults(ctx context.Context, runID int64, currentStep int, results []StepResult) {
+	resultsJSON, err := json.Marshal(results)
+	if err != nil {
+		wr.logger.Error("failed to marshal step results", "run_id", runID, "error", err)
+		return
+	}
+	if err := wr.store.UpdateStepResults(ctx, runID, currentStep, string(resultsJSON)); err != nil {
+		wr.logger.Error("failed to persist step results", "run_id", runID, "error", err)
+	}
+}
+
+// buildStepEnv constructs environment variables for a workflow step.
+func (wr *WorkflowRunner) buildStepEnv(workflow *store.Workflow, runID int64, runDir string, stepIndex int, stepDir string, totalSteps int) []string {
+	runIDStr := strconv.FormatInt(runID, 10)
+	env := []string{
+		"CORAL_WORKFLOW_RUN_DIR=" + runDir,
+		"CORAL_WORKFLOW_STEP=" + strconv.Itoa(stepIndex),
+		"CORAL_WORKFLOW_STEP_DIR=" + stepDir,
+		"CORAL_WORKFLOW_NAME=" + workflow.Name,
+		"CORAL_WORKFLOW_RUN_ID=" + runIDStr,
+		"CORAL_WORKFLOW_REPO_PATH=" + workflow.RepoPath,
+	}
+
+	// Previous step references
+	if stepIndex > 0 {
+		prevDir := filepath.Join(runDir, fmt.Sprintf("step_%d", stepIndex-1))
+		env = append(env,
+			"CORAL_PREV_DIR="+prevDir,
+			"CORAL_PREV_STDOUT="+filepath.Join(prevDir, "stdout.txt"),
+			"CORAL_PREV_STDERR="+filepath.Join(prevDir, "stderr.txt"),
+		)
+	}
+
+	// All previous step directories as CORAL_STEP_N_DIR / CORAL_STEP_N_STDOUT
+	for n := 0; n < stepIndex; n++ {
+		nDir := filepath.Join(runDir, fmt.Sprintf("step_%d", n))
+		env = append(env,
+			fmt.Sprintf("CORAL_STEP_%d_DIR=%s", n, nDir),
+			fmt.Sprintf("CORAL_STEP_%d_STDOUT=%s", n, filepath.Join(nDir, "stdout.txt")),
+		)
+	}
+
+	return env
+}
+
+// templatePattern matches {{variable_name}} patterns for template expansion.
+var templatePattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
+
+// envKeyForTemplate maps template variable names to their environment variable equivalents.
+var envKeyForTemplate = map[string]string{
+	"run_dir":     "CORAL_WORKFLOW_RUN_DIR",
+	"run_id":      "CORAL_WORKFLOW_RUN_ID",
+	"step_dir":    "CORAL_WORKFLOW_STEP_DIR",
+	"prev_dir":    "CORAL_PREV_DIR",
+	"prev_stdout": "CORAL_PREV_STDOUT",
+	"prev_stderr": "CORAL_PREV_STDERR",
+}
+
+// stepNPattern matches {{step_N_dir}} and {{step_N_stdout}} patterns.
+var stepNPattern = regexp.MustCompile(`^step_(\d+)_(dir|stdout)$`)
+
+// expandTemplates replaces {{var}} placeholders with values from environment variables.
+// This uses pre-computed absolute paths — no user-controlled content is interpolated.
+func expandTemplates(text string, env []string) string {
+	// Build lookup from env slice
+	envMap := make(map[string]string, len(env))
+	for _, e := range env {
+		if idx := strings.IndexByte(e, '='); idx >= 0 {
+			envMap[e[:idx]] = e[idx+1:]
+		}
+	}
+
+	return templatePattern.ReplaceAllStringFunc(text, func(match string) string {
+		varName := match[2 : len(match)-2] // strip {{ and }}
+
+		// Check direct mapping
+		if envKey, ok := envKeyForTemplate[varName]; ok {
+			if val, found := envMap[envKey]; found {
+				return val
+			}
+			return match // leave unexpanded if env var not set
+		}
+
+		// Check step_N_dir / step_N_stdout patterns
+		if m := stepNPattern.FindStringSubmatch(varName); m != nil {
+			suffix := "DIR"
+			if m[2] == "stdout" {
+				suffix = "STDOUT"
+			}
+			envKey := fmt.Sprintf("CORAL_STEP_%s_%s", m[1], suffix)
+			if val, found := envMap[envKey]; found {
+				return val
+			}
+			return match
+		}
+
+		return match // unknown template, leave as-is
+	})
+}
+
+// mergeAgentConfig merges step-level agent config over workflow-level default.
+// Step fields take precedence.
+func mergeAgentConfig(defaultCfg, stepCfg *AgentStepConfig) *AgentStepConfig {
+	if defaultCfg == nil && stepCfg == nil {
+		return nil
+	}
+	if defaultCfg == nil {
+		return stepCfg
+	}
+	if stepCfg == nil {
+		// Return a copy of default
+		copy := *defaultCfg
+		return &copy
+	}
+
+	// Merge: step overrides default
+	merged := *defaultCfg
+	if stepCfg.AgentType != "" {
+		merged.AgentType = stepCfg.AgentType
+	}
+	if stepCfg.Model != "" {
+		merged.Model = stepCfg.Model
+	}
+	if stepCfg.Capabilities != nil {
+		merged.Capabilities = stepCfg.Capabilities
+	}
+	if len(stepCfg.Tools) > 0 {
+		merged.Tools = stepCfg.Tools
+	}
+	if stepCfg.MCPServers != nil {
+		merged.MCPServers = stepCfg.MCPServers
+	}
+	if len(stepCfg.Flags) > 0 {
+		merged.Flags = stepCfg.Flags
+	}
+	return &merged
+}
+
+// readTail reads the last N lines from a file.
+func readTail(path string, maxLines int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// listStepFiles returns relative file paths found in a step directory.
+func listStepFiles(stepDir string) []string {
+	var files []string
+	filepath.Walk(stepDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(stepDir, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if files == nil {
+		return []string{}
+	}
+	return files
+}
+
+// IsRunActive returns true if the given run ID is currently being executed.
+func (wr *WorkflowRunner) IsRunActive(runID int64) bool {
+	wr.mu.Lock()
+	defer wr.mu.Unlock()
+	_, ok := wr.runCancels[runID]
+	return ok
+}
+
+// readFile is a helper to read a file's contents as a string.
+func readFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// captureOutput copies from a reader to both a file and an in-memory buffer.
+func captureOutput(r io.Reader, filePath string) (string, error) {
+	f, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	f.Write(data)
+	return string(data), nil
+}

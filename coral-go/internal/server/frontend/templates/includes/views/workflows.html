@@ -1,0 +1,75 @@
+{{ define "includes/views/workflows.html" }}
+<!-- Workflows View -->
+<div id="workflows-view" class="workflows-view" style="display:none">
+    <div class="wf-header">
+        <div class="wf-header-left">
+            <h2 id="wf-title">Workflows</h2>
+            <span class="wf-count-badge" id="wf-count-badge"></span>
+        </div>
+        <div class="wf-header-actions">
+            <button class="btn btn-sm" id="wf-back-btn" style="display:none" onclick="workflowsBackToList()">
+                <span class="material-icons" style="font-size:16px">arrow_back</span> Back
+            </button>
+            <button class="btn btn-sm btn-primary" id="wf-create-btn" onclick="showWorkflowCreateModal()">
+                <span class="material-icons" style="font-size:16px">add</span> New Workflow
+            </button>
+        </div>
+    </div>
+
+    <!-- Workflow List -->
+    <div id="wf-list-container" class="wf-list-container">
+        <div class="wf-empty" id="wf-list-empty">
+            <span class="material-icons wf-empty-icon">account_tree</span>
+            <p>No workflows yet</p>
+            <span class="wf-empty-hint">Create a multi-step automation to chain shell commands and AI agents.</span>
+        </div>
+        <div class="wf-list" id="wf-list"></div>
+    </div>
+
+    <!-- Workflow Detail (single workflow) -->
+    <div id="wf-detail-container" class="wf-detail-container" style="display:none">
+        <div id="wf-detail"></div>
+    </div>
+
+    <!-- Run Detail -->
+    <div id="wf-run-detail-container" class="wf-run-detail-container" style="display:none">
+        <div id="wf-run-detail"></div>
+    </div>
+</div>
+
+<!-- Create/Edit Workflow Modal -->
+<div id="wf-create-modal" class="modal" style="display:none" onclick="if(event.target===this)hideWorkflowCreateModal()">
+    <div class="modal-content modal-content-extra-wide">
+        <div class="modal-header">
+            <h3 id="wf-modal-title">Create Workflow</h3>
+            <button class="modal-close" onclick="hideWorkflowCreateModal()">&times;</button>
+        </div>
+        <div class="modal-body wf-modal-body">
+            <label class="wf-label">Name <span class="wf-hint">(letters, numbers, hyphens, underscores)</span></label>
+            <input type="text" id="wf-input-name" class="wf-input" placeholder="lint-and-fix" pattern="[a-zA-Z0-9_-]+">
+
+            <label class="wf-label">Description</label>
+            <input type="text" id="wf-input-desc" class="wf-input" placeholder="Run linter, fix issues, verify fix">
+
+            <label class="wf-label">Repository Path</label>
+            <input type="text" id="wf-input-repo" class="wf-input" placeholder="/Users/dev/myproject">
+
+            <label class="wf-label">Max Duration (seconds)</label>
+            <input type="number" id="wf-input-max-dur" class="wf-input" value="3600" min="1" max="86400">
+
+            <label class="wf-label">Steps</label>
+            <div id="wf-steps-editor" class="wf-steps-editor"></div>
+            <button class="btn btn-sm wf-add-step-btn" onclick="workflowAddStep()">
+                <span class="material-icons" style="font-size:14px">add</span> Add Step
+            </button>
+
+            <div id="wf-modal-error" class="wf-modal-error" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="hideWorkflowCreateModal()">Cancel</button>
+            <button class="btn btn-primary" id="wf-modal-save" onclick="saveWorkflow()">Create</button>
+        </div>
+    </div>
+</div>
+
+{{ end }}

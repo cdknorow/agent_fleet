@@ -56,6 +56,7 @@
             <button class="top-nav-tab" id="nav-tab-history" onclick="switchNavTab('history')">History</button>
             <button class="top-nav-tab" id="nav-tab-board" onclick="switchNavTab('board')" style="display:none">Board</button>
             <button class="top-nav-tab" id="nav-tab-jobs" onclick="switchNavTab('jobs')" style="display:none">Jobs</button>
+            <button class="top-nav-tab" id="nav-tab-workflows" onclick="switchNavTab('workflows')">Workflows</button>
         </nav>
         <div id="startup-loading" class="startup-loading" role="status" aria-live="polite">
             <span class="startup-spinner"></span>
@@ -227,6 +228,8 @@
             </div>
 
             {{ template "includes/views/message_board.html" . }}
+
+            {{ template "includes/views/workflows.html" . }}
         </main>
     </div>
 

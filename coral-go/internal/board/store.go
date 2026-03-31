@@ -952,9 +952,9 @@ func (s *Store) ClaimTask(ctx context.Context, project, subscriberID string) (*T
 		 ORDER BY `+priorityOrder+` LIMIT 1`,
 		project, subscriberID)
 	if err != nil {
-		// No assigned tasks — try unassigned
+		// No assigned tasks — try unassigned (skip tasks assigned to others)
 		err = tx.GetContext(ctx, &taskID,
-			`SELECT id FROM board_tasks WHERE board_id = ? AND status = 'pending' AND assigned_to IS NULL
+			`SELECT id FROM board_tasks WHERE board_id = ? AND status = 'pending' AND (assigned_to IS NULL OR assigned_to = '')
 			 ORDER BY `+priorityOrder+` LIMIT 1`,
 			project, subscriberID)
 		if err != nil {
@@ -996,6 +996,29 @@ func (s *Store) CompleteTask(ctx context.Context, project string, taskID int64, 
 	n, _ := result.RowsAffected()
 	if n == 0 {
 		return nil, fmt.Errorf("task #%d cannot be completed (not in progress or not found)", taskID)
+	}
+
+	return s.getTaskByID(ctx, project, taskID)
+}
+
+// ReassignTask resets a task back to pending, optionally with a new assignee.
+// Works on pending or in_progress tasks. If assignee is empty, the task becomes unassigned.
+func (s *Store) ReassignTask(ctx context.Context, project string, taskID int64, assignee string) (*Task, error) {
+	var assignPtr *string
+	if assignee != "" {
+		assignPtr = &assignee
+	}
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE board_tasks
+		 SET status = 'pending', assigned_to = ?, claimed_at = NULL
+		 WHERE id = ? AND board_id = ? AND status IN ('pending', 'in_progress')`,
+		assignPtr, taskID, project)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("task #%d cannot be reassigned (already completed or not found)", taskID)
 	}
 
 	return s.getTaskByID(ctx, project, taskID)
