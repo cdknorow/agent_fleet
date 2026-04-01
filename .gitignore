@@ -28,6 +28,9 @@ coral-go/cmd/db-compare/db-compare
 coral-go/agent.test
 *.exe
 
+# Runtime data (workflow runs, scripts, OAuth tokens)
+coral-go/.coral/
+
 # Test/dev artifacts
 coral-go/cmd/coral/messageboard.db*
 coral-go/cmd/coral/api_key

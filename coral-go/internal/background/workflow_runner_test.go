@@ -146,7 +146,7 @@ func TestBuildStepEnv(t *testing.T) {
 	runDir := "/repo/.coral/workflows/runs/1"
 	stepDir := "/repo/.coral/workflows/runs/1/step_2"
 
-	env := wr.buildStepEnv(wf, 1, runDir, 2, stepDir, 5)
+	env := wr.buildStepEnv(wf, 1, runDir, 2, stepDir, 5, nil)
 
 	envMap := make(map[string]string)
 	for _, e := range env {
@@ -177,7 +177,7 @@ func TestBuildStepEnv(t *testing.T) {
 func TestBuildStepEnvStep0NoPrev(t *testing.T) {
 	wf := &store.Workflow{Name: "test", RepoPath: "/repo"}
 	wr := &WorkflowRunner{}
-	env := wr.buildStepEnv(wf, 1, "/rundir", 0, "/stepdir", 3)
+	env := wr.buildStepEnv(wf, 1, "/rundir", 0, "/stepdir", 3, nil)
 
 	for _, e := range env {
 		if len(e) > 10 && e[:10] == "CORAL_PREV" {
@@ -232,7 +232,8 @@ func TestShellStepExecution(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	dataDir := t.TempDir()
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, dataDir)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -267,7 +268,7 @@ func TestShellStepExecution(t *testing.T) {
 	}
 
 	// Verify stdout was captured
-	stdoutPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "stdout.txt")
+	stdoutPath := filepath.Join(dataDir, "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "stdout.txt")
 	content, err := os.ReadFile(stdoutPath)
 	if err != nil {
 		t.Fatalf("read stdout: %v", err)
@@ -295,7 +296,7 @@ func TestShellStepFailure(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, t.TempDir())
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -335,7 +336,7 @@ func TestShellStepContinueOnFailure(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, t.TempDir())
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -372,7 +373,8 @@ func TestMultiStepWithTemplates(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	dataDir := t.TempDir()
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, dataDir)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -395,7 +397,7 @@ func TestMultiStepWithTemplates(t *testing.T) {
 	}
 
 	// Step 1 should have consumed step 0's output
-	step1Stdout := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_1", "stdout.txt")
+	step1Stdout := filepath.Join(dataDir, "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_1", "stdout.txt")
 	content, err := os.ReadFile(step1Stdout)
 	if err != nil {
 		t.Fatalf("read step 1 stdout: %v", err)
@@ -410,7 +412,7 @@ func TestKillRun(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, t.TempDir())
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -446,7 +448,8 @@ func TestArtifactDirectoryCreation(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	dataDir := t.TempDir()
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, dataDir)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -463,7 +466,7 @@ func TestArtifactDirectoryCreation(t *testing.T) {
 	waitForRun(t, wfStore, run.ID, 10*time.Second)
 
 	// Check artifact file exists
-	artifactPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "artifacts", "report.txt")
+	artifactPath := filepath.Join(dataDir, "workflows", "runs", strconv.FormatInt(run.ID, 10), "step_0", "artifacts", "report.txt")
 	if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
 		t.Error("expected artifact file to exist")
 	}
@@ -489,7 +492,8 @@ func TestContextJSON(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
+	dataDir := t.TempDir()
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil, dataDir)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -505,7 +509,7 @@ func TestContextJSON(t *testing.T) {
 
 	waitForRun(t, wfStore, run.ID, 10*time.Second)
 
-	contextPath := filepath.Join(repoPath, ".coral", "workflows", "runs", strconv.FormatInt(run.ID, 10), "context.json")
+	contextPath := filepath.Join(dataDir, "workflows", "runs", strconv.FormatInt(run.ID, 10), "context.json")
 	data, err := os.ReadFile(contextPath)
 	if err != nil {
 		t.Fatalf("read context.json: %v", err)

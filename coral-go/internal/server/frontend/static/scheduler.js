@@ -377,7 +377,7 @@ export async function saveScheduledJob() {
         cron_expr: cron,
         timezone: document.getElementById('job-modal-timezone').value.trim() || 'UTC',
         max_duration_s: parseInt(document.getElementById('job-modal-timeout').value) || 3600,
-        cleanup_worktree: document.getElementById('job-modal-cleanup').checked,
+        cleanup_worktree: document.getElementById('job-modal-cleanup').checked ? 1 : 0,
         job_type: currentJobType,
     };
 

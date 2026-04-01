@@ -581,7 +581,7 @@ func (h *WorkflowHandler) GetStepFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build the absolute path and validate it's within the step directory
-	stepDir := filepath.Join(wf.RepoPath, ".coral", "workflows", "runs",
+	stepDir := filepath.Join(h.cfg.CoralDir(), "workflows", "runs",
 		strconv.FormatInt(runID, 10), fmt.Sprintf("step_%d", stepIndex))
 	absPath := filepath.Join(stepDir, filepath.Clean(filePath))
 

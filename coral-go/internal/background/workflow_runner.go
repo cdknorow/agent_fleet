@@ -75,6 +75,7 @@ type WorkflowRunner struct {
 	launcher *AgentLauncher
 	runtime  AgentRuntime
 	logger   *slog.Logger
+	dataDir  string // Coral data directory (~/.coral) for workflow run artifacts
 
 	// Connected Apps token injection
 	connApps *store.ConnectedAppStore
@@ -87,13 +88,14 @@ type WorkflowRunner struct {
 }
 
 // NewWorkflowRunner creates a new WorkflowRunner.
-func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime, connApps *store.ConnectedAppStore, flow *oauth.FlowManager) *WorkflowRunner {
+func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime, connApps *store.ConnectedAppStore, flow *oauth.FlowManager, dataDir string) *WorkflowRunner {
 	return &WorkflowRunner{
 		store:          wfStore,
 		launcher:       launcher,
 		runtime:        runtime,
 		connApps:       connApps,
 		flow:           flow,
+		dataDir:        dataDir,
 		logger:         slog.Default().With("service", "workflow_runner"),
 		activeChildren: make(map[int64]*activeChild),
 		runCancels:     make(map[int64]context.CancelFunc),
@@ -201,7 +203,7 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 	}
 
 	// Create the run directory
-	runDir := filepath.Join(workflow.RepoPath, ".coral", "workflows", "runs", strconv.FormatInt(runID, 10))
+	runDir := filepath.Join(wr.dataDir, "workflows", "runs", strconv.FormatInt(runID, 10))
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		errMsg := fmt.Sprintf("failed to create run directory: %v", err)
 		wr.store.SetRunStatus(ctx, runID, "failed", &errMsg)
