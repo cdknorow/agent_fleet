@@ -530,6 +530,53 @@
     text-decoration: underline;
 }
 
+/* ── Failed step highlight ────────────────────────────────── */
+
+.wf-step-failed {
+    border-color: rgba(248, 81, 73, 0.4);
+}
+
+/* ── Exit code badge ──────────────────────────────────────── */
+
+.wf-exit-code {
+    font-size: 11px;
+    font-family: monospace;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.wf-exit-ok {
+    background: rgba(46, 160, 67, 0.12);
+    color: #3fb950;
+}
+
+.wf-exit-err {
+    background: rgba(248, 81, 73, 0.12);
+    color: #f85149;
+}
+
+/* ── Step file list ───────────────────────────────────────── */
+
+.wf-step-files {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.wf-step-file {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 /* ── Create modal ─────────────────────────────────────────── */
 
 .wf-modal-body {

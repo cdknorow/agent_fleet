@@ -273,16 +273,37 @@ function renderRunDetail(run) {
             timingHtml = `<span class="wf-run-step-timing wf-timing-active">${formatDuration(elapsed)}...</span>`;
         }
 
-        // Expandable output section
+        const isFailed = s.status === 'failed' || s.status === 'killed';
+
+        // Exit code badge for shell steps
+        let exitCodeHtml = '';
+        if (s.type === 'shell' && s.exit_code != null) {
+            const ecClass = s.exit_code === 0 ? 'wf-exit-ok' : 'wf-exit-err';
+            exitCodeHtml = `<span class="wf-exit-code ${ecClass}">exit ${s.exit_code}</span>`;
+        }
+
+        // Output section — auto-expanded for failed steps
         let outputHtml = '';
         if (s.output_tail) {
             const outputId = `wf-step-output-${run.id}-${i}`;
+            const autoExpand = isFailed ? ' wf-expanded' : '';
             outputHtml = `
                 <div class="wf-run-step-output-toggle" onclick="document.getElementById('${outputId}').classList.toggle('wf-expanded')">
                     <span class="material-icons" style="font-size:14px">terminal</span> Output
                     <span class="material-icons wf-toggle-arrow" style="font-size:14px">expand_more</span>
                 </div>
-                <div id="${outputId}" class="wf-run-step-output">${esc(s.output_tail)}</div>`;
+                <div id="${outputId}" class="wf-run-step-output${autoExpand}">${esc(s.output_tail)}</div>`;
+        }
+
+        // File list for steps with artifacts
+        let filesHtml = '';
+        const files = s.files || [];
+        if (files.length > 0) {
+            const fileItems = files.map(f => `<span class="wf-step-file">${esc(f)}</span>`).join('');
+            filesHtml = `<div class="wf-step-files">
+                <span class="material-icons" style="font-size:13px;color:var(--text-muted)">folder_open</span>
+                ${fileItems}
+            </div>`;
         }
 
         // Session link for agent steps
@@ -295,15 +316,17 @@ function renderRunDetail(run) {
 
         return `<div class="wf-run-step ${isLast ? '' : 'wf-run-step-connected'}">
             <div class="wf-timeline-node ${iconClass}"></div>
-            <div class="wf-run-step-content">
+            <div class="wf-run-step-content${isFailed ? ' wf-step-failed' : ''}">
                 <div class="wf-run-step-header">
                     <span class="wf-run-step-status ${iconClass}">${icon}</span>
                     <span class="wf-run-step-name">${esc(s.name || 'Step ' + (s.index != null ? s.index : i))}</span>
                     <span class="wf-step-type">${esc(s.type || '')}</span>
+                    ${exitCodeHtml}
                     ${agentHtml}
                     ${timingHtml}
                 </div>
                 ${outputHtml}
+                ${filesHtml}
             </div>
         </div>`;
     }).join('');

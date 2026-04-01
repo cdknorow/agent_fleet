@@ -19,6 +19,7 @@ import (
 
 	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/oauth"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/server"
 	"github.com/cdknorow/coral/internal/store"
@@ -334,7 +335,10 @@ func startBackgroundServices(ctx context.Context, db *store.DB, cfg *config.Conf
 
 	// Workflow runner — executes multi-step workflows (shell + agent)
 	wfStore := store.NewWorkflowStore(db)
-	wfRunner := background.NewWorkflowRunner(wfStore, launcher, agentRT)
+	connAppStore := store.NewConnectedAppStore(db)
+	oauthRegistry := oauth.NewRegistry()
+	flowManager := oauth.NewFlowManager(oauthRegistry)
+	wfRunner := background.NewWorkflowRunner(wfStore, launcher, agentRT, connAppStore, flowManager)
 	srv.SetWorkflowRunner(wfRunner)
 
 	log.Printf("Started 9 background services + workflow runner (git poller, indexer, idle detector, webhook dispatcher, scheduler, board notifier, remote board poller, batch summarizer, session reconciler)")

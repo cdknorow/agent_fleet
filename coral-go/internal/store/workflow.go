@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 // Workflow represents a reusable multi-step automation definition.
@@ -61,7 +62,9 @@ type WorkflowRun struct {
 // HydrateSteps parses StepsJSON and DefaultAgentJSON into their typed fields.
 func (w *Workflow) HydrateSteps() {
 	if w.StepsJSON != "" && w.StepsJSON != "[]" {
-		json.Unmarshal([]byte(w.StepsJSON), &w.Steps)
+		if err := json.Unmarshal([]byte(w.StepsJSON), &w.Steps); err != nil {
+			log.Printf("[store] workflow %d: failed to parse steps_json: %v", w.ID, err)
+		}
 	}
 	if w.DefaultAgentJSON != "" {
 		w.DefaultAgent = json.RawMessage(w.DefaultAgentJSON)
@@ -72,7 +75,9 @@ func (w *Workflow) HydrateSteps() {
 // HydrateStepResults parses the StepResults JSON into the Steps field.
 func (r *WorkflowRun) HydrateStepResults() {
 	if r.StepResults != "" && r.StepResults != "[]" {
-		json.Unmarshal([]byte(r.StepResults), &r.Steps)
+		if err := json.Unmarshal([]byte(r.StepResults), &r.Steps); err != nil {
+			log.Printf("[store] workflow run %d: failed to parse step_results: %v", r.ID, err)
+		}
 	}
 }
 
@@ -152,30 +157,62 @@ func (s *WorkflowStore) GetWorkflowByName(ctx context.Context, name string) (*Wo
 	return &w, nil
 }
 
-// ListWorkflows returns all workflows with optional last_run summary.
+// workflowWithLastRun is used internally to scan the ListWorkflows JOIN query.
+type workflowWithLastRun struct {
+	Workflow
+	LastRunID          *int64  `db:"lr_id"`
+	LastRunStatus      *string `db:"lr_status"`
+	LastRunTriggerType *string `db:"lr_trigger_type"`
+	LastRunStartedAt   *string `db:"lr_started_at"`
+	LastRunFinishedAt  *string `db:"lr_finished_at"`
+}
+
+// ListWorkflows returns all workflows with last_run summary in a single query.
 func (s *WorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, error) {
-	var workflows []Workflow
-	err := s.db.SelectContext(ctx, &workflows,
-		"SELECT * FROM workflows ORDER BY name")
+	var rows []workflowWithLastRun
+	err := s.db.SelectContext(ctx, &rows,
+		`SELECT w.*,
+		        lr.id AS lr_id, lr.status AS lr_status,
+		        lr.trigger_type AS lr_trigger_type,
+		        lr.started_at AS lr_started_at, lr.finished_at AS lr_finished_at
+		 FROM workflows w
+		 LEFT JOIN (
+		     SELECT workflow_id, id, status, trigger_type, started_at, finished_at
+		     FROM workflow_runs wr1
+		     WHERE wr1.id = (
+		         SELECT id FROM workflow_runs wr2
+		         WHERE wr2.workflow_id = wr1.workflow_id
+		         ORDER BY created_at DESC LIMIT 1
+		     )
+		 ) lr ON lr.workflow_id = w.id
+		 ORDER BY w.name`)
 	if err != nil {
 		return nil, err
 	}
 
-	// Hydrate steps and attach last_run for each workflow
-	for i := range workflows {
+	workflows := make([]Workflow, len(rows))
+	for i, row := range rows {
+		workflows[i] = row.Workflow
 		workflows[i].HydrateSteps()
-
-		var brief WorkflowRunBrief
-		err := s.db.GetContext(ctx, &brief,
-			`SELECT id, status, trigger_type, started_at, finished_at
-			 FROM workflow_runs WHERE workflow_id = ?
-			 ORDER BY created_at DESC LIMIT 1`, workflows[i].ID)
-		if err == nil {
-			workflows[i].LastRun = &brief
+		if row.LastRunID != nil {
+			workflows[i].LastRun = &WorkflowRunBrief{
+				ID:          *row.LastRunID,
+				Status:      derefStr(row.LastRunStatus),
+				TriggerType: derefStr(row.LastRunTriggerType),
+				StartedAt:   row.LastRunStartedAt,
+				FinishedAt:  row.LastRunFinishedAt,
+			}
 		}
 	}
 
 	return workflows, nil
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // UpdateWorkflow updates allowed fields on a workflow.
@@ -270,7 +307,7 @@ func (s *WorkflowStore) ListRunsForWorkflow(ctx context.Context, workflowID int6
 	for i := range runs {
 		runs[i].HydrateStepResults()
 	}
-	return runs, err
+	return runs, nil
 }
 
 // ListRecentRuns returns recent runs across all workflows with workflow name.
@@ -307,19 +344,32 @@ func (s *WorkflowStore) GetActiveRunsForWorkflow(ctx context.Context, workflowID
 }
 
 // SetRunStatus is a convenience for updating just the status (and optionally error_msg) of a run.
+// Timestamps are set conditionally to avoid overwriting on repeated calls.
 func (s *WorkflowStore) SetRunStatus(ctx context.Context, runID int64, status string, errorMsg *string) error {
-	fields := map[string]interface{}{"status": status}
-	if errorMsg != nil {
-		fields["error_msg"] = *errorMsg
-	}
 	now := nowUTC()
+
 	switch status {
 	case "running":
-		fields["started_at"] = now
+		// Only set started_at if not already set
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE workflow_runs SET status = ?, started_at = COALESCE(started_at, ?), error_msg = COALESCE(?, error_msg)
+			 WHERE id = ?`,
+			status, now, errorMsg, runID)
+		return err
 	case "completed", "failed", "killed":
-		fields["finished_at"] = now
+		// Only set finished_at if not already set
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE workflow_runs SET status = ?, finished_at = COALESCE(finished_at, ?), error_msg = COALESCE(?, error_msg)
+			 WHERE id = ?`,
+			status, now, errorMsg, runID)
+		return err
+	default:
+		fields := map[string]interface{}{"status": status}
+		if errorMsg != nil {
+			fields["error_msg"] = *errorMsg
+		}
+		return s.UpdateWorkflowRun(ctx, runID, fields)
 	}
-	return s.UpdateWorkflowRun(ctx, runID, fields)
 }
 
 // UpdateStepResults updates the step_results JSON and current_step for a run.

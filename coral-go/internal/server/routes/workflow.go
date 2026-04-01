@@ -338,7 +338,11 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 // DeleteWorkflow deletes a workflow and its run history.
 // DELETE /api/workflows/{workflowID}
 func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
-	workflowID, _ := strconv.ParseInt(chi.URLParam(r, "workflowID"), 10, 64)
+	workflowID, err := strconv.ParseInt(chi.URLParam(r, "workflowID"), 10, 64)
+	if err != nil {
+		errBadRequest(w, "invalid workflow ID")
+		return
+	}
 	if err := h.ws.DeleteWorkflow(r.Context(), workflowID); err != nil {
 		errInternalServer(w, err.Error())
 		return
@@ -356,7 +360,16 @@ func (h *WorkflowHandler) TriggerWorkflow(w http.ResponseWriter, r *http.Request
 		errBadRequest(w, "invalid workflow ID")
 		return
 	}
-	h.triggerByID(w, r, workflowID)
+	wf, err := h.ws.GetWorkflow(r.Context(), workflowID)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	if wf == nil {
+		errNotFound(w, "workflow not found")
+		return
+	}
+	h.triggerWorkflow(w, r, wf)
 }
 
 // TriggerWorkflowByName triggers a workflow run by name.
@@ -372,19 +385,10 @@ func (h *WorkflowHandler) TriggerWorkflowByName(w http.ResponseWriter, r *http.R
 		errNotFound(w, "workflow not found")
 		return
 	}
-	h.triggerByID(w, r, wf.ID)
+	h.triggerWorkflow(w, r, wf)
 }
 
-func (h *WorkflowHandler) triggerByID(w http.ResponseWriter, r *http.Request, workflowID int64) {
-	wf, err := h.ws.GetWorkflow(r.Context(), workflowID)
-	if err != nil {
-		errInternalServer(w, err.Error())
-		return
-	}
-	if wf == nil {
-		errNotFound(w, "workflow not found")
-		return
-	}
+func (h *WorkflowHandler) triggerWorkflow(w http.ResponseWriter, r *http.Request, wf *store.Workflow) {
 	if wf.Enabled == 0 {
 		errConflict(w, "workflow is disabled")
 		return
@@ -426,7 +430,7 @@ func (h *WorkflowHandler) triggerByID(w http.ResponseWriter, r *http.Request, wo
 	}
 
 	// Fallback: create run record only (no execution)
-	run, err := h.ws.CreateWorkflowRun(r.Context(), workflowID, body.TriggerType, triggerCtx)
+	run, err := h.ws.CreateWorkflowRun(r.Context(), wf.ID, body.TriggerType, triggerCtx)
 	if err != nil {
 		errInternalServer(w, err.Error())
 		return
@@ -445,7 +449,11 @@ func (h *WorkflowHandler) triggerByID(w http.ResponseWriter, r *http.Request, wo
 // ListWorkflowRuns returns runs for a specific workflow.
 // GET /api/workflows/{workflowID}/runs
 func (h *WorkflowHandler) ListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	workflowID, _ := strconv.ParseInt(chi.URLParam(r, "workflowID"), 10, 64)
+	workflowID, err := strconv.ParseInt(chi.URLParam(r, "workflowID"), 10, 64)
+	if err != nil {
+		errBadRequest(w, "invalid workflow ID")
+		return
+	}
 	limit := queryInt(r, "limit", 20)
 	offset := queryInt(r, "offset", 0)
 	status := strPtr(r.URL.Query().Get("status"))
@@ -532,6 +540,68 @@ func (h *WorkflowHandler) KillWorkflowRun(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "run_id": runID, "status": "killed"})
 }
 
+// ── Step Files ──────────────────────────────────────────────────────
+
+// GetStepFile serves a file from a workflow step's directory.
+// GET /api/workflows/runs/{runID}/steps/{stepIndex}/files/*
+func (h *WorkflowHandler) GetStepFile(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseInt(chi.URLParam(r, "runID"), 10, 64)
+	if err != nil {
+		errBadRequest(w, "invalid run ID")
+		return
+	}
+	stepIndex, err := strconv.Atoi(chi.URLParam(r, "stepIndex"))
+	if err != nil || stepIndex < 0 {
+		errBadRequest(w, "invalid step index")
+		return
+	}
+
+	run, err := h.ws.GetWorkflowRun(r.Context(), runID)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	if run == nil {
+		errNotFound(w, "run not found")
+		return
+	}
+
+	// Look up the workflow to get repo_path
+	wf, err := h.ws.GetWorkflow(r.Context(), run.WorkflowID)
+	if err != nil || wf == nil {
+		errNotFound(w, "workflow not found")
+		return
+	}
+
+	// Extract the file path from the wildcard
+	filePath := chi.URLParam(r, "*")
+	if filePath == "" {
+		errBadRequest(w, "file path required")
+		return
+	}
+
+	// Build the absolute path and validate it's within the step directory
+	stepDir := filepath.Join(wf.RepoPath, ".coral", "workflows", "runs",
+		strconv.FormatInt(runID, 10), fmt.Sprintf("step_%d", stepIndex))
+	absPath := filepath.Join(stepDir, filepath.Clean(filePath))
+
+	// Prevent path traversal — resolved path must be under stepDir
+	if !strings.HasPrefix(absPath, stepDir+string(os.PathSeparator)) && absPath != stepDir {
+		errBadRequest(w, "invalid file path")
+		return
+	}
+
+	// Check file exists
+	info, err := os.Stat(absPath)
+	if err != nil || info.IsDir() {
+		errNotFound(w, "file not found")
+		return
+	}
+
+	// Serve the file with appropriate content type
+	http.ServeFile(w, r, absPath)
+}
+
 // ── Step Validation ──────────────────────────────────────────────────
 
 // validateSteps validates step definitions per the spec rules.
@@ -608,6 +678,9 @@ func validateSteps(steps []json.RawMessage, defaultAgent json.RawMessage) string
 	return ""
 }
 
+// stepRefRe matches {{step_N_...}} template patterns and captures N.
+var stepRefRe = regexp.MustCompile(`\{\{step_(\d+)_`)
+
 // validateTemplateRefs checks template variable references in step text.
 func validateTemplateRefs(text string, stepIndex, totalSteps int) string {
 	// Check {{prev_*}} references on step 0
@@ -619,14 +692,15 @@ func validateTemplateRefs(text string, stepIndex, totalSteps int) string {
 		}
 	}
 
-	// Check {{step_N_*}} references
-	// Match patterns like {{step_0_dir}}, {{step_2_stdout}}
-	for i := 0; i < totalSteps; i++ {
-		prefix := fmt.Sprintf("{{step_%d_", i)
-		if strings.Contains(text, prefix) {
-			if i >= stepIndex {
-				return "template references invalid step index"
-			}
+	// Check {{step_N_*}} references — N must be < current step index and within bounds
+	matches := stepRefRe.FindAllStringSubmatch(text, -1)
+	for _, match := range matches {
+		n, err := strconv.Atoi(match[1])
+		if err != nil {
+			return "template references invalid step index"
+		}
+		if n >= stepIndex || n >= totalSteps {
+			return "template references invalid step index"
 		}
 	}
 

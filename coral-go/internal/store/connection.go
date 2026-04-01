@@ -406,4 +406,22 @@ CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow
 	ON workflow_runs(workflow_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_status
 	ON workflow_runs(status);
+
+CREATE TABLE IF NOT EXISTS connected_apps (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	provider_id     TEXT NOT NULL,
+	name            TEXT NOT NULL,
+	client_id       TEXT NOT NULL,
+	client_secret   TEXT NOT NULL,
+	scopes          TEXT NOT NULL DEFAULT '',
+	access_token    TEXT NOT NULL DEFAULT '',
+	refresh_token   TEXT NOT NULL DEFAULT '',
+	token_expiry    TEXT,
+	account_email   TEXT DEFAULT '',
+	account_name    TEXT DEFAULT '',
+	status          TEXT NOT NULL DEFAULT 'active',
+	created_at      TEXT NOT NULL,
+	updated_at      TEXT NOT NULL,
+	UNIQUE(provider_id, name)
+);
 `

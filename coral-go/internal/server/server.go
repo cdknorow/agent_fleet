@@ -106,6 +106,7 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		"frontend/templates/includes/views/history_session.html",
 		"frontend/templates/includes/views/message_board.html",
 		"frontend/templates/includes/views/workflows.html",
+		"frontend/templates/includes/views/connected_apps.html",
 	)
 	if err != nil {
 		log.Printf("Warning: failed to parse index template: %v (serving placeholder)", err)
@@ -404,6 +405,18 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/workflows/{workflowID}/runs", workflowHandler.ListWorkflowRuns)
 	r.Get("/api/workflows/runs/{runID}", workflowHandler.GetWorkflowRun)
 	r.Post("/api/workflows/runs/{runID}/kill", workflowHandler.KillWorkflowRun)
+	r.Get("/api/workflows/runs/{runID}/steps/{stepIndex}/files/*", workflowHandler.GetStepFile)
+
+	// Connected Apps
+	connAppsHandler := routes.NewConnectedAppsHandler(s.db, s.cfg)
+	r.Get("/api/connected-apps", connAppsHandler.ListConnections)
+	r.Get("/api/connected-apps/providers", connAppsHandler.ListProviders)
+	r.Post("/api/connected-apps/auth/start", connAppsHandler.StartAuth)
+	r.Get("/api/connected-apps/callback", connAppsHandler.Callback)
+	r.Get("/api/connected-apps/{id}", connAppsHandler.GetConnection)
+	r.Get("/api/connected-apps/{id}/token", connAppsHandler.GetToken)
+	r.Delete("/api/connected-apps/{id}", connAppsHandler.DeleteConnection)
+	r.Post("/api/connected-apps/{id}/test", connAppsHandler.TestConnection)
 
 	// Webhooks
 	r.Get("/api/webhooks", whHandler.ListWebhooks)

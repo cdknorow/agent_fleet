@@ -232,7 +232,7 @@ func TestShellStepExecution(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -295,7 +295,7 @@ func TestShellStepFailure(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -335,7 +335,7 @@ func TestShellStepContinueOnFailure(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -372,12 +372,12 @@ func TestMultiStepWithTemplates(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
 		{Name: "produce", Type: "shell", Command: "echo test-output"},
-		{Name: "consume", Type: "shell", Command: "cat {{prev_stdout}}"},
+		{Name: "consume", Type: "shell", Command: "cat $CORAL_PREV_STDOUT"},
 	}
 	stepsJSON, _ := json.Marshal(steps)
 
@@ -410,7 +410,7 @@ func TestKillRun(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -446,7 +446,7 @@ func TestArtifactDirectoryCreation(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{
@@ -489,7 +489,7 @@ func TestContextJSON(t *testing.T) {
 	wfStore := store.NewWorkflowStore(db)
 	rt := newWfMockRuntime()
 	launcher := &AgentLauncher{runtime: rt}
-	runner := NewWorkflowRunner(wfStore, launcher, rt)
+	runner := NewWorkflowRunner(wfStore, launcher, rt, nil, nil)
 
 	repoPath := t.TempDir()
 	steps := []StepDef{

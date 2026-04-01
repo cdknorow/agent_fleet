@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -19,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cdknorow/coral/internal/oauth"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -31,6 +31,7 @@ type StepDef struct {
 	TimeoutS          int              `json:"timeout_s,omitempty"`
 	ContinueOnFailure bool             `json:"continue_on_failure,omitempty"`
 	Agent             *AgentStepConfig `json:"agent,omitempty"`
+	Connections       []string         `json:"connections,omitempty"`
 }
 
 // AgentStepConfig holds the agent configuration for an agent step.
@@ -72,6 +73,10 @@ type WorkflowRunner struct {
 	runtime  AgentRuntime
 	logger   *slog.Logger
 
+	// Connected Apps token injection
+	connApps *store.ConnectedAppStore
+	flow     *oauth.FlowManager
+
 	// mu protects activeChildren and runCancels
 	mu             sync.Mutex
 	activeChildren map[int64]*activeChild    // runID -> active child
@@ -79,11 +84,13 @@ type WorkflowRunner struct {
 }
 
 // NewWorkflowRunner creates a new WorkflowRunner.
-func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime) *WorkflowRunner {
+func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime, connApps *store.ConnectedAppStore, flow *oauth.FlowManager) *WorkflowRunner {
 	return &WorkflowRunner{
 		store:          wfStore,
 		launcher:       launcher,
 		runtime:        runtime,
+		connApps:       connApps,
+		flow:           flow,
 		logger:         slog.Default().With("service", "workflow_runner"),
 		activeChildren: make(map[int64]*activeChild),
 		runCancels:     make(map[int64]context.CancelFunc),
@@ -122,18 +129,19 @@ func (wr *WorkflowRunner) KillRun(ctx context.Context, runID int64) bool {
 		switch child.stepType {
 		case "shell":
 			if child.cmd != nil && child.cmd.Process != nil {
+				// Look up the actual process group ID
+				pgid, err := syscall.Getpgid(child.cmd.Process.Pid)
+				if err != nil {
+					pgid = child.cmd.Process.Pid
+				}
 				// Send SIGTERM to process group
-				pgid := child.cmd.Process.Pid
 				syscall.Kill(-pgid, syscall.SIGTERM)
-				// Wait up to 5s, then SIGKILL
-				done := make(chan struct{})
-				go func() {
-					child.cmd.Wait()
-					close(done)
-				}()
-				select {
-				case <-done:
-				case <-time.After(5 * time.Second):
+				// Wait up to 5s, then SIGKILL. We don't call cmd.Wait() here
+				// because cmd.Start()/Wait() is managed by executeShellStep.
+				// Instead, just wait and escalate.
+				time.Sleep(5 * time.Second)
+				// Check if process is still alive, send SIGKILL if so
+				if err := syscall.Kill(-pgid, 0); err == nil {
 					syscall.Kill(-pgid, syscall.SIGKILL)
 				}
 			}
@@ -249,6 +257,15 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 		// Build environment variables
 		env := wr.buildStepEnv(workflow, runID, runDir, i, stepDir, len(steps))
 
+		// Inject Connected Apps tokens for steps with connections
+		if len(step.Connections) > 0 {
+			tokenEnv, err := wr.resolveConnectionTokens(ctx, step.Connections)
+			if err != nil {
+				wr.logger.Warn("failed to resolve connection tokens", "step", step.Name, "error", err)
+			}
+			env = append(env, tokenEnv...)
+		}
+
 		// Mark step as running
 		now := time.Now().UTC().Format(isoFormat)
 		results[i].Status = "running"
@@ -283,8 +300,11 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 					results[j].Status = "skipped"
 				}
 				wr.persistResults(ctx, runID, i, results)
-				errMsg := fmt.Sprintf("step %d (%s) failed: %v", i, step.Name, stepErr)
-				wr.store.SetRunStatus(context.Background(), runID, "failed", &errMsg)
+				// Only set failed if not already killed by KillRun
+				if !wr.isRunKilled(runID) {
+					errMsg := fmt.Sprintf("step %d (%s) failed: %v", i, step.Name, stepErr)
+					wr.store.SetRunStatus(context.Background(), runID, "failed", &errMsg)
+				}
 				return
 			}
 		} else {
@@ -294,8 +314,10 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 		wr.persistResults(ctx, runID, i, results)
 	}
 
-	// All steps completed
-	wr.store.SetRunStatus(context.Background(), runID, "completed", nil)
+	// All steps completed — only set if not already killed
+	if !wr.isRunKilled(runID) {
+		wr.store.SetRunStatus(context.Background(), runID, "completed", nil)
+	}
 }
 
 // executeShellStep runs a shell command, capturing stdout/stderr.
@@ -307,11 +329,11 @@ func (wr *WorkflowRunner) executeShellStep(ctx context.Context, runID int64, ste
 	stepCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	// Expand template variables in the command for agent prompt convenience,
-	// but use pre-computed absolute paths only (no user-controlled content).
-	command := expandTemplates(step.Command, env)
-
-	cmd := exec.CommandContext(stepCtx, "sh", "-c", command)
+	// Expand {{var}} templates in shell commands using pre-computed absolute paths.
+	// These are safe (not user-controlled content). Commands can also reference
+	// $CORAL_PREV_STDOUT etc. directly via environment variables.
+	expandedCmd := expandTemplates(step.Command, env)
+	cmd := exec.CommandContext(stepCtx, "sh", "-c", expandedCmd)
 	cmd.Dir = repoPath
 	cmd.Env = append(os.Environ(), env...)
 	// Set process group for clean kill
@@ -333,12 +355,17 @@ func (wr *WorkflowRunner) executeShellStep(ctx context.Context, runID int64, ste
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
 
+	// Start the process (not Run — we need separate Start/Wait for clean kill)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start command: %w", err)
+	}
+
 	// Track active child for kill
 	wr.mu.Lock()
 	wr.activeChildren[runID] = &activeChild{stepType: "shell", cmd: cmd}
 	wr.mu.Unlock()
 
-	err = cmd.Run()
+	err = cmd.Wait()
 
 	wr.mu.Lock()
 	delete(wr.activeChildren, runID)
@@ -408,10 +435,9 @@ func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, ste
 	wr.activeChildren[runID] = &activeChild{stepType: "agent", sessionName: launchResult.SessionName}
 	wr.mu.Unlock()
 
-	// Send prompt after initialization delay
+	// Send prompt after initialization delay (uses stepCtx so it cancels with the step)
 	go func() {
-		sendCtx := context.Background()
-		wr.launcher.SendPrompt(sendCtx, launchResult.SessionID, launchResult.SessionName, agentCfg.AgentType, prompt)
+		wr.launcher.SendPrompt(stepCtx, launchResult.SessionID, launchResult.SessionName, agentCfg.AgentType, prompt)
 	}()
 
 	// Poll for session completion — 5s interval for workflow steps
@@ -428,7 +454,15 @@ func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, ste
 }
 
 // watchSessionFast polls for session existence every 5 seconds (faster than default 30s).
+// Includes a startup grace period to allow the tmux session to become visible.
 func (wr *WorkflowRunner) watchSessionFast(ctx context.Context, sessionName string) error {
+	// Wait for session to start before polling (grace period for tmux visibility)
+	select {
+	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -641,6 +675,25 @@ func listStepFiles(stepDir string) []string {
 	return files
 }
 
+// isRunKilled checks if the run has been killed (context cancelled by KillRun).
+// Used to avoid overwriting "killed" status with "failed" or "completed".
+func (wr *WorkflowRunner) isRunKilled(runID int64) bool {
+	wr.mu.Lock()
+	cancel, exists := wr.runCancels[runID]
+	wr.mu.Unlock()
+	// If cancel doesn't exist, the run was already cleaned up (killed)
+	if !exists {
+		return true
+	}
+	// Check if the run's DB status is already killed
+	_ = cancel
+	run, err := wr.store.GetWorkflowRunDirect(context.Background(), runID)
+	if err != nil || run == nil {
+		return false
+	}
+	return run.Status == "killed"
+}
+
 // IsRunActive returns true if the given run ID is currently being executed.
 func (wr *WorkflowRunner) IsRunActive(runID int64) bool {
 	wr.mu.Lock()
@@ -649,26 +702,42 @@ func (wr *WorkflowRunner) IsRunActive(runID int64) bool {
 	return ok
 }
 
-// readFile is a helper to read a file's contents as a string.
-func readFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
+// resolveConnectionTokens looks up connected apps by name, auto-refreshes tokens,
+// and returns CORAL_TOKEN_<NAME> environment variables for injection into steps.
+func (wr *WorkflowRunner) resolveConnectionTokens(ctx context.Context, connections []string) ([]string, error) {
+	if wr.connApps == nil || wr.flow == nil {
+		return nil, fmt.Errorf("connected apps not configured")
 	}
-	return string(data)
+
+	var env []string
+	var firstErr error
+	for _, connName := range connections {
+		app, err := wr.connApps.GetByName(ctx, connName)
+		if err != nil || app == nil {
+			wr.logger.Warn("connection not found", "name", connName)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("connection %q not found", connName)
+			}
+			continue
+		}
+
+		refreshFn := wr.flow.BuildRefreshFn(app.ProviderID)
+		token, err := wr.connApps.GetFreshToken(ctx, app.ID, refreshFn)
+		if err != nil {
+			wr.logger.Warn("failed to get token for connection", "name", connName, "error", err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to get token for %q: %w", connName, err)
+			}
+			continue
+		}
+
+		// Convert to env var: CORAL_TOKEN_{PROVIDER}_{NAME} — uppercase, spaces → underscores
+		providerPart := strings.ToUpper(strings.ReplaceAll(app.ProviderID, "-", "_"))
+		namePart := strings.ToUpper(strings.ReplaceAll(connName, " ", "_"))
+		envName := "CORAL_TOKEN_" + providerPart + "_" + namePart
+		env = append(env, envName+"="+token)
+	}
+
+	return env, firstErr
 }
 
-// captureOutput copies from a reader to both a file and an in-memory buffer.
-func captureOutput(r io.Reader, filePath string) (string, error) {
-	f, err := os.Create(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return "", err
-	}
-	f.Write(data)
-	return string(data), nil
-}

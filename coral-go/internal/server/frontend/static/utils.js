@@ -67,6 +67,7 @@ const VIEW_IDS = [
     "scheduler-view",
     "messageboard-view",
     "workflows-view",
+    "connected-apps-view",
 ];
 
 const VIEW_DISPLAY = {
@@ -76,6 +77,7 @@ const VIEW_DISPLAY = {
     "scheduler-view": "block",
     "messageboard-view": "flex",
     "workflows-view": "block",
+    "connected-apps-view": "block",
 };
 
 export function showView(activeId) {

@@ -39,6 +39,7 @@ import { showThemeConfigurator, hideThemeConfigurator } from './theme_config.js'
 import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoardMessage, deleteMessageBoardProject, toggleBoardPause, toggleBoardSleep, deleteBoardMessage, showExportBoardModal, doExportBoard } from './message_board.js';
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initWorkflows, showWorkflowsTab, selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow, showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow, workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList } from './workflows.js';
+import { showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow, testConnectedApp, disconnectApp } from './connected_apps.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 import { platform } from './platform/detect.js';
 import { initNative } from './platform/native.js';
@@ -113,6 +114,9 @@ Object.assign(window, {
     selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow,
     showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow,
     workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList,
+    // connected_apps
+    showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow,
+    testConnectedApp, disconnectApp,
     // folder_tags
     showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag,
     // utils
