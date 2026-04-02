@@ -77,6 +77,7 @@ type WorkflowRunner struct {
 	runtime  AgentRuntime
 	logger   *slog.Logger
 	dataDir  string // Coral data directory (~/.coral) for workflow run artifacts
+	port     int    // Server port for CORAL_PORT env var
 
 	// Connected Apps token injection
 	connApps *store.ConnectedAppStore
@@ -89,7 +90,7 @@ type WorkflowRunner struct {
 }
 
 // NewWorkflowRunner creates a new WorkflowRunner.
-func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime, connApps *store.ConnectedAppStore, flow *oauth.FlowManager, dataDir string) *WorkflowRunner {
+func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, runtime AgentRuntime, connApps *store.ConnectedAppStore, flow *oauth.FlowManager, dataDir string, port int) *WorkflowRunner {
 	return &WorkflowRunner{
 		store:          wfStore,
 		launcher:       launcher,
@@ -97,6 +98,7 @@ func NewWorkflowRunner(wfStore *store.WorkflowStore, launcher *AgentLauncher, ru
 		connApps:       connApps,
 		flow:           flow,
 		dataDir:        dataDir,
+		port:           port,
 		logger:         slog.Default().With("service", "workflow_runner"),
 		activeChildren: make(map[int64]*activeChild),
 		runCancels:     make(map[int64]context.CancelFunc),
@@ -699,12 +701,18 @@ func (wr *WorkflowRunner) persistResults(ctx context.Context, runID int64, curre
 func (wr *WorkflowRunner) buildStepEnv(workflow *store.Workflow, runID int64, runDir string, stepIndex int, stepDir string, totalSteps int, steps []StepDef) []string {
 	runIDStr := strconv.FormatInt(runID, 10)
 	env := []string{
+		"CORAL_PORT=" + strconv.Itoa(wr.port),
 		"CORAL_WORKFLOW_RUN_DIR=" + runDir,
 		"CORAL_WORKFLOW_STEP=" + strconv.Itoa(stepIndex),
 		"CORAL_WORKFLOW_STEP_DIR=" + stepDir,
 		"CORAL_WORKFLOW_NAME=" + workflow.Name,
 		"CORAL_WORKFLOW_RUN_ID=" + runIDStr,
 		"CORAL_WORKFLOW_REPO_PATH=" + workflow.RepoPath,
+	}
+
+	// Ensure Coral tools (coral-board, hooks, etc.) and agent CLIs are in PATH
+	if toolsDir := agent.CoralToolsDir(); toolsDir != "" {
+		env = append(env, "PATH="+toolsDir+":"+os.Getenv("PATH"))
 	}
 
 	// Previous step references
