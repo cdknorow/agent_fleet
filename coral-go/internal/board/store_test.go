@@ -324,12 +324,19 @@ func TestClaimTask_PriorityOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Critical task", claimed.Title)
 
-	// Then high
+	// Cannot claim another while first is in progress
+	_, err = s.ClaimTask(ctx, "proj", "bob")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "complete your current task")
+
+	// Complete it, then claim next
+	s.CompleteTask(ctx, "proj", claimed.ID, "bob", nil)
 	claimed, err = s.ClaimTask(ctx, "proj", "bob")
 	require.NoError(t, err)
 	assert.Equal(t, "High task", claimed.Title)
 
-	// Then low
+	// Complete and claim last
+	s.CompleteTask(ctx, "proj", claimed.ID, "bob", nil)
 	claimed, err = s.ClaimTask(ctx, "proj", "bob")
 	require.NoError(t, err)
 	assert.Equal(t, "Low task", claimed.Title)

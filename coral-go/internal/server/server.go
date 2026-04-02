@@ -498,6 +498,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/board/{project}/tasks", boardHandler.CreateTask)
 	r.Get("/api/board/{project}/tasks", boardHandler.ListTasks)
 	r.Post("/api/board/{project}/tasks/claim", boardHandler.ClaimTask)
+	r.Post("/api/board/{project}/tasks/current", boardHandler.ActiveTask)
 	r.Post("/api/board/{project}/tasks/{taskID}/complete", boardHandler.CompleteTaskByID)
 	r.Post("/api/board/{project}/tasks/{taskID}/cancel", boardHandler.CancelTaskByID)
 	r.Post("/api/board/{project}/tasks/{taskID}/reassign", boardHandler.ReassignTask)

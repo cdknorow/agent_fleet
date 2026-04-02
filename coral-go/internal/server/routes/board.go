@@ -638,6 +638,29 @@ func (h *BoardHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": emptyIfNil(tasks)})
 }
 
+// ActiveTask returns the subscriber's current in-progress task.
+// POST /api/board/{project}/tasks/current
+func (h *BoardHandler) ActiveTask(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	var body struct {
+		SubscriberID string `json:"subscriber_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+	if body.SubscriberID == "" {
+		errBadRequest(w, "subscriber_id required")
+		return
+	}
+	task := h.bs.ActiveTaskForSubscriber(r.Context(), project, body.SubscriberID)
+	if task == nil {
+		errNotFound(w, "no active task")
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
 // ClaimTask claims the next available task by priority.
 // POST /api/board/{project}/tasks/claim
 func (h *BoardHandler) ClaimTask(w http.ResponseWriter, r *http.Request) {
@@ -655,7 +678,11 @@ func (h *BoardHandler) ClaimTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := h.bs.ClaimTask(r.Context(), project, body.SubscriberID)
 	if err != nil {
-		errInternalServer(w, err.Error())
+		if err.Error() == "complete your current task before claiming a new one" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		} else {
+			errInternalServer(w, err.Error())
+		}
 		return
 	}
 	if task == nil {
@@ -696,14 +723,46 @@ func (h *BoardHandler) CompleteTaskByID(w http.ResponseWriter, r *http.Request) 
 		errInternalServer(w, err.Error())
 		return
 	}
-	// Post board notification asynchronously to avoid DB contention
+	// Copy values for goroutine closure safety
+	completedTask := task
+	subscriberID := body.SubscriberID
+	completionMsg := ""
+	if body.Message != nil {
+		completionMsg = *body.Message
+	}
+	if completedTask == nil {
+		writeJSON(w, http.StatusOK, task)
+		return
+	}
+	// Post board notification and send direct terminal nudge asynchronously
 	go func() {
-		msg := task.Title
-		if body.Message != nil && *body.Message != "" {
-			msg = *body.Message
+		ctx := context.Background()
+		msg := completedTask.Title
+		if completionMsg != "" {
+			msg = completionMsg
 		}
-		notification := fmt.Sprintf("[Task #%d completed by %s] %s", task.ID, body.SubscriberID, msg)
-		h.bs.PostMessage(context.Background(), project, "Coral Task Queue", notification, nil)
+		notification := fmt.Sprintf("[Task #%d completed by %s] %s", completedTask.ID, subscriberID, msg)
+		h.bs.PostMessage(ctx, project, "Coral Task Queue", notification, nil)
+
+		// Check if the agent has more pending tasks
+		nextTask := h.bs.NextPendingTaskForSubscriber(ctx, project, subscriberID)
+		if nextTask != nil {
+			// Post audit message to board (won't trigger unread notification)
+			auditMsg := fmt.Sprintf("@%s You have tasks available — run 'coral-board task claim' to start",
+				subscriberID)
+			h.bs.PostMessage(ctx, project, "Coral Task Queue", auditMsg, nil)
+
+			// Send direct terminal nudge for immediate delivery
+			if h.terminal != nil {
+				sub, err := h.bs.GetSubscription(ctx, subscriberID)
+				if err == nil && sub != nil && sub.SessionName != "" {
+					nudge := "You have tasks available. Run 'coral-board task claim' to start your next task."
+					if err := h.terminal.SendInput(ctx, sub.SessionName, nudge, "", ""); err != nil {
+						slog.Warn("failed to nudge agent for next task", "subscriber", subscriberID, "session", sub.SessionName, "error", err)
+					}
+				}
+			}
+		}
 	}()
 	writeJSON(w, http.StatusOK, task)
 }

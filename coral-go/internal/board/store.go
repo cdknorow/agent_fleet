@@ -542,10 +542,13 @@ func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (
 		return 0, nil
 	}
 
+	// System senders post audit messages that should not trigger notifications
+	systemFilter := " AND subscriber_id NOT IN ('Coral Task Queue')"
+
 	if receiveMode == "all" {
 		var count int
 		err := s.db.GetContext(ctx, &count,
-			`SELECT COUNT(*) FROM board_messages WHERE project = ? AND id > ? AND subscriber_id != ?`,
+			`SELECT COUNT(*) FROM board_messages WHERE project = ? AND id > ? AND subscriber_id != ?`+systemFilter,
 			project, sub.LastReadID, subscriberID)
 		return count, err
 	}
@@ -568,7 +571,7 @@ func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (
 		var count int
 		query := fmt.Sprintf(
 			`SELECT COUNT(*) FROM board_messages
-			 WHERE project = ? AND id > ? AND subscriber_id != ? AND (%s)`,
+			 WHERE project = ? AND id > ? AND subscriber_id != ?`+systemFilter+` AND (%s)`,
 			strings.Join(whereClauses, " OR "))
 		err = s.db.GetContext(ctx, &count, query, args...)
 		return count, err
@@ -593,7 +596,7 @@ func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (
 	var count int
 	query := fmt.Sprintf(
 		`SELECT COUNT(*) FROM board_messages
-		 WHERE project = ? AND id > ? AND subscriber_id != ? AND subscriber_id IN (%s)`,
+		 WHERE project = ? AND id > ? AND subscriber_id != ?`+systemFilter+` AND subscriber_id IN (%s)`,
 		strings.Join(placeholders, ","))
 	err = s.db.GetContext(ctx, &count, query, args...)
 	return count, err
@@ -689,7 +692,7 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 			switch sub.ReceiveMode {
 			case "all":
 				for _, msg := range msgs {
-					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID {
+					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID || msg.SubscriberID == "Coral Task Queue" {
 						continue
 					}
 					count++
@@ -697,7 +700,7 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 			case "mentions":
 				terms := mentionTerms(sub.SubscriberID, sub.JobTitle)
 				for _, msg := range msgs {
-					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID {
+					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID || msg.SubscriberID == "Coral Task Queue" {
 						continue
 					}
 					contentLower := strings.ToLower(msg.Content)
@@ -712,7 +715,7 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 				// Group-based mode
 				members := groupsByKey[groupKey{project, sub.ReceiveMode}]
 				for _, msg := range msgs {
-					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID {
+					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID || msg.SubscriberID == "Coral Task Queue" {
 						continue
 					}
 					if members[msg.SubscriberID] {
@@ -949,52 +952,100 @@ func (s *Store) HasActiveTaskForAssignee(ctx context.Context, project, assignee 
 	return count > 0, nil
 }
 
+// ActiveTaskForSubscriber returns the subscriber's current in-progress task, or nil.
+func (s *Store) ActiveTaskForSubscriber(ctx context.Context, project, subscriberID string) *Task {
+	var task Task
+	err := s.db.GetContext(ctx, &task,
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		 FROM board_tasks WHERE board_id = ? AND assigned_to = ? AND status = 'in_progress'
+		 ORDER BY claimed_at DESC LIMIT 1`, project, subscriberID)
+	if err != nil {
+		return nil
+	}
+	return &task
+}
+
+// NextPendingTaskForSubscriber returns the next pending task assigned to or
+// available for the subscriber, without claiming it. Returns nil if none.
+func (s *Store) NextPendingTaskForSubscriber(ctx context.Context, project, subscriberID string) *Task {
+	priorityOrder := `CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, id ASC`
+	var task Task
+	// Check assigned tasks first
+	err := s.db.GetContext(ctx, &task,
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		 FROM board_tasks WHERE board_id = ? AND status = 'pending' AND assigned_to = ?
+		 ORDER BY `+priorityOrder+` LIMIT 1`, project, subscriberID)
+	if err == nil {
+		return &task
+	}
+	// Then unassigned
+	err = s.db.GetContext(ctx, &task,
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		 FROM board_tasks WHERE board_id = ? AND status = 'pending' AND (assigned_to IS NULL OR assigned_to = '')
+		 ORDER BY `+priorityOrder+` LIMIT 1`, project, subscriberID)
+	if err == nil {
+		return &task
+	}
+	return nil
+}
+
 // ClaimTask finds and atomically claims the best pending task for the subscriber.
 // It first looks for tasks assigned to the subscriber, then unassigned tasks.
 // Tasks are ordered by priority (critical > high > medium > low), then by ID.
 // Returns nil if no tasks are available.
+// An agent cannot claim a new task while they have an in-progress task.
 func (s *Store) ClaimTask(ctx context.Context, project, subscriberID string) (*Task, error) {
 	now := nowUTC()
 	priorityOrder := `CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, id ASC`
 
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return nil, err
+	// Fast-path rejection: check for active task before attempting the claim
+	var activeCount int
+	if err := s.db.GetContext(ctx, &activeCount,
+		`SELECT COUNT(*) FROM board_tasks WHERE board_id = ? AND assigned_to = ? AND status = 'in_progress'`,
+		project, subscriberID); err == nil && activeCount > 0 {
+		return nil, fmt.Errorf("complete your current task before claiming a new one")
 	}
-	defer tx.Rollback()
 
-	// First try: tasks assigned to this subscriber
+	// Find the best candidate: prefer tasks assigned to this subscriber, then unassigned
 	var taskID int64
-	err = tx.GetContext(ctx, &taskID,
+	err := s.db.GetContext(ctx, &taskID,
 		`SELECT id FROM board_tasks WHERE board_id = ? AND status = 'pending' AND assigned_to = ?
 		 ORDER BY `+priorityOrder+` LIMIT 1`,
 		project, subscriberID)
 	if err != nil {
-		// No assigned tasks — try unassigned (skip tasks assigned to others)
-		err = tx.GetContext(ctx, &taskID,
+		err = s.db.GetContext(ctx, &taskID,
 			`SELECT id FROM board_tasks WHERE board_id = ? AND status = 'pending' AND (assigned_to IS NULL OR assigned_to = '')
 			 ORDER BY `+priorityOrder+` LIMIT 1`,
-			project, subscriberID)
+			project)
 		if err != nil {
 			return nil, nil // no available tasks
 		}
 	}
 
-	// Atomically claim it
-	result, err := tx.ExecContext(ctx,
+	// Atomically claim: the NOT EXISTS subquery prevents a subscriber from having
+	// two in_progress tasks even under concurrent requests (single-writer SQLite).
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE board_tasks SET status = 'in_progress', assigned_to = ?, claimed_at = ?
-		 WHERE id = ? AND board_id = ? AND status = 'pending'`,
-		subscriberID, now, taskID, project)
+		 WHERE id = ? AND board_id = ? AND status = 'pending'
+		   AND NOT EXISTS (
+		     SELECT 1 FROM board_tasks
+		     WHERE board_id = ? AND assigned_to = ? AND status = 'in_progress'
+		   )`,
+		subscriberID, now, taskID, project, project, subscriberID)
 	if err != nil {
 		return nil, err
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
-		return nil, nil // lost race
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
+		// Either lost the race on this task, or subscriber already has an active task
+		var hasActive int
+		s.db.GetContext(ctx, &hasActive,
+			`SELECT COUNT(*) FROM board_tasks WHERE board_id = ? AND assigned_to = ? AND status = 'in_progress'`,
+			project, subscriberID)
+		if hasActive > 0 {
+			return nil, fmt.Errorf("complete your current task before claiming a new one")
+		}
+		return nil, nil // lost race on the task itself
 	}
 
 	return s.getTaskByID(ctx, project, taskID)

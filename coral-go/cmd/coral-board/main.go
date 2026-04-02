@@ -1098,6 +1098,8 @@ Subcommands:
 		cmdTaskList(st)
 	case "claim":
 		cmdTaskClaim(st)
+	case "current", "detail":
+		cmdTaskCurrent(st)
 	case "complete":
 		cmdTaskComplete(st, taskArgs)
 	case "cancel":
@@ -1111,6 +1113,7 @@ Subcommands:
   add "title" [--body "details"] [--priority P] [--assignee "Agent Name"]
   list
   claim
+  current                          Show your current in-progress task
   complete <id> [--message "note"]
   cancel <id> [--message "reason"]
   reassign <id> [--to "Agent Name"]`)
@@ -1237,7 +1240,44 @@ func cmdTaskClaim(st *boardState) {
 	json.Unmarshal(data, &task)
 	id, _ := task["id"].(float64)
 	title, _ := task["title"].(string)
-	fmt.Printf("Claimed Task #%.0f: %s\n", id, title)
+	taskBody, _ := task["body"].(string)
+	priority, _ := task["priority"].(string)
+	fmt.Printf("Claimed Task #%.0f (%s): %s\n", id, priority, title)
+	if taskBody != "" {
+		fmt.Printf("\n%s\n", taskBody)
+	}
+}
+
+func cmdTaskCurrent(st *boardState) {
+	subscriberID := resolveSubscriberID()
+	body := map[string]string{"subscriber_id": subscriberID}
+
+	data, status, err := apiCallRaw("POST", "/"+st.Project+"/tasks/current", body)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if status == http.StatusNotFound {
+		fmt.Println("No active task")
+		return
+	}
+	if status != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", string(data))
+		os.Exit(1)
+	}
+
+	var task map[string]any
+	json.Unmarshal(data, &task)
+	id, _ := task["id"].(float64)
+	title, _ := task["title"].(string)
+	taskBody, _ := task["body"].(string)
+	priority, _ := task["priority"].(string)
+	status_, _ := task["status"].(string)
+	fmt.Printf("Task #%.0f (%s) [%s]: %s\n", id, priority, status_, title)
+	if taskBody != "" {
+		fmt.Printf("\n%s\n", taskBody)
+	}
 }
 
 func cmdTaskComplete(st *boardState, args []string) {
