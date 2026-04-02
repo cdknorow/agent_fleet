@@ -37,6 +37,59 @@ export function showToast(message, isError = false, duration = 4000) {
     setTimeout(() => toast.remove(), duration);
 }
 
+export function showWorkflowNotification(title, message, level = 'info', duration = 8000) {
+    const icons = { success: '✅', warning: '⚠️', error: '❌', info: '💬' };
+    const icon = icons[level] || icons.info;
+    const toast = document.createElement("div");
+    toast.className = "notification-toast";
+    toast.innerHTML = `<div class="notification-toast-body">
+            <div class="notification-toast-header">
+                <span class="notification-toast-title">${icon} ${title ? `<strong>${escapeHtml(title)}</strong>` : 'Notification'}</span>
+                <button class="notification-toast-close">✕</button>
+            </div>
+            ${message ? `<span class="notification-toast-detail">${escapeHtml(message)}</span>` : ''}
+        </div>`;
+    toast.querySelector(".notification-toast-close").addEventListener("click", () => toast.remove());
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+}
+
+export function showAlertNotification(title, message, level = 'info', link = null) {
+    const icons = { success: '✅', warning: '⚠️', error: '❌', info: '💬' };
+    const icon = icons[level] || icons.info;
+    const overlay = document.createElement("div");
+    overlay.className = "alert-notification-overlay";
+    const linkHtml = link
+        ? `<a href="#" class="alert-notification-link">${escapeHtml(link.label)}</a>`
+        : '';
+    overlay.innerHTML = `<div class="alert-notification">
+            <div class="alert-notification-icon">${icon}</div>
+            <div class="alert-notification-title">${title ? escapeHtml(title) : 'Notification'}</div>
+            ${message ? `<div class="alert-notification-message">${escapeHtml(message)}</div>` : ''}
+            ${linkHtml}
+            <button class="alert-notification-ok btn btn-primary">OK</button>
+        </div>`;
+    overlay.querySelector(".alert-notification-ok").addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    if (link) {
+        overlay.querySelector(".alert-notification-link").addEventListener("click", (e) => {
+            e.preventDefault();
+            overlay.remove();
+            // docs:// links navigate to the Docs tab (e.g. "docs://workflow-quickstart")
+            if (link.url.startsWith('docs://')) {
+                const docName = link.url.replace('docs://', '');
+                if (window.switchNavTab) window.switchNavTab('docs');
+                import('./docs.js').then(m => m.selectDoc(docName));
+            } else if (link.url.startsWith('http')) {
+                window.open(link.url, '_blank');
+            } else {
+                window.location.href = link.url;
+            }
+        });
+    }
+    document.body.appendChild(overlay);
+}
+
 export function showNotificationToast(agentLabel, detail, onClick) {
     const toast = document.createElement("div");
     toast.className = "notification-toast";

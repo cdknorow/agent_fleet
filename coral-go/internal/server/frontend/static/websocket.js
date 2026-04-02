@@ -5,7 +5,7 @@ import { renderLiveSessions, updateSessionStatus, updateSessionSummary, updateSe
 import { renderLiveJobs } from './live_jobs.js';
 import { updateChangedFileCount } from './changed_files.js';
 import { updateSectionVisibility } from './sidebar.js';
-import { showNotificationToast, showToast, escapeHtml, dbg } from './utils.js';
+import { showNotificationToast, showWorkflowNotification, showAlertNotification, showToast, escapeHtml, dbg } from './utils.js';
 
 export function connectCoralWs() {
     dbg('connectCoralWs: establishing connection');
@@ -96,6 +96,17 @@ export function connectCoralWs() {
             }
             state.liveSessions = data.sessions;
             renderLiveSessions(data.sessions);
+
+            // Show notifications pushed via POST /api/notifications
+            if (data.notifications) {
+                for (const n of data.notifications) {
+                    if (n.type === 'alert') {
+                        showAlertNotification(n.title, n.message, n.level, n.link || null);
+                    } else {
+                        showWorkflowNotification(n.title, n.message, n.level);
+                    }
+                }
+            }
 
             // Update Jobs sidebar
             if (data.active_runs) {

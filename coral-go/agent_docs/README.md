@@ -20,6 +20,7 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 
 ### Collaboration
 - [Message Board](board.md) — Multi-agent message board, subscriptions, groups, board tasks
+- [Notifications](notifications.md) — Push toast and alert notifications to the Coral UI
 - [Webhooks](webhooks.md) — Webhook management and delivery tracking
 
 ### Configuration

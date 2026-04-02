@@ -807,6 +807,75 @@
     to { transform: translateY(0); opacity: 1; }
 }
 
+.alert-notification-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+.alert-notification {
+    background: var(--bg-secondary, #1e1e2e);
+    border: 1px solid var(--border, #444);
+    border-radius: 12px;
+    padding: 32px 40px;
+    max-width: 440px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: scaleIn 0.2s ease;
+}
+
+.alert-notification-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+}
+
+.alert-notification-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.alert-notification-message {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.alert-notification-link {
+    display: inline-block;
+    color: var(--accent, #7aa2f7);
+    font-size: 13px;
+    margin-bottom: 20px;
+    text-decoration: none;
+}
+
+.alert-notification-link:hover {
+    text-decoration: underline;
+}
+
+.alert-notification-ok {
+    min-width: 100px;
+    padding: 8px 24px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
 /* ── Update Toast ──────────────────────────────────────────── */
 
 .update-toast {

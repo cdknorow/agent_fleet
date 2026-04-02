@@ -1,0 +1,124 @@
+# Notifications API
+
+Push notifications to the Coral UI from workflows, scripts, or any HTTP client. Notifications appear in real-time via WebSocket.
+
+## Create Notification
+
+```
+POST /api/notifications
+```
+
+**Request Body:**
+```json
+{
+  "title": "Build Complete",
+  "message": "All 42 tests passed",
+  "type": "toast",
+  "level": "success",
+  "link": {
+    "label": "View docs",
+    "url": "/api/agent-docs/workflow-quickstart"
+  }
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `title` | string | One of title/message required | — | Bold heading text |
+| `message` | string | One of title/message required | — | Body text |
+| `type` | string | No | `"toast"` | `"toast"` (top-right, auto-dismiss) or `"alert"` (centered modal, requires OK click) |
+| `level` | string | No | `"info"` | `"info"`, `"success"`, `"warning"`, `"error"` — controls icon and styling |
+| `link` | object | No | — | Optional link shown in the notification |
+| `link.label` | string | Yes (if link) | — | Link text |
+| `link.url` | string | Yes (if link) | — | URL — use `docs://name` to open a doc in the Docs tab, `http(s)://` for external links, or a relative path |
+
+**Response:**
+```json
+{
+  "id": 1,
+  "title": "Build Complete",
+  "message": "All 42 tests passed",
+  "type": "toast",
+  "level": "success",
+  "link": { "label": "View docs", "url": "/api/agent-docs/workflow-quickstart" },
+  "created_at": "2026-04-02T12:00:00Z"
+}
+```
+
+## Notification Types
+
+### Toast (`type: "toast"`)
+
+Appears in the top-right corner and auto-dismisses after 8 seconds. User can click ✕ to dismiss early. Best for status updates and non-critical messages.
+
+```bash
+curl -X POST http://localhost:${CORAL_PORT}/api/notifications \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Deploy Complete", "message": "v1.2.0 is live", "level": "success"}'
+```
+
+### Alert (`type: "alert"`)
+
+Centered modal overlay that requires the user to click OK. Supports an optional link button. Best for important messages that require acknowledgment.
+
+```bash
+curl -X POST http://localhost:${CORAL_PORT}/api/notifications \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Welcome to Coral Workflows",
+    "message": "Automate multi-step tasks with shell commands and AI agents.",
+    "type": "alert",
+    "level": "info",
+    "link": {
+      "label": "Read the Workflow Quickstart →",
+      "url": "/api/agent-docs/workflow-quickstart"
+    }
+  }'
+```
+
+## Levels
+
+| Level | Icon | Use for |
+|-------|------|---------|
+| `info` | 💬 | General information |
+| `success` | ✅ | Completed tasks, passing tests |
+| `warning` | ⚠️ | Non-critical issues, deprecations |
+| `error` | ❌ | Failures, critical issues |
+
+## Delivery
+
+Notifications are delivered via the existing `/ws/coral` WebSocket connection. They are:
+- **Ephemeral** — stored in memory only, not persisted to database
+- **Drained on delivery** — each notification is sent once to the next WebSocket poll, then removed
+- **Expired after 5 minutes** — undelivered notifications are automatically pruned
+
+## Usage in Workflows
+
+Notifications are especially useful in workflow shell steps for reporting results:
+
+```json
+{
+  "name": "notify-result",
+  "type": "shell",
+  "command": "curl -s -X POST http://localhost:${CORAL_PORT}/api/notifications -H 'Content-Type: application/json' -d '{\"title\": \"Tests Complete\", \"message\": \"All passed\", \"level\": \"success\"}'"
+}
+```
+
+Use `StepFailed` hooks to send error notifications:
+
+```json
+{
+  "hooks": {
+    "StepFailed": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:${CORAL_PORT}/api/notifications -H 'Content-Type: application/json' -d '{\"title\": \"Step Failed\", \"message\": \"Check workflow run logs\", \"level\": \"error\"}'"
+      }]
+    }]
+  }
+}
+```
+
+## Environment
+
+The `CORAL_PORT` environment variable is available in all workflow steps and agent sessions, making it easy to construct the notification URL.

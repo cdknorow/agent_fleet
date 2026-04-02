@@ -123,11 +123,20 @@ func (h *SessionsHandler) WSCoral(w http.ResponseWriter, r *http.Request) {
 		currRunsJSON, _ := json.Marshal(activeRuns)
 		currRunsStr := string(currRunsJSON)
 
+		// Drain pending notifications
+		var notifications []Notification
+		if h.notifications != nil {
+			notifications = h.notifications.Drain()
+		}
+
 		if firstMessage {
 			msg := map[string]any{
 				"type":        "coral_update",
 				"sessions":    sessions,
 				"active_runs": activeRuns,
+			}
+			if len(notifications) > 0 {
+				msg["notifications"] = notifications
 			}
 			if err := wsjson.Write(ctx, conn, msg); err != nil {
 				return
@@ -155,7 +164,8 @@ func (h *SessionsHandler) WSCoral(w http.ResponseWriter, r *http.Request) {
 
 		runsChanged := currRunsStr != prevRunsJSON
 
-		if len(changed) > 0 || len(removed) > 0 || runsChanged {
+		hasNotifications := len(notifications) > 0
+		if len(changed) > 0 || len(removed) > 0 || runsChanged || hasNotifications {
 			payload := map[string]any{"type": "coral_diff"}
 			if len(changed) > 0 {
 				payload["changed"] = changed
@@ -165,6 +175,9 @@ func (h *SessionsHandler) WSCoral(w http.ResponseWriter, r *http.Request) {
 			}
 			if runsChanged {
 				payload["active_runs"] = activeRuns
+			}
+			if hasNotifications {
+				payload["notifications"] = notifications
 			}
 			if err := wsjson.Write(ctx, conn, payload); err != nil {
 				return

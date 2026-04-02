@@ -48,9 +48,10 @@ type SessionsHandler struct {
 	jsonl   *jsonl.SessionReader
 	backend ptymanager.TerminalBackend // nil = use tmux directly
 
-	boardHandler *BoardHandler        // for sleep/wake board pausing
-	licenseMgr   *license.Manager     // for runtime trial limit checks
-	schedStore   *store.ScheduleStore // for active runs in websocket
+	boardHandler  *BoardHandler        // for sleep/wake board pausing
+	licenseMgr    *license.Manager     // for runtime trial limit checks
+	schedStore    *store.ScheduleStore // for active runs in websocket
+	notifications *NotificationStore   // for UI notifications via websocket
 
 	// Deduplication state for status/summary events (mirrors Python _last_known)
 	lastKnownMu sync.RWMutex
@@ -65,6 +66,11 @@ func (h *SessionsHandler) SetBoardHandler(bh *BoardHandler) {
 // SetLicenseManager sets the license manager for runtime trial limit checks.
 func (h *SessionsHandler) SetLicenseManager(lm *license.Manager) {
 	h.licenseMgr = lm
+}
+
+// SetNotificationStore sets the notification store for WebSocket delivery.
+func (h *SessionsHandler) SetNotificationStore(ns *NotificationStore) {
+	h.notifications = ns
 }
 
 // SetScheduleStore sets the schedule store for active runs in websocket.
