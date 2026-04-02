@@ -17,6 +17,8 @@ import (
 	"github.com/cdknorow/coral/internal/ptymanager"
 )
 
+const taskNudge = "You have tasks available. Run 'coral-board task claim' to start."
+
 // BoardHandler handles message board HTTP endpoints.
 type BoardHandler struct {
 	bs       *board.Store
@@ -624,15 +626,27 @@ func (h *BoardHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		notification := h.buildAssignmentNotification(ctx, project, task, assignee, false)
 		h.bs.PostMessage(ctx, project, "Coral Task Queue", notification, nil)
 
-		// Send direct terminal nudge to the assigned agent (if they have no active task)
-		if assignee != "" && h.terminal != nil {
-			hasActive, _ := h.bs.HasActiveTaskForAssignee(ctx, project, assignee, task.ID)
-			if !hasActive {
-				sub, err := h.bs.GetSubscription(ctx, assignee)
-				if err == nil && sub != nil && sub.SessionName != "" {
-					nudge := "You have a new task assigned. Run 'coral-board task claim' to start."
-					if err := h.terminal.SendInput(ctx, sub.SessionName, nudge, "", ""); err != nil {
-						slog.Warn("failed to nudge agent for new task", "subscriber", assignee, "session", sub.SessionName, "error", err)
+		// Send direct terminal nudge
+		if h.terminal != nil {
+			if assignee != "" {
+				// Nudge the assigned agent (if they have no active task)
+				hasActive, _ := h.bs.HasActiveTaskForAssignee(ctx, project, assignee, task.ID)
+				if !hasActive {
+					sub, err := h.bs.GetSubscription(ctx, assignee)
+					if err == nil && sub != nil && sub.SessionName != "" {
+						nudge := taskNudge
+						if err := h.terminal.SendInput(ctx, sub.SessionName, nudge, "", ""); err != nil {
+							slog.Warn("failed to nudge agent", "subscriber", assignee, "session", sub.SessionName, "error", err)
+						}
+					}
+				}
+			} else {
+				// Unassigned task — nudge a random idle agent
+				idle := h.bs.FindIdleSubscriber(ctx, project)
+				if idle != nil && idle.SessionName != "" {
+					nudge := taskNudge
+					if err := h.terminal.SendInput(ctx, idle.SessionName, nudge, "", ""); err != nil {
+						slog.Warn("failed to nudge agent", "subscriber", idle.SubscriberID, "session", idle.SessionName, "error", err)
 					}
 				}
 			}
@@ -771,9 +785,9 @@ func (h *BoardHandler) CompleteTaskByID(w http.ResponseWriter, r *http.Request) 
 			if h.terminal != nil {
 				sub, err := h.bs.GetSubscription(ctx, subscriberID)
 				if err == nil && sub != nil && sub.SessionName != "" {
-					nudge := "You have tasks available. Run 'coral-board task claim' to start your next task."
+					nudge := taskNudge
 					if err := h.terminal.SendInput(ctx, sub.SessionName, nudge, "", ""); err != nil {
-						slog.Warn("failed to nudge agent for next task", "subscriber", subscriberID, "session", sub.SessionName, "error", err)
+						slog.Warn("failed to nudge agent", "subscriber", subscriberID, "session", sub.SessionName, "error", err)
 					}
 				}
 			}

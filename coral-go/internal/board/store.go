@@ -952,6 +952,22 @@ func (s *Store) HasActiveTaskForAssignee(ctx context.Context, project, assignee 
 	return count > 0, nil
 }
 
+// FindIdleSubscriber returns a random active subscriber with no in-progress tasks, or nil.
+func (s *Store) FindIdleSubscriber(ctx context.Context, project string) *Subscriber {
+	var sub Subscriber
+	err := s.db.GetContext(ctx, &sub,
+		`SELECT * FROM board_subscribers
+		 WHERE project = ? AND is_active = 1 AND session_name != ''
+		 AND subscriber_id NOT IN (
+		     SELECT assigned_to FROM board_tasks WHERE board_id = ? AND status = 'in_progress' AND assigned_to IS NOT NULL
+		 )
+		 ORDER BY RANDOM() LIMIT 1`, project, project)
+	if err != nil {
+		return nil
+	}
+	return &sub
+}
+
 // ActiveTaskForSubscriber returns the subscriber's current in-progress task, or nil.
 func (s *Store) ActiveTaskForSubscriber(ctx context.Context, project, subscriberID string) *Task {
 	var task Task
