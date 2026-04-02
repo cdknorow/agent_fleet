@@ -98,6 +98,55 @@ func (s *WorkflowStore) DB() *DB {
 
 // ── Workflows ─────────────────────────────────────────────────────────
 
+// SeedDemoWorkflow creates the daily-motivation demo workflow and a scheduled
+// job to run it every morning. Uses a user_settings flag so deleted demos
+// won't re-appear on restart.
+func (s *WorkflowStore) SeedDemoWorkflow(ctx context.Context, schedStore *ScheduleStore) {
+	var seeded string
+	err := s.db.GetContext(ctx, &seeded, "SELECT value FROM user_settings WHERE key = 'demo_workflows_seeded'")
+	if err == nil && seeded == "1" {
+		return
+	}
+
+	// Mark as seeded before creating so we never re-seed even if creation fails
+	s.db.ExecContext(ctx, "INSERT OR REPLACE INTO user_settings (key, value) VALUES ('demo_workflows_seeded', '1')")
+
+	stepsJSON := `[{"name":"generate-message","type":"agent","prompt":"Generate a single short, unique, and inspiring motivational message (2-3 sentences max). Output ONLY the message text, nothing else — no quotes, no labels, no explanation."},{"name":"show-popup","type":"shell","command":"MSG=$(cat {{prev_stdout}}) && osascript -e \"display dialog \\\"$MSG\\\" with title \\\"Daily Motivation\\\" buttons {\\\"OK\\\"} default button \\\"OK\\\"\""}]`
+	defaultAgentJSON := `{"agent_type":"claude"}`
+
+	wf, err := s.CreateWorkflow(ctx, &Workflow{
+		Name:             "daily-motivation",
+		Description:      "Demo: generates a motivational message and shows it as a popup",
+		StepsJSON:        stepsJSON,
+		DefaultAgentJSON: defaultAgentJSON,
+		Enabled:          1,
+	})
+	if err != nil {
+		log.Printf("Warning: failed to seed demo workflow: %v", err)
+		return
+	}
+	log.Printf("Seeded demo workflow: daily-motivation")
+
+	// Seed a scheduled job to run it every weekday morning at 9am
+	if schedStore != nil {
+		wfID := wf.ID
+		_, err := schedStore.CreateScheduledJob(ctx, &ScheduledJob{
+			Name:        "morning-motivation",
+			Description: "Runs the daily-motivation workflow every weekday at 9am",
+			CronExpr:    "0 9 * * 1-5",
+			Timezone:    "Local",
+			JobType:     "workflow",
+			WorkflowID:  &wfID,
+			Enabled:     1,
+		})
+		if err != nil {
+			log.Printf("Warning: failed to seed demo job: %v", err)
+			return
+		}
+		log.Printf("Seeded demo job: morning-motivation (weekdays 9am)")
+	}
+}
+
 // CreateWorkflow creates a new workflow definition.
 func (s *WorkflowStore) CreateWorkflow(ctx context.Context, w *Workflow) (*Workflow, error) {
 	now := nowUTC()

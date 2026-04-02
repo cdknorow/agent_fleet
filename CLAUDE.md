@@ -66,14 +66,22 @@ icons/                  # App icons and screenshots
 
 ## Development
 
-### Building
+### Agent Docs
+Agent docs live in `coral-go/agent_docs/` (single source of truth) and are synced to the static embed directory at build time. The Makefile handles this automatically. Production builds sync via `bundle-frontend.sh`.
+
+### Building (via Makefile)
+```bash
+cd coral-go && make build       # production build
+cd coral-go && make dev         # dev build (skips EULA + license)
+cd coral-go && make run         # dev build + run on :8420
+cd coral-go && make test-server # dev build + run on :8450 (0.0.0.0)
+cd coral-go && make test        # run all tests
+```
+All Makefile targets sync agent_docs automatically before building.
+
+### Building (manual)
 ```bash
 cd coral-go && go build -o coral ./cmd/coral/
-```
-
-### Running
-```bash
-cd coral-go && go run ./cmd/coral/ --host 127.0.0.1 --port 8420
 ```
 
 ### Dev Mode

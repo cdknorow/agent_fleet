@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -37,6 +38,11 @@ func NewWorkflowHandler(db *store.DB, cfg *config.Config) *WorkflowHandler {
 		ws:  store.NewWorkflowStore(db),
 		cfg: cfg,
 	}
+}
+
+// SeedDemoWorkflow creates the daily-motivation demo workflow and scheduled job on first run.
+func (h *WorkflowHandler) SeedDemoWorkflow(schedStore *store.ScheduleStore) {
+	h.ws.SeedDemoWorkflow(context.Background(), schedStore)
 }
 
 // ── Workflow CRUD ─────────────────────────────────────────────────────

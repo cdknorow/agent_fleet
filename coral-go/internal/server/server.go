@@ -273,6 +273,7 @@ func (s *Server) buildRouter() chi.Router {
 	s.workflowHandler = workflowHandler
 	themeHandler := routes.NewThemesHandler(s.cfg)
 	themeHandler.SeedBundledThemes()
+	workflowHandler.SeedDemoWorkflow(store.NewScheduleStore(s.db))
 
 	// Live sessions
 	r.Get("/api/sessions/resolve", sessHandler.ResolveByPIDs)

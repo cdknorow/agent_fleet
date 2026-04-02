@@ -13,6 +13,7 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 - [WebSockets](websockets.md) — Real-time terminal and event streams
 
 ### Automation
+- [Workflow Quickstart](workflow-quickstart.md) — Build your first workflow in 5 minutes
 - [Workflows](workflows.md) — Multi-step workflow definitions and execution
 - [Scheduled Jobs](scheduled-jobs.md) — Cron-based scheduled job management
 - [Tasks](jobs.md) — One-shot task execution

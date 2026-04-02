@@ -56,6 +56,9 @@ else
     ESBUILD="esbuild"
 fi
 
+# ── Sync agent_docs ─────────────────────────────────────────
+bash "$SCRIPT_DIR/sync-agent-docs.sh"
+
 echo "==> Bundling frontend JS/CSS"
 
 # Backup original sources (including platform/ subdirectory)
