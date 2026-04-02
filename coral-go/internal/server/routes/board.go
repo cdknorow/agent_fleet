@@ -614,14 +614,29 @@ func (h *BoardHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		errInternalServer(w, err.Error())
 		return
 	}
-	// Notify agents about the new task — @mention assignee if pre-assigned
+	// Notify agents about the new task — board audit + direct terminal nudge
+	assignee := ""
+	if task.AssignedTo != nil {
+		assignee = *task.AssignedTo
+	}
 	go func() {
-		assignee := ""
-		if task.AssignedTo != nil {
-			assignee = *task.AssignedTo
+		ctx := context.Background()
+		notification := h.buildAssignmentNotification(ctx, project, task, assignee, false)
+		h.bs.PostMessage(ctx, project, "Coral Task Queue", notification, nil)
+
+		// Send direct terminal nudge to the assigned agent (if they have no active task)
+		if assignee != "" && h.terminal != nil {
+			hasActive, _ := h.bs.HasActiveTaskForAssignee(ctx, project, assignee, task.ID)
+			if !hasActive {
+				sub, err := h.bs.GetSubscription(ctx, assignee)
+				if err == nil && sub != nil && sub.SessionName != "" {
+					nudge := "You have a new task assigned. Run 'coral-board task claim' to start."
+					if err := h.terminal.SendInput(ctx, sub.SessionName, nudge, "", ""); err != nil {
+						slog.Warn("failed to nudge agent for new task", "subscriber", assignee, "session", sub.SessionName, "error", err)
+					}
+				}
+			}
 		}
-		notification := h.buildAssignmentNotification(context.Background(), project, task, assignee, false)
-		h.bs.PostMessage(context.Background(), project, "Coral Task Queue", notification, nil)
 	}()
 	writeJSON(w, http.StatusCreated, task)
 }
