@@ -57,6 +57,7 @@
             <button class="top-nav-tab" id="nav-tab-board" onclick="switchNavTab('board')" style="display:none">Board</button>
             <button class="top-nav-tab" id="nav-tab-jobs" onclick="switchNavTab('jobs')">Jobs</button>
             <button class="top-nav-tab" id="nav-tab-workflows" onclick="switchNavTab('workflows')">Workflows</button>
+            <button class="top-nav-tab" id="nav-tab-docs" onclick="switchNavTab('docs')">Docs</button>
         </nav>
         <div id="startup-loading" class="startup-loading" role="status" aria-live="polite">
             <span class="startup-spinner"></span>
@@ -158,26 +159,6 @@
                         <span class="welcome-team-desc">Lead Dev, QA, Frontend Dev, Security Reviewer</span>
                         <span class="welcome-team-count">5 agents</span>
                     </button>
-                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Marketing Team')">
-                        <span class="material-icons welcome-team-icon">campaign</span>
-                        <strong>Marketing Team</strong>
-                        <span class="welcome-team-desc">Content Writer, SEO Strategist, Design Director</span>
-                        <span class="welcome-team-count">4 agents</span>
-                    </button>
-                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Personal Assistant')">
-                        <span class="material-icons welcome-team-icon">assistant</span>
-                        <strong>Personal Assistant</strong>
-                        <span class="welcome-team-desc">Research Analyst, Writer, Scheduler</span>
-                        <span class="welcome-team-count">4 agents</span>
-                    </button>
-                </div>
-                <div class="welcome-team-presets">
-                    <button class="welcome-team-card" onclick="window._launchTeamPreset('Second Brain')">
-                        <span class="material-icons welcome-team-icon">psychology</span>
-                        <strong>Second Brain</strong>
-                        <span class="welcome-team-desc">Note Taker, Research Librarian, Synthesizer</span>
-                        <span class="welcome-team-count">4 agents</span>
-                    </button>
                     <button class="welcome-team-card" onclick="window._launchTeamPreset('Consumer Research')">
                         <span class="material-icons welcome-team-icon">groups</span>
                         <strong>Consumer Research</strong>
@@ -260,6 +241,8 @@
             {{ template "includes/views/workflows.html" . }}
 
             {{ template "includes/views/connected_apps.html" . }}
+
+            {{ template "includes/views/docs.html" . }}
         </main>
     </div>
 

@@ -200,11 +200,48 @@ export async function loadBoardTasks(boardName) {
     renderBoardTaskList();
 }
 
+// Current sort state for task list
+let _taskSortField = 'created_at';
+let _taskSortAsc = false; // default newest first
+
+function _toggleTaskSort(field) {
+    if (_taskSortField === field) {
+        _taskSortAsc = !_taskSortAsc;
+    } else {
+        _taskSortField = field;
+        _taskSortAsc = field === 'priority'; // priority defaults asc (critical first)
+    }
+    renderBoardTaskList();
+}
+// Expose globally
+window._toggleTaskSort = _toggleTaskSort;
+
+const _priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+
+function _formatTaskTime(ts) {
+    if (!ts) return '';
+    try {
+        const d = new Date(ts);
+        const h = d.getHours(), m = d.getMinutes();
+        return `${d.getMonth()+1}/${d.getDate()} ${h}:${String(m).padStart(2,'0')}`;
+    } catch { return ''; }
+}
+
 export function renderBoardTaskList() {
     const container = document.getElementById('board-task-list');
     if (!container) return;
 
-    const tasks = state.currentBoardTasks || [];
+    const tasks = (state.currentBoardTasks || []).slice().sort((a, b) => {
+        let cmp = 0;
+        if (_taskSortField === 'created_at') {
+            cmp = (a.created_at || '').localeCompare(b.created_at || '');
+        } else if (_taskSortField === 'priority') {
+            cmp = (_priorityOrder[a.priority] ?? 2) - (_priorityOrder[b.priority] ?? 2);
+        } else if (_taskSortField === 'assignee') {
+            cmp = (a.assigned_to || '').localeCompare(b.assigned_to || '');
+        }
+        return _taskSortAsc ? cmp : -cmp;
+    });
     const section = document.getElementById('board-tasks-section');
 
     if (tasks.length === 0) {
@@ -213,7 +250,18 @@ export function renderBoardTaskList() {
     }
     if (section) section.style.display = '';
 
-    container.innerHTML = tasks.map(t => {
+    const arrow = (field) => _taskSortField === field ? (_taskSortAsc ? ' ▲' : ' ▼') : '';
+
+    const header = `
+        <div class="board-task-item board-task-header">
+            <span class="board-task-status-col"></span>
+            <span class="board-task-priority board-task-sort" onclick="_toggleTaskSort('priority')">Priority${arrow('priority')}</span>
+            <span class="board-task-assignee board-task-sort" onclick="_toggleTaskSort('assignee')">Agent${arrow('assignee')}</span>
+            <span class="board-task-desc board-task-sort" onclick="_toggleTaskSort('created_at')">Task${arrow('created_at')}</span>
+            <span class="board-task-time board-task-sort" onclick="_toggleTaskSort('created_at')">Created${arrow('created_at')}</span>
+        </div>`;
+
+    const rows = tasks.map(t => {
         const statusClass = t.status === 'completed' ? 'completed'
             : t.status === 'in_progress' ? 'in-progress'
             : t.status === 'skipped' ? 'completed' : '';
@@ -221,6 +269,7 @@ export function renderBoardTaskList() {
         const assignee = t.assigned_to || '\u2014';
         const title = escapeHtml(t.title || t.description || '');
         const tooltip = t.body ? ` title="${escapeAttr(t.body)}"` : '';
+        const timeStr = _formatTaskTime(t.created_at);
         const statusIcon = t.status === 'completed'
             ? '<span class="material-icons board-task-status-icon completed">check_circle</span>'
             : t.status === 'in_progress'
@@ -234,8 +283,11 @@ export function renderBoardTaskList() {
             <span class="board-task-priority ${priorityClass}">${escapeHtml(t.priority || 'medium')}</span>
             <span class="board-task-assignee">${escapeHtml(assignee)}</span>
             <span class="board-task-desc"${tooltip}>${title}</span>
+            <span class="board-task-time">${timeStr}</span>
         </div>`;
     }).join('');
+
+    container.innerHTML = header + rows;
 }
 
 /* ── Task Detail Modal ─────────────────────────────────── */

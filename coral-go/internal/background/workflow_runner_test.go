@@ -3,14 +3,219 @@ package background
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cdknorow/coral/internal/store"
 )
+
+// ── Hooks Tests ─────────────────────────────────────────────
+
+func TestParseStepHooks_Valid(t *testing.T) {
+	raw := json.RawMessage(`{
+		"Stop": [{"hooks": [{"type": "command", "command": "echo done"}]}],
+		"StepComplete": [{"hooks": [{"type": "command", "command": "curl webhook"}]}]
+	}`)
+	hooks := parseStepHooks(raw)
+	if hooks == nil {
+		t.Fatal("parseStepHooks should return non-nil for valid JSON")
+	}
+	if _, ok := hooks["Stop"]; !ok {
+		t.Error("hooks should contain Stop event")
+	}
+	if _, ok := hooks["StepComplete"]; !ok {
+		t.Error("hooks should contain StepComplete event")
+	}
+}
+
+func TestParseStepHooks_Nil(t *testing.T) {
+	hooks := parseStepHooks(nil)
+	if hooks != nil {
+		t.Error("parseStepHooks(nil) should return nil")
+	}
+}
+
+func TestParseStepHooks_InvalidJSON(t *testing.T) {
+	raw := json.RawMessage(`{invalid`)
+	hooks := parseStepHooks(raw)
+	if hooks != nil {
+		t.Error("parseStepHooks with invalid JSON should return nil")
+	}
+}
+
+func TestFilterHooksForClaude(t *testing.T) {
+	hooks := map[string]interface{}{
+		"PreToolUse":   []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+		"PostToolUse":  []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+		"Stop":         []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+		"StepComplete": []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+		"StepFailed":   []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+	}
+
+	filtered := filterHooksForClaude(hooks)
+	if filtered == nil {
+		t.Fatal("filtered hooks should not be nil")
+	}
+
+	// Claude-native events should be present
+	for _, event := range []string{"PreToolUse", "PostToolUse", "Stop"} {
+		if _, ok := filtered[event]; !ok {
+			t.Errorf("Claude-native event %q should be in filtered hooks", event)
+		}
+	}
+
+	// Coral-level events should NOT be present
+	for _, event := range []string{"StepComplete", "StepFailed"} {
+		if _, ok := filtered[event]; ok {
+			t.Errorf("Coral event %q should NOT be in filtered hooks", event)
+		}
+	}
+}
+
+func TestFilterHooksForClaude_NilInput(t *testing.T) {
+	if filtered := filterHooksForClaude(nil); filtered != nil {
+		t.Error("filterHooksForClaude(nil) should return nil")
+	}
+}
+
+func TestFilterHooksForClaude_OnlyCoralEvents(t *testing.T) {
+	hooks := map[string]interface{}{
+		"StepComplete": []interface{}{map[string]interface{}{"hooks": []interface{}{}}},
+	}
+	if filtered := filterHooksForClaude(hooks); filtered != nil {
+		t.Error("filterHooksForClaude with only Coral events should return nil")
+	}
+}
+
+func TestFireHooks_ExecutesCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "hook_fired")
+
+	hooks := map[string]interface{}{
+		"StepComplete": []interface{}{
+			map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{
+						"type":    "command",
+						"command": "touch " + markerFile,
+					},
+				},
+			},
+		},
+	}
+
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	runner := NewWorkflowRunner(wfStore, nil, nil, nil, nil, tmpDir)
+
+	runner.fireHooks(context.Background(), hooks, "StepComplete", nil)
+
+	// Verify the hook command was executed
+	if _, err := os.Stat(markerFile); os.IsNotExist(err) {
+		t.Error("hook command should have created marker file")
+	}
+}
+
+func TestFireHooks_SkipsUnmatchedEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "should_not_exist")
+
+	hooks := map[string]interface{}{
+		"StepComplete": []interface{}{
+			map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{
+						"type":    "command",
+						"command": "touch " + markerFile,
+					},
+				},
+			},
+		},
+	}
+
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	runner := NewWorkflowRunner(wfStore, nil, nil, nil, nil, tmpDir)
+
+	// Fire a different event — should not execute the StepComplete hook
+	runner.fireHooks(context.Background(), hooks, "StepFailed", nil)
+
+	if _, err := os.Stat(markerFile); err == nil {
+		t.Error("hook should NOT have fired for unmatched event")
+	}
+}
+
+func TestFireHooks_PassesEnvVars(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "env_output")
+
+	hooks := map[string]interface{}{
+		"StepComplete": []interface{}{
+			map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{
+						"type":    "command",
+						"command": "echo $CORAL_STEP_NAME > " + outputFile,
+					},
+				},
+			},
+		},
+	}
+
+	db := setupTestDB(t)
+	wfStore := store.NewWorkflowStore(db)
+	runner := NewWorkflowRunner(wfStore, nil, nil, nil, nil, tmpDir)
+
+	env := []string{"CORAL_STEP_NAME=test-step"}
+	runner.fireHooks(context.Background(), hooks, "StepComplete", env)
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read hook output: %v", err)
+	}
+	if !strings.Contains(string(data), "test-step") {
+		t.Errorf("hook should have received CORAL_STEP_NAME env var, got: %q", string(data))
+	}
+}
+
+func TestStepDef_HooksFieldParsed(t *testing.T) {
+	stepJSON := `{
+		"name": "test",
+		"type": "shell",
+		"command": "echo hi",
+		"hooks": {
+			"StepComplete": [{"hooks": [{"type": "command", "command": "echo done"}]}]
+		}
+	}`
+	var step StepDef
+	if err := json.Unmarshal([]byte(stepJSON), &step); err != nil {
+		t.Fatalf("failed to unmarshal StepDef with hooks: %v", err)
+	}
+	if step.Hooks == nil {
+		t.Error("StepDef.Hooks should not be nil")
+	}
+	hooks := parseStepHooks(step.Hooks)
+	if hooks == nil {
+		t.Error("parsed hooks should not be nil")
+	}
+	if _, ok := hooks["StepComplete"]; !ok {
+		t.Error("parsed hooks should contain StepComplete")
+	}
+}
+
+func TestStepStatusStr(t *testing.T) {
+	if s := stepStatusStr(nil); s != "completed" {
+		t.Errorf("expected completed, got %s", s)
+	}
+	if s := stepStatusStr(fmt.Errorf("fail")); s != "failed" {
+		t.Errorf("expected failed, got %s", s)
+	}
+}
 
 // wfMockRuntime implements AgentRuntime for workflow runner testing.
 type wfMockRuntime struct {

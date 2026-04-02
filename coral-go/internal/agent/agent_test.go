@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1049,4 +1050,157 @@ func TestClassifyShell(t *testing.T) {
 			t.Errorf("classifyShell(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
 	}
+}
+
+// ── Hooks Merge Tests ─────────────────────────────────────────
+
+func TestBuildMergedSettings_AgentHooksAppended(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	agentHooks := map[string]interface{}{
+		"PostToolUse": []interface{}{
+			map[string]interface{}{
+				"matcher": "Write",
+				"hooks": []interface{}{
+					map[string]interface{}{"type": "command", "command": "echo wrote"},
+				},
+			},
+		},
+		"Stop": []interface{}{
+			map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{"type": "command", "command": "curl webhook"},
+				},
+			},
+		},
+	}
+
+	merged := buildMergedSettings(tmpDir, agentHooks)
+	hooks, ok := merged["hooks"].(map[string][]interface{})
+	if !ok {
+		t.Fatal("merged settings should contain hooks map")
+	}
+
+	// PostToolUse should have Coral hooks + our agent hook
+	ptGroups := hooks["PostToolUse"]
+	found := false
+	for _, g := range ptGroups {
+		if gMap, ok := g.(map[string]interface{}); ok {
+			if gMap["matcher"] == "Write" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("agent PostToolUse hook with matcher 'Write' not found in merged hooks")
+	}
+
+	// Coral system hooks should still be present
+	coralFound := false
+	for _, g := range ptGroups {
+		if gMap, ok := g.(map[string]interface{}); ok {
+			if hooks, ok := gMap["hooks"].([]map[string]interface{}); ok {
+				for _, h := range hooks {
+					if h["command"] == "coral-hook-agentic-state" {
+						coralFound = true
+					}
+				}
+			}
+		}
+	}
+	if !coralFound {
+		t.Error("Coral system hook 'coral-hook-agentic-state' missing from merged PostToolUse hooks")
+	}
+
+	// Stop should have both Coral hook and agent hook
+	stopGroups := hooks["Stop"]
+	if len(stopGroups) < 2 {
+		t.Errorf("Stop should have at least 2 groups (coral + agent), got %d", len(stopGroups))
+	}
+}
+
+func TestBuildMergedSettings_NilAgentHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	merged := buildMergedSettings(tmpDir, nil)
+	hooks, ok := merged["hooks"].(map[string][]interface{})
+	if !ok {
+		t.Fatal("merged settings should contain hooks map")
+	}
+	if len(hooks["PostToolUse"]) == 0 {
+		t.Error("Coral PostToolUse hooks should still be present with nil agent hooks")
+	}
+}
+
+func TestBuildLaunchCommand_HooksInSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &ClaudeAgent{}
+
+	hooks := map[string]interface{}{
+		"Stop": []interface{}{
+			map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{"type": "command", "command": "echo done"},
+				},
+			},
+		},
+	}
+
+	cmd := a.BuildLaunchCommand(LaunchParams{
+		SessionID:  "test-hooks-session",
+		WorkingDir: tmpDir,
+		Hooks:      hooks,
+	})
+
+	if !strings.Contains(cmd, "--settings") {
+		t.Error("launch command should contain --settings flag")
+	}
+
+	// Read the settings file and verify hooks are present
+	settingsFile := findTempFile(t, "settings", "test-hooks-session", "json")
+	data, err := os.ReadFile(settingsFile)
+	if err != nil {
+		t.Fatalf("failed to read settings file: %v", err)
+	}
+
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("failed to parse settings JSON: %v", err)
+	}
+
+	hooksMap, ok := settings["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatal("settings should contain hooks")
+	}
+
+	stopGroups, ok := hooksMap["Stop"].([]interface{})
+	if !ok || len(stopGroups) == 0 {
+		t.Error("settings hooks should contain Stop groups")
+	}
+
+	foundAgentHook := false
+	for _, g := range stopGroups {
+		gMap, ok := g.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hooksList, ok := gMap["hooks"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, h := range hooksList {
+			hMap, ok := h.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if hMap["command"] == "echo done" {
+				foundAgentHook = true
+			}
+		}
+	}
+	if !foundAgentHook {
+		t.Error("agent Stop hook 'echo done' not found in settings file")
+	}
+
+	CleanupTempFiles("test-hooks-session")
 }

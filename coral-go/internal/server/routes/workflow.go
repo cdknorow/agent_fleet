@@ -617,6 +617,7 @@ func validateSteps(steps []json.RawMessage, defaultAgent json.RawMessage) string
 			TimeoutS          *int            `json:"timeout_s"`
 			ContinueOnFailure bool            `json:"continue_on_failure"`
 			Agent             json.RawMessage `json:"agent"`
+			Hooks             json.RawMessage `json:"hooks"`
 		}
 		if err := json.Unmarshal(stepRaw, &step); err != nil {
 			return fmt.Sprintf("step %d: invalid JSON", i)
@@ -674,7 +675,80 @@ func validateSteps(steps []json.RawMessage, defaultAgent json.RawMessage) string
 		if errMsg := validateTemplateRefs(text, i, len(steps)); errMsg != "" {
 			return errMsg
 		}
+
+		// Validate hooks if present
+		if step.Hooks != nil {
+			if errMsg := validateHooks(step.Hooks); errMsg != "" {
+				return fmt.Sprintf("step %d: %s", i, errMsg)
+			}
+		}
 	}
+	return ""
+}
+
+// validHookEvents are the recognized hook event names.
+var validHookEvents = map[string]bool{
+	"PreToolUse":   true,
+	"PostToolUse":  true,
+	"Stop":         true,
+	"Notification": true,
+	"SubagentStop": true,
+	"StepComplete": true,
+	"StepFailed":   true,
+}
+
+// validateHooks validates a hooks JSON object: known event names, structure, and limits.
+func validateHooks(raw json.RawMessage) string {
+	var hooks map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &hooks); err != nil {
+		return "hooks must be a JSON object"
+	}
+
+	totalGroups := 0
+	for event, groupsRaw := range hooks {
+		if !validHookEvents[event] {
+			return fmt.Sprintf("unknown hook event %q", event)
+		}
+
+		var groups []json.RawMessage
+		if err := json.Unmarshal(groupsRaw, &groups); err != nil {
+			return fmt.Sprintf("hooks.%s must be an array of hook groups", event)
+		}
+
+		if len(groups) > 10 {
+			return fmt.Sprintf("hooks.%s exceeds max 10 groups", event)
+		}
+		totalGroups += len(groups)
+
+		for j, groupRaw := range groups {
+			var group struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
+					Type    string `json:"type"`
+					Command string `json:"command"`
+				} `json:"hooks"`
+			}
+			if err := json.Unmarshal(groupRaw, &group); err != nil {
+				return fmt.Sprintf("hooks.%s[%d]: invalid hook group", event, j)
+			}
+			if len(group.Hooks) == 0 {
+				return fmt.Sprintf("hooks.%s[%d]: hooks array is required", event, j)
+			}
+			for k, h := range group.Hooks {
+				if h.Type != "command" {
+					return fmt.Sprintf("hooks.%s[%d].hooks[%d]: type must be \"command\"", event, j, k)
+				}
+				if h.Command == "" {
+					return fmt.Sprintf("hooks.%s[%d].hooks[%d]: command is required", event, j, k)
+				}
+			}
+		}
+	}
+
+	if totalGroups > 50 {
+		return "hooks exceed max 50 total groups"
+	}
+
 	return ""
 }
 

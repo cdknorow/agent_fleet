@@ -1806,9 +1806,10 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		Backend      string             `json:"backend"`
 		BoardType    string             `json:"board_type"`
 		Model        string             `json:"model"`
-		Capabilities *agent.Capabilities `json:"capabilities"`
-		Tools        []string           `json:"tools"`
-		MCPServers   map[string]any     `json:"mcpServers"`
+		Capabilities *agent.Capabilities      `json:"capabilities"`
+		Tools        []string                `json:"tools"`
+		MCPServers   map[string]any          `json:"mcpServers"`
+		Hooks        map[string]interface{}  `json:"hooks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errBadRequest(w, "invalid JSON")
@@ -1837,7 +1838,7 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.launchSession(r.Context(), body.WorkingDir, body.AgentType, body.DisplayName,
 		"", launchFlags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, body.Model, body.Capabilities,
-		body.Tools, body.MCPServers)
+		body.Tools, body.MCPServers, body.Hooks)
 	if err != nil {
 		errInternalServer(w, err.Error())
 		return
@@ -1870,8 +1871,9 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 			Capabilities *agent.Capabilities `json:"capabilities"`
 			AgentType    string              `json:"agent_type"`
 			Model        string              `json:"model"`
-			Tools        []string            `json:"tools"`
-			MCPServers   map[string]any      `json:"mcpServers"`
+			Tools        []string              `json:"tools"`
+			MCPServers   map[string]any        `json:"mcpServers"`
+			Hooks        map[string]interface{} `json:"hooks"`
 		} `json:"agents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1929,7 +1931,7 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 
 		result, err := h.launchSession(ctx, body.WorkingDir, agentType, agentDef.Name,
 			"", agentFlags, agentDef.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, agentDef.Model, agentDef.Capabilities,
-			agentDef.Tools, agentDef.MCPServers)
+			agentDef.Tools, agentDef.MCPServers, agentDef.Hooks)
 		if err != nil {
 			log.Printf("[launch-team] failed to launch agent %s: %v", agentDef.Name, err)
 			launched = append(launched, map[string]any{"name": agentDef.Name, "error": err.Error()})
@@ -2076,7 +2078,7 @@ func (h *SessionsHandler) ResetTeam(w http.ResponseWriter, r *http.Request) {
 		mcpServers := store.UnmarshalMCPServers(cfg.MCPServers)
 		result, err := h.launchSession(bgCtx, cfg.WorkingDir, cfg.AgentType, displayName,
 			"", flags, prompt, boardName, boardServer, "", boardType, modelStr, caps,
-			tools, mcpServers)
+			tools, mcpServers, nil)
 		if err != nil {
 			log.Printf("[reset-team] failed to re-launch %s: %v", displayName, err)
 			launched = append(launched, map[string]any{"name": displayName, "error": err.Error()})
@@ -2360,7 +2362,7 @@ func generateUUID() string {
 // launchSession creates a new agent session using the specified backend (tmux or pty).
 func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType, displayName, resumeSessionID string,
 	flags []string, prompt, boardName, boardServer, backend, boardType, model string, capabilities *agent.Capabilities,
-	tools []string, mcpServers map[string]any) (map[string]any, error) {
+	tools []string, mcpServers map[string]any, hooks map[string]interface{}) (map[string]any, error) {
 
 	absDir, err := filepath.Abs(workDir)
 	if err != nil || !isDir(absDir) {
@@ -2439,6 +2441,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		Capabilities:    capabilities,
 		Tools:           tools,
 		MCPServers:      mcpServers,
+		Hooks:           hooks,
 		CLIPath:         cliPath,
 	}
 	if cliPath != "" {

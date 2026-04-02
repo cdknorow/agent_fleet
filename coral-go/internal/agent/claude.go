@@ -36,7 +36,7 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 	}
 
 	// Build merged settings with hooks and system prompt
-	merged := buildMergedSettings(params.WorkingDir)
+	merged := buildMergedSettings(params.WorkingDir, params.Hooks)
 
 	// Combine protocol + board system prompt into systemPrompt
 	var sysParts []string
@@ -192,7 +192,7 @@ var coralHooks = map[string][]map[string]interface{}{
 	},
 }
 
-func buildMergedSettings(workingDir string) map[string]interface{} {
+func buildMergedSettings(workingDir string, agentHooks map[string]interface{}) map[string]interface{} {
 	home, _ := os.UserHomeDir()
 	homeClaude := filepath.Join(home, ".claude")
 
@@ -240,6 +240,13 @@ func buildMergedSettings(workingDir string) map[string]interface{} {
 			if !hookEntryExists(existing, command) {
 				mergedHooks[event] = append(mergedHooks[event], group)
 			}
+		}
+	}
+
+	// Append per-agent hooks (level 5: workflow step / team agent config)
+	for event, groups := range agentHooks {
+		if groupList, ok := groups.([]interface{}); ok {
+			mergedHooks[event] = append(mergedHooks[event], groupList...)
 		}
 	}
 

@@ -1690,39 +1690,6 @@ const BUILTIN_TEAM_TEMPLATES = [
         flags: "",
     },
     {
-        name: "Marketing Team",
-        builtin: true,
-        agents: [
-            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the marketing team, break down campaigns, assign tasks via the message board, and track progress. Do not write content yourself — delegate to the other agents.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
-            { name: "Content Writer", prompt: "You are an expert content writer. Write blog posts, social media copy, email campaigns, and landing page content. Focus on clear, engaging writing that drives action. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write', 'web_access'] } },
-            { name: "SEO Strategist", prompt: "You are an SEO and analytics expert. Research keywords, analyze competitors, optimize content for search engines, and provide data-driven recommendations. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'web_access'] } },
-            { name: "Design Director", prompt: "You are a creative director focused on visual design. Create design briefs, review visual assets, ensure brand consistency, and provide art direction. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write', 'web_access'] } },
-        ],
-        flags: "",
-    },
-    {
-        name: "Personal Assistant",
-        builtin: true,
-        agents: [
-            { name: "Orchestrator", prompt: "You are the orchestrator. Coordinate the assistant team, prioritize tasks, delegate work via the message board, and ensure nothing falls through the cracks.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
-            { name: "Research Analyst", prompt: "You are a thorough research analyst. Find information, summarize documents, compare options, and provide well-sourced answers. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'web_access'] } },
-            { name: "Writer & Editor", prompt: "You are a skilled writer and editor. Draft emails, documents, presentations, and reports. Polish and proofread content for clarity and professionalism. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write'] } },
-            { name: "Scheduler & Planner", prompt: "You are an organizational expert. Help plan projects, create timelines, track deadlines, and organize information into actionable plans. Coordinate with the team via the message board.", capabilities: { allow: ['file_read', 'file_write'] } },
-        ],
-        flags: "",
-    },
-    {
-        name: "Second Brain",
-        builtin: true,
-        agents: [
-            { name: "Orchestrator", prompt: "You are the knowledge orchestrator. Help the user organize, connect, and retrieve their knowledge. When the user shares information, delegate to the right specialist to capture, categorize, or synthesize it. Proactively suggest connections between new information and existing knowledge. Discuss with the operator before assigning tasks.", capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] } },
-            { name: "Note Taker", prompt: "You are a note-taking specialist. Capture information the user shares — meetings, ideas, articles, conversations — and organize it into clear, searchable notes. Use consistent formatting with tags, dates, and source attribution. Save notes as markdown files in the working directory. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'file_write'] } },
-            { name: "Research Librarian", prompt: "You are a research librarian. When the user needs to find or recall information, search through their notes and files to surface relevant knowledge. Summarize findings, highlight connections between topics, and maintain an index of key concepts. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'web_access'] } },
-            { name: "Synthesizer", prompt: "You are a knowledge synthesizer. Take scattered notes, research, and ideas and weave them into coherent summaries, outlines, or reports. Identify patterns, contradictions, and gaps in the user's knowledge base. Create periodic digests of recent additions. Wait for instructions from the Orchestrator.", capabilities: { allow: ['file_read', 'file_write'] } },
-        ],
-        flags: "",
-    },
-    {
         name: "Consumer Research",
         builtin: true,
         agents: [

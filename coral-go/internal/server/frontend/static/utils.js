@@ -68,6 +68,7 @@ const VIEW_IDS = [
     "messageboard-view",
     "workflows-view",
     "connected-apps-view",
+    "docs-view",
 ];
 
 const VIEW_DISPLAY = {
@@ -78,6 +79,7 @@ const VIEW_DISPLAY = {
     "messageboard-view": "flex",
     "workflows-view": "block",
     "connected-apps-view": "block",
+    "docs-view": "block",
 };
 
 export function showView(activeId) {

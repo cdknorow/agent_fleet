@@ -35,6 +35,7 @@ type StepDef struct {
 	Connections       []string         `json:"connections,omitempty"`
 	Interactive       bool             `json:"interactive,omitempty"`
 	OutputArtifact    string           `json:"output_artifact,omitempty"`
+	Hooks             json.RawMessage  `json:"hooks,omitempty"` // per-step hooks (Claude-native events + Coral events)
 }
 
 // AgentStepConfig holds the agent configuration for an agent step.
@@ -295,6 +296,17 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 		// List files in step directory
 		results[i].Files = listStepFiles(stepDir)
 
+		// Fire Coral-level hooks (StepComplete/StepFailed) — works for all step types
+		stepHooks := parseStepHooks(step.Hooks)
+		if stepHooks != nil {
+			statusEnv := append(env, "CORAL_STEP_STATUS="+stepStatusStr(stepErr))
+			if stepErr != nil {
+				wr.fireHooks(ctx, stepHooks, "StepFailed", statusEnv)
+			} else {
+				wr.fireHooks(ctx, stepHooks, "StepComplete", statusEnv)
+			}
+		}
+
 		if stepErr != nil {
 			results[i].Status = "failed"
 			wr.persistResults(ctx, runID, i, results)
@@ -425,10 +437,22 @@ func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, ste
 	// Expand template variables in prompt (safe — not shell-interpreted)
 	prompt := expandTemplates(step.Prompt, env)
 
+	// Parse step hooks for agent-level routing
+	stepHooks := parseStepHooks(step.Hooks)
+
+	var stepErr error
 	if step.Interactive {
-		return wr.executeAgentInteractive(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
+		stepErr = wr.executeAgentInteractive(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
+	} else {
+		stepErr = wr.executeAgentPrint(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
 	}
-	return wr.executeAgentPrint(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
+
+	// For non-Claude agents, fire Stop hooks via the runner after process exit
+	if stepHooks != nil && agentCfg.AgentType != "claude" {
+		wr.fireHooks(stepCtx, stepHooks, "Stop", env)
+	}
+
+	return stepErr
 }
 
 // executeAgentPrint runs an agent in non-interactive --print mode.
@@ -446,6 +470,9 @@ func (wr *WorkflowRunner) executeAgentPrint(ctx context.Context, runID int64, st
 	hasCfg := len(agentCfg.Tools) > 0 || agentCfg.Capabilities != nil || agentCfg.MCPServers != nil
 	var args []string
 
+	// Parse step hooks for Claude-native injection
+	stepHooks := parseStepHooks(step.Hooks)
+
 	if hasCfg && agentCfg.AgentType == "claude" {
 		// Use BuildLaunchCommand for full settings support, then inject --print
 		ag := agent.GetAgent(agentCfg.AgentType)
@@ -453,6 +480,7 @@ func (wr *WorkflowRunner) executeAgentPrint(ctx context.Context, runID int64, st
 			WorkingDir: repoPath,
 			Flags:      agentCfg.Flags,
 			Prompt:     prompt,
+			Hooks:      filterHooksForClaude(stepHooks),
 		}
 		if agentCfg.Capabilities != nil {
 			var caps agent.Capabilities
@@ -865,6 +893,14 @@ func listStepFiles(stepDir string) []string {
 	return files
 }
 
+// stepStatusStr returns "failed" if err is non-nil, "completed" otherwise.
+func stepStatusStr(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "completed"
+}
+
 // isRunKilled checks if the run has been killed (context cancelled by KillRun).
 // Used to avoid overwriting "killed" status with "failed" or "completed".
 func (wr *WorkflowRunner) isRunKilled(runID int64) bool {
@@ -929,5 +965,85 @@ func (wr *WorkflowRunner) resolveConnectionTokens(ctx context.Context, connectio
 	}
 
 	return env, firstErr
+}
+
+// parseStepHooks unmarshals the hooks JSON from a step definition.
+func parseStepHooks(raw json.RawMessage) map[string]interface{} {
+	if raw == nil {
+		return nil
+	}
+	var hooks map[string]interface{}
+	if err := json.Unmarshal(raw, &hooks); err != nil {
+		return nil
+	}
+	return hooks
+}
+
+// claudeNativeEvents are hook events that Claude Code handles natively via settings.json.
+var claudeNativeEvents = map[string]bool{
+	"PreToolUse":    true,
+	"PostToolUse":   true,
+	"Stop":          true,
+	"Notification":  true,
+	"SubagentStop":  true,
+}
+
+// filterHooksForClaude returns only Claude-native events from the hooks map.
+func filterHooksForClaude(hooks map[string]interface{}) map[string]interface{} {
+	if hooks == nil {
+		return nil
+	}
+	filtered := make(map[string]interface{})
+	for event, groups := range hooks {
+		if claudeNativeEvents[event] {
+			filtered[event] = groups
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+// fireHooks executes hook commands for a given event. Best-effort: hook failures
+// are logged but don't fail the step. Timeout per hook: 60s (matches Claude Code default).
+func (wr *WorkflowRunner) fireHooks(ctx context.Context, hooks map[string]interface{}, event string, env []string) {
+	eventHooks, ok := hooks[event]
+	if !ok {
+		return
+	}
+	groups, ok := eventHooks.([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, g := range groups {
+		group, ok := g.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hookList, ok := group["hooks"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, h := range hookList {
+			hook, ok := h.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			command, _ := hook["command"].(string)
+			if command == "" {
+				continue
+			}
+
+			hookCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			cmd := exec.CommandContext(hookCtx, "sh", "-c", command)
+			cmd.Env = append(os.Environ(), env...)
+			if err := cmd.Run(); err != nil {
+				wr.logger.Warn("hook execution failed", "event", event, "command", command, "error", err)
+			}
+			cancel()
+		}
+	}
 }
 

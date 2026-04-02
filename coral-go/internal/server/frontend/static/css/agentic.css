@@ -890,6 +890,8 @@
 .board-task-list {
     display: flex;
     flex-direction: column;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 .board-task-item {
@@ -900,6 +902,44 @@
     font-size: 12px;
     line-height: 1.4;
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.04));
+}
+
+.board-task-header {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    cursor: default;
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    z-index: 1;
+}
+
+.board-task-sort {
+    cursor: pointer;
+    user-select: none;
+}
+
+.board-task-sort:hover {
+    color: var(--text-primary);
+}
+
+.board-task-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: right;
+    margin-left: auto;
+}
+
+.board-task-status-col {
+    width: 20px;
+    flex-shrink: 0;
 }
 
 .board-task-item:last-child {

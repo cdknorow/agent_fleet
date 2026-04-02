@@ -40,6 +40,7 @@ import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoa
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initWorkflows, showWorkflowsTab, selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow, showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow, workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList } from './workflows.js';
 import { showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow, testConnectedApp, disconnectApp } from './connected_apps.js';
+import { showDocsTab, selectDoc } from './docs.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 import { platform } from './platform/detect.js';
 import { initNative } from './platform/native.js';
@@ -119,6 +120,8 @@ Object.assign(window, {
     // connected_apps
     showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow,
     testConnectedApp, disconnectApp,
+    // docs
+    showDocsTab, selectDoc,
     // folder_tags
     showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag,
     // utils
@@ -159,11 +162,13 @@ function switchNavTab(tab) {
     const liveSection = document.querySelector('[data-section="live-sessions"]');
     const historySection = document.querySelector('[data-section="history"]');
     const jobsSection = document.querySelector('[data-section="jobs"]');
+    const docsSection = document.querySelector('[data-section="docs"]');
     const sidebarFooter = document.querySelector('.sidebar-footer');
 
     if (liveSection) liveSection.style.display = tab === 'agents' ? '' : 'none';
     if (jobsSection) jobsSection.style.display = tab === 'jobs' ? '' : 'none';
     if (historySection) historySection.style.display = tab === 'history' ? '' : 'none';
+    if (docsSection) docsSection.style.display = tab === 'docs' ? '' : 'none';
     if (sidebarFooter) sidebarFooter.style.display = tab === 'agents' ? '' : 'none';
 
     // Switch main view based on tab
@@ -173,6 +178,8 @@ function switchNavTab(tab) {
         showView('scheduler-view');
     } else if (tab === 'workflows') {
         showWorkflowsTab();
+    } else if (tab === 'docs') {
+        showDocsTab();
     } else if (tab === 'history') {
         // Keep current main view, just switch sidebar content
     } else if (tab === 'agents') {
