@@ -876,6 +876,7 @@
 .board-tasks-section {
     border-top: 1px solid var(--border);
     margin-top: 4px;
+    overflow-y: auto;
 }
 
 .board-tasks-header {
@@ -890,7 +891,6 @@
 .board-task-list {
     display: flex;
     flex-direction: column;
-    max-height: 400px;
     overflow-y: auto;
 }
 

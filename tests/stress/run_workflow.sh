@@ -642,6 +642,124 @@ else
     fail "Status filter: found $failed_runs failed runs, expected >=1"
 fi
 
+# ═══════════════════════════════════════════════════════════════════
+# Test 21: StepComplete hook fires on success
+# ═══════════════════════════════════════════════════════════════════
+
+log "Test 21: StepComplete hook fires on success..."
+HOOK_MARKER="$TMPDIR_WF/hook_marker_complete"
+hook_result=$(api POST "" -d "{
+    \"name\": \"test-hook-complete\",
+    \"description\": \"Hook test\",
+    \"repo_path\": \"$REPO_PATH\",
+    \"steps\": [
+        {
+            \"name\": \"hooked-step\",
+            \"type\": \"shell\",
+            \"command\": \"echo hook-test\",
+            \"hooks\": {
+                \"StepComplete\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"touch $HOOK_MARKER\"}]}]
+            }
+        }
+    ]
+}")
+HOOK_WF_ID=$(echo "$hook_result" | jq_val ".get('id','')")
+
+hook_trigger=$(api POST "/${HOOK_WF_ID}/trigger" -d '{}')
+HOOK_RUN_ID=$(echo "$hook_trigger" | jq_val ".get('run_id','')")
+hook_final=$(wait_for_run "$HOOK_RUN_ID" 15)
+
+if [[ "$hook_final" == "completed" ]]; then
+    pass "Hook workflow completed"
+else
+    fail "Hook workflow status '$hook_final', expected 'completed'"
+fi
+
+# Give hook a moment to execute (it's best-effort/async)
+sleep 1
+
+if [[ -f "$HOOK_MARKER" ]]; then
+    pass "StepComplete hook fired: marker file exists"
+else
+    fail "StepComplete hook did not fire: marker file missing"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# Test 22: StepFailed hook fires on failure
+# ═══════════════════════════════════════════════════════════════════
+
+log "Test 22: StepFailed hook fires on failure..."
+FAIL_HOOK_MARKER="$TMPDIR_WF/hook_marker_failed"
+fail_hook_result=$(api POST "" -d "{
+    \"name\": \"test-hook-failed\",
+    \"description\": \"Failed hook test\",
+    \"repo_path\": \"$REPO_PATH\",
+    \"steps\": [
+        {
+            \"name\": \"fail-hooked\",
+            \"type\": \"shell\",
+            \"command\": \"exit 1\",
+            \"hooks\": {
+                \"StepFailed\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"touch $FAIL_HOOK_MARKER\"}]}]
+            }
+        }
+    ]
+}")
+FAIL_HOOK_WF_ID=$(echo "$fail_hook_result" | jq_val ".get('id','')")
+
+fail_hook_trigger=$(api POST "/${FAIL_HOOK_WF_ID}/trigger" -d '{}')
+FAIL_HOOK_RUN_ID=$(echo "$fail_hook_trigger" | jq_val ".get('run_id','')")
+fail_hook_final=$(wait_for_run "$FAIL_HOOK_RUN_ID" 15)
+
+if [[ "$fail_hook_final" == "failed" ]]; then
+    pass "Failed hook workflow has status 'failed'"
+else
+    fail "Failed hook workflow status '$fail_hook_final', expected 'failed'"
+fi
+
+sleep 1
+
+if [[ -f "$FAIL_HOOK_MARKER" ]]; then
+    pass "StepFailed hook fired: marker file exists"
+else
+    fail "StepFailed hook did not fire: marker file missing"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# Test 23: Hook does not fire for wrong event
+# ═══════════════════════════════════════════════════════════════════
+
+log "Test 23: Hook does not fire for wrong event..."
+WRONG_HOOK_MARKER="$TMPDIR_WF/hook_marker_wrong"
+wrong_hook_result=$(api POST "" -d "{
+    \"name\": \"test-hook-wrong\",
+    \"description\": \"Wrong event hook test\",
+    \"repo_path\": \"$REPO_PATH\",
+    \"steps\": [
+        {
+            \"name\": \"ok-step\",
+            \"type\": \"shell\",
+            \"command\": \"echo success\",
+            \"hooks\": {
+                \"StepFailed\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"touch $WRONG_HOOK_MARKER\"}]}]
+            }
+        }
+    ]
+}")
+WRONG_HOOK_WF_ID=$(echo "$wrong_hook_result" | jq_val ".get('id','')")
+
+wrong_hook_trigger=$(api POST "/${WRONG_HOOK_WF_ID}/trigger" -d '{}')
+WRONG_HOOK_RUN_ID=$(echo "$wrong_hook_trigger" | jq_val ".get('run_id','')")
+wait_for_run "$WRONG_HOOK_RUN_ID" 15 >/dev/null
+
+sleep 1
+
+if [[ ! -f "$WRONG_HOOK_MARKER" ]]; then
+    pass "StepFailed hook did NOT fire on successful step (correct)"
+else
+    fail "StepFailed hook fired on a successful step (should not have)"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────
 
 echo ""

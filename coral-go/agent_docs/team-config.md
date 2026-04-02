@@ -118,7 +118,7 @@ Capabilities are translated to each CLI's native permission format at launch:
 
 ## Hooks
 
-Hooks follow the Claude Code settings.json format and fire on agent lifecycle events.
+Hooks run shell commands at agent lifecycle events. They follow the Claude Code settings.json format. See [Hooks](hooks.md) for the full reference.
 
 ```json
 {
@@ -142,11 +142,17 @@ Hooks follow the Claude Code settings.json format and fire on agent lifecycle ev
 }
 ```
 
-**Supported events:** `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SubagentStop`, `StepComplete`, `StepFailed`
+### Supported Events
 
-Coral system hooks (`coral-hook-task-sync`, `coral-hook-agentic-state`, `coral-hook-message-check`) are always injected and cannot be overridden.
+**Agent-native (Claude only):** `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SubagentStop` -- these are injected into Claude's settings.json and handled by the agent process. `PreToolUse` and `PostToolUse` provide tool-level granularity with `matcher` filtering.
 
-For agents that don't support hooks natively (Gemini, Codex), hook definitions are stored but not injected. Coral's background services provide equivalent functionality via polling.
+**Coral-managed (all agents):** `StepComplete`, `StepFailed` -- these are fired by Coral's workflow runner after a step finishes. They work for Claude, Gemini, Codex, and shell steps.
+
+**Cross-agent support for Stop:** For Gemini and Codex agents, `Stop` hooks are fired by Coral's runner after the agent process exits (since these CLIs have no native hooks system).
+
+### Merge Behavior
+
+Hooks defined in `defaults` apply to all agents. Per-agent hooks are **appended** per event (both fire). Coral system hooks (`coral-hook-task-sync`, `coral-hook-agentic-state`, `coral-hook-message-check`) are always injected into Claude sessions and cannot be overridden.
 
 ## Model Specification
 

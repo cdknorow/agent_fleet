@@ -117,6 +117,29 @@ POST /api/workflows
 | `cleanup_worktree` | int | `1` | Remove the worktree after the run finishes. |
 | `enabled` | int | `1` | `1` to allow triggers, `0` to disable. |
 
+### Step hooks
+
+Any step (shell or agent) can define `hooks` to run commands on lifecycle events. See [Hooks](hooks.md) for the full format and event reference.
+
+```json
+{
+  "name": "test",
+  "type": "shell",
+  "command": "go test ./...",
+  "hooks": {
+    "StepFailed": [
+      {
+        "hooks": [
+          { "type": "command", "command": "curl -X POST $SLACK_WEBHOOK -d '{\"text\": \"Tests failed\"}'" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Agent steps can also use Claude-native events (`PreToolUse`, `PostToolUse`, `Stop`) which are injected into the agent's settings. `StepComplete` and `StepFailed` work for all step types.
+
 ### Step rules
 
 - Every step needs a unique `name`.
@@ -125,6 +148,7 @@ POST /api/workflows
 - `agent` steps require `prompt`.
 - `agent` steps also need an `agent_type`, either in the step-level `agent` object or inherited from `default_agent`.
 - `timeout_s`, when set, must be between `1` and `86400`.
+- `hooks`, when set, must use valid event names and hook group structure (see [Hooks](hooks.md)).
 
 ### Example
 

@@ -80,6 +80,16 @@ export async function selectDoc(name) {
     content.querySelectorAll('pre code').forEach(block => {
         if (window.hljs) window.hljs.highlightElement(block);
     });
+
+    // Intercept internal doc links (e.g. "auth.md" → selectDoc("auth"))
+    content.querySelectorAll('a').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if (href.endsWith('.md') && !href.includes('://')) {
+            const docName = href.replace(/\.md$/, '');
+            a.href = 'javascript:void(0)';
+            a.onclick = (e) => { e.preventDefault(); selectDoc(docName); };
+        }
+    });
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────

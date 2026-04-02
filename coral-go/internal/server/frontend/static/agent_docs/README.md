@@ -4,7 +4,6 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 
 **Authentication:** Localhost requests bypass auth. Remote requests require an API key (`Authorization: Bearer <key>` or `X-API-Key` header) or a valid session cookie. See [auth.md](auth.md).
 
-**License gating:** Production builds gate most endpoints behind a valid license. License endpoints, health checks, static assets, and the root page are always accessible. See [license.md](license.md).
 
 ## API Documentation
 
@@ -25,6 +24,7 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 ### Configuration
 - [Settings & System](settings-system.md) — App settings, status, CLI checks, network info
 - [Team Configuration](team-config.md) — Agent team configuration (agent.json schema)
+- [Hooks](hooks.md) — Per-agent and per-step hook configuration (lifecycle events, cross-agent support)
 - [Tags](tags.md) — Session and folder tagging
 - [Connected Apps](connected-apps.md) — OAuth connections to external services
 
