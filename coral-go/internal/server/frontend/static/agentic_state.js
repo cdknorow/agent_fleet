@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { startLiveHistoryPoll, stopLiveHistoryPoll } from './live_chat.js';
 import { loadChangedFiles } from './changed_files.js';
+import { startBoardTaskPoll, stopBoardTaskPoll } from './tasks.js';
 import { escapeHtml, escapeAttr } from './utils.js';
 
 const TOOL_ICONS = {
@@ -417,6 +418,13 @@ export function switchAgenticTab(tabName, blockId) {
         startLiveHistoryPoll();
     } else if (blockId === 'top') {
         stopLiveHistoryPoll();
+    }
+
+    // Start/stop board task polling based on tab
+    if (tabName === 'tasks') {
+        startBoardTaskPoll();
+    } else if (blockId === 'top') {
+        stopBoardTaskPoll();
     }
 
     // Close inline preview when switching away from files tab

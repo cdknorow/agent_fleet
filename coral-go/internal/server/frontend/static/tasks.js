@@ -3,6 +3,29 @@
 import { state } from './state.js';
 import { escapeHtml, escapeAttr, showToast } from './utils.js';
 
+// ── Board task polling ───────────────────────────────────────────────
+let _boardTaskPollTimer = null;
+
+export function startBoardTaskPoll() {
+    stopBoardTaskPoll();
+    // Refresh immediately, then every 10 seconds
+    _pollBoardTasksOnce();
+    _boardTaskPollTimer = setInterval(_pollBoardTasksOnce, 10000);
+}
+
+export function stopBoardTaskPoll() {
+    if (_boardTaskPollTimer) {
+        clearInterval(_boardTaskPollTimer);
+        _boardTaskPollTimer = null;
+    }
+}
+
+function _pollBoardTasksOnce() {
+    if (!state.currentSession || state.currentSession.type !== 'live') return;
+    const boardProject = state.currentSession.board_name || state.currentSession.name;
+    if (boardProject) loadBoardTasks(boardProject);
+}
+
 export async function loadAgentTasks(agentName, sessionId) {
     if (!agentName) return;
     try {
