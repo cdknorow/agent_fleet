@@ -182,20 +182,6 @@ At launch time, the server validates:
 
 ## API Endpoints
 
-### Launch Team from File
-
-```
-POST /api/sessions/launch-team-file
-```
-
-**Request Body:**
-```json
-{
-  "file": "backend-refactor"
-}
-```
-
-Loads `~/.coral/teams/backend-refactor.json` and launches the team.
 
 ### Launch Team Inline
 

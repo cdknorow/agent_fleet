@@ -20,7 +20,6 @@ type session struct {
 	agentType  string
 	sessionID  string
 	workingDir string
-	command    string
 
 	proc    ptyProcess
 	logFile *os.File
@@ -66,7 +65,6 @@ func newSession(name, agentType, workDir, sessionID, command string, cols, rows 
 		agentType:   agentType,
 		sessionID:   sessionID,
 		workingDir:  workDir,
-		command:     command,
 		proc:        proc,
 		logFile:     logFile,
 		logPath:     logPath,

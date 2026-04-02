@@ -15,7 +15,7 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 ### Automation
 - [Workflows](workflows.md) — Multi-step workflow definitions and execution
 - [Scheduled Jobs](scheduled-jobs.md) — Cron-based scheduled job management
-- [Tasks](tasks.md) — One-shot task execution
+- [Tasks](jobs.md) — One-shot task execution
 
 ### Collaboration
 - [Message Board](board.md) — Multi-agent message board, subscriptions, groups, board tasks
@@ -25,7 +25,6 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 - [Settings & System](settings-system.md) — App settings, status, CLI checks, network info
 - [Team Configuration](team-config.md) — Agent team configuration (agent.json schema)
 - [Hooks](hooks.md) — Per-agent and per-step hook configuration (lifecycle events, cross-agent support)
-- [Tags](tags.md) — Session and folder tagging
 - [Connected Apps](connected-apps.md) — OAuth connections to external services
 
 ### Customization
@@ -33,9 +32,8 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 - [Templates](templates.md) — Agent and command templates from GitHub
 - [Views](views.md) — Custom dashboard views/tabs
 
-### Auth & Licensing
+### Auth
 - [Authentication](auth.md) — API key management, session auth, auth status
-- [License](license.md) — Lemon Squeezy license activation, status, webhooks
 
 ## Quick Reference
 
@@ -88,10 +86,3 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 | `POST` | `/api/system/api-key/regenerate` | Regenerate API key (localhost only) |
 | `GET` | `/api/system/auth-status` | Get auth status |
 
-### License (4 endpoints)
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/license/activate` | Activate license |
-| `GET` | `/api/license/status` | License status |
-| `POST` | `/api/license/deactivate` | Deactivate license |
-| `POST` | `/api/license/webhook` | Lemon Squeezy webhook |

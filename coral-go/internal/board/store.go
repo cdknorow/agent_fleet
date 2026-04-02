@@ -392,7 +392,7 @@ func (s *Store) ReadMessages(ctx context.Context, project, subscriberID string, 
 	// Fetch new messages from others
 	var messages []Message
 	err = s.db.SelectContext(ctx, &messages,
-		`SELECT m.id, m.project, m.subscriber_id, m.session_id, m.content, m.created_at,
+		`SELECT m.id, m.project, m.subscriber_id, m.session_id, m.content, m.target_group_id, m.created_at,
 		        COALESCE(s.job_title, m.subscriber_id, 'Unknown') as job_title
 		 FROM board_messages m
 		 LEFT JOIN board_subscribers s ON m.project = s.project AND m.subscriber_id = s.subscriber_id
@@ -504,6 +504,22 @@ func (s *Store) CountMessages(ctx context.Context, project string) (int, error) 
 //   - "all"      → all unread messages from others
 //   - "mentions" → only messages with @notify-all, @<subscriber_id>, or @<job_title>
 //   - anything else → treat as group-id, count only messages from group members
+// mentionTerms returns the canonical list of mention patterns for a subscriber.
+// Used by both CheckUnread (SQL LIKE) and GetAllUnreadCounts (Go string matching).
+func mentionTerms(subscriberID, jobTitle string) []string {
+	terms := []string{"@notify-all", "@notify_all", "@notifyall", "@all",
+		"@" + subscriberID}
+	if jobTitle != "" {
+		terms = append(terms,
+			"@"+jobTitle,
+			jobTitle+":",
+			jobTitle+" —",
+			jobTitle+"—",
+		)
+	}
+	return terms
+}
+
 func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (int, error) {
 	var sub struct {
 		LastReadID  int64  `db:"last_read_id"`
@@ -535,22 +551,11 @@ func (s *Store) CheckUnread(ctx context.Context, project, subscriberID string) (
 	}
 
 	if receiveMode == "mentions" {
-		patterns := []string{
-			"%@notify-all%", "%@notify_all%", "%@notifyall%", "%@all%",
-			fmt.Sprintf("%%@%s%%", subscriberID),
-		}
-		if sub.JobTitle != "" {
-			// Match @JobTitle anywhere in the message
-			patterns = append(patterns, fmt.Sprintf("%%@%s%%", sub.JobTitle))
-			// Match "JobTitle:" at the start of a message (without @)
-			patterns = append(patterns, fmt.Sprintf("%s:%%", sub.JobTitle))
-			// Match "JobTitle:" after a newline (without @)
-			patterns = append(patterns, fmt.Sprintf("%%\n%s:%%", sub.JobTitle))
-			// Match "JobTitle —" or "JobTitle—" (em-dash, common in agent output)
-			patterns = append(patterns, fmt.Sprintf("%s —%%", sub.JobTitle))
-			patterns = append(patterns, fmt.Sprintf("%s—%%", sub.JobTitle))
-			patterns = append(patterns, fmt.Sprintf("%%\n%s —%%", sub.JobTitle))
-			patterns = append(patterns, fmt.Sprintf("%%\n%s—%%", sub.JobTitle))
+		terms := mentionTerms(subscriberID, sub.JobTitle)
+		// Convert terms to SQL LIKE patterns (% wildcard matches any substring)
+		patterns := make([]string, len(terms))
+		for i, t := range terms {
+			patterns[i] = "%" + t + "%"
 		}
 
 		whereClauses := make([]string, len(patterns))
@@ -690,20 +695,13 @@ func (s *Store) GetAllUnreadCounts(ctx context.Context) (map[string]int, error) 
 					count++
 				}
 			case "mentions":
-				mentionTerms := []string{"@notify-all", "@notify_all", "@notifyall", "@all",
-					"@" + sub.SubscriberID}
-				if sub.JobTitle != "" {
-					mentionTerms = append(mentionTerms, "@"+sub.JobTitle)
-					mentionTerms = append(mentionTerms, sub.JobTitle+":")
-					mentionTerms = append(mentionTerms, sub.JobTitle+" —")
-					mentionTerms = append(mentionTerms, sub.JobTitle+"—")
-				}
+				terms := mentionTerms(sub.SubscriberID, sub.JobTitle)
 				for _, msg := range msgs {
 					if msg.ID <= sub.LastReadID || msg.SubscriberID == sub.SubscriberID {
 						continue
 					}
 					contentLower := strings.ToLower(msg.Content)
-					for _, term := range mentionTerms {
+					for _, term := range terms {
 						if strings.Contains(contentLower, strings.ToLower(term)) {
 							count++
 							break
@@ -866,9 +864,15 @@ func (s *Store) DeleteProject(ctx context.Context, project string) error {
 		return err
 	}
 	defer tx.Rollback()
-	tx.ExecContext(ctx, "DELETE FROM board_messages WHERE project = ?", project)
-	tx.ExecContext(ctx, "DELETE FROM board_subscribers WHERE project = ?", project)
-	tx.ExecContext(ctx, "DELETE FROM board_groups WHERE project = ?", project)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM board_messages WHERE project = ?", project); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM board_subscribers WHERE project = ?", project); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM board_groups WHERE project = ?", project); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

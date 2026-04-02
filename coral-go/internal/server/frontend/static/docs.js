@@ -1,6 +1,6 @@
 /* Documentation: browsable agent_docs viewer */
 
-import { showView } from './utils.js';
+import { escapeHtml as esc, showView } from './utils.js';
 import { apiFetch } from './api.js';
 
 let docsList = [];
@@ -93,10 +93,3 @@ export async function selectDoc(name) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-function esc(s) {
-    if (s == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-}

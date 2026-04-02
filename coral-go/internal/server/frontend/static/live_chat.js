@@ -1,7 +1,7 @@
 /* Live history view — renders JSONL messages as a read-only conversation log */
 
 import { state } from './state.js';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, renderMarkdown } from './utils.js';
 import { platform } from './platform/detect.js';
 
 let historyPollInterval = null;
@@ -10,15 +10,6 @@ let historyOffset = 0;      // pagination offset for "Load More"
 let historyHasMore = false;  // whether older messages exist
 let initialLoadDone = false; // whether the initial full load has completed
 
-function renderMarkdown(text) {
-    if (typeof marked !== 'undefined') {
-        try {
-            const html = marked.parse(text);
-            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-        } catch (e) { /* fall through */ }
-    }
-    return escapeHtml(text);
-}
 
 const TOOL_ICONS = {
     Read: "\u{1F4C4}",

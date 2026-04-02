@@ -81,7 +81,10 @@ func CoralAPI(base, method, path string, data any) (json.RawMessage, error) {
 	}
 	defer resp.Body.Close()
 
-	result, _ := io.ReadAll(resp.Body)
+	result, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	return json.RawMessage(result), nil
 }
 
@@ -144,7 +147,7 @@ func GetToolInput(hookData map[string]any) map[string]any {
 }
 
 // MakeToolSummary generates a human-readable summary for a tool call.
-func MakeToolSummary(tool string, inp map[string]any, toolResponse any) string {
+func MakeToolSummary(tool string, inp map[string]any) string {
 	switch tool {
 	case "Bash":
 		cmd, _ := inp["command"].(string)

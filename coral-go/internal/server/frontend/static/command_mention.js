@@ -2,6 +2,7 @@
 
 import { state } from './state.js';
 import { isDropdownVisible as isFileMentionVisible } from './file_mention.js';
+import { escapeHtml } from './utils.js';
 
 let dropdown = null;
 let selectedIndex = 0;
@@ -179,10 +180,6 @@ function highlightMatch(command, query) {
     }
     if (inStrong) html += "</strong>";
     return html;
-}
-
-function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function selectItem(index) {

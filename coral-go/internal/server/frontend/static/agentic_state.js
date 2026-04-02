@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { startLiveHistoryPoll, stopLiveHistoryPoll } from './live_chat.js';
 import { loadChangedFiles } from './changed_files.js';
+import { escapeHtml, escapeAttr } from './utils.js';
 
 const TOOL_ICONS = {
     Read:       { char: '&#xe8f4;', cls: 'tool-read' },
@@ -80,16 +81,6 @@ function formatTime(isoStr) {
     } catch {
         return '';
     }
-}
-
-function escapeAttr(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
 }
 
 function isEventVisible(ev) {

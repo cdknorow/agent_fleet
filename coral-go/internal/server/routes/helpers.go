@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,6 +106,17 @@ func emptyIfNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// isPathWithinDir checks that fullPath is within workdir after resolving symlinks.
+// Returns true if the path is safe, false if it escapes the working directory.
+func isPathWithinDir(workdir, fullPath string) bool {
+	realWorkdir, _ := filepath.EvalSymlinks(workdir)
+	realPath, _ := filepath.EvalSymlinks(fullPath)
+	if realPath == "" {
+		return true // file doesn't exist yet; caller handles separately if needed
+	}
+	return strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator))
 }
 
 // debugEnabled returns true when CORAL_DEBUG=1 is set.

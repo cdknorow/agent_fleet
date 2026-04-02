@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,7 +301,10 @@ func copyDir(src, dst string) {
 	if err != nil {
 		return
 	}
-	os.MkdirAll(dst, 0755)
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		slog.Warn("copyDir: failed to create directory", "dst", dst, "error", err)
+		return
+	}
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
@@ -308,8 +312,12 @@ func copyDir(src, dst string) {
 			copyDir(srcPath, dstPath)
 		} else {
 			data, err := os.ReadFile(srcPath)
-			if err == nil {
-				os.WriteFile(dstPath, data, 0644)
+			if err != nil {
+				slog.Warn("copyDir: failed to read file", "src", srcPath, "error", err)
+				continue
+			}
+			if err := os.WriteFile(dstPath, data, 0644); err != nil {
+				slog.Warn("copyDir: failed to write file", "dst", dstPath, "error", err)
 			}
 		}
 	}

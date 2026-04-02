@@ -1,6 +1,6 @@
 /* Message Board: project list, messages, subscribers, posting */
 
-import { escapeHtml, escapeAttr, showView } from './utils.js';
+import { escapeHtml, escapeAttr, showView, renderMarkdown, getAgentColor, hexToRgba } from './utils.js';
 import { loadLiveSessions } from './api.js';
 import { platform } from './platform/detect.js';
 
@@ -198,47 +198,6 @@ async function loadEarlierMessages() {
 }
 window.loadEarlierMessages = loadEarlierMessages;
 
-// Agent color palette — Nord/Solarized-inspired muted tones
-const _agentColors = [
-    { name: '#81a1c1' },   // soft blue (Nord)
-    { name: '#a3be8c' },   // sage green (Nord)
-    { name: '#b48ead' },   // muted lavender (Nord)
-    { name: '#d08770' },   // warm tan (Nord)
-    { name: '#bf616a' },   // dusty rose (Nord)
-    { name: '#88c0d0' },   // frost blue (Nord)
-    { name: '#ebcb8b' },   // warm yellow (Nord)
-    { name: '#8fbcbb' },   // teal (Nord)
-];
-const _agentColorMap = {};
-
-function _hexToRgba(hex, alpha) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function _getAgentColor(name) {
-    if (!name) return _agentColors[0];
-    if (_agentColorMap[name]) return _agentColorMap[name];
-    const idx = Object.keys(_agentColorMap).length % _agentColors.length;
-    _agentColorMap[name] = _agentColors[idx];
-    return _agentColorMap[name];
-}
-
-function _renderMarkdown(content) {
-    if (!content) return '';
-    if (typeof marked !== 'undefined') {
-        try {
-            const html = marked.parse(content);
-            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-        } catch (e) {
-            console.warn('marked.parse() failed, falling back to escapeHtml:', e);
-        }
-    }
-    return escapeHtml(content);
-}
-
 function renderMessages(messages) {
     const container = document.getElementById('mb-messages');
     if (!messages.length) {
@@ -266,7 +225,7 @@ function renderMessages(messages) {
     </div>`;
 
     container.innerHTML = loadEarlierHtml + countHtml + messages.map((m, i) => {
-        const color = _getAgentColor(m.job_title || 'Unknown');
+        const color = getAgentColor(m.job_title || 'Unknown');
         const agent = m.job_title || 'Unknown';
         const prevAgent = i > 0 ? (messages[i - 1].job_title || 'Unknown') : null;
         const sameAsPrev = agent === prevAgent;
@@ -274,13 +233,13 @@ function renderMessages(messages) {
         const isLeader = /orchestrator/i.test(agent) || m.subscriber_id === 'dashboard';
         const alignClass = isLeader ? ' board-msg-left' : ' board-msg-right';
         return `
-        <div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid ${_hexToRgba(color.name, 0.55)}; border-bottom:2px solid ${_hexToRgba(color.name, 0.3)}">
+        <div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid ${hexToRgba(color, 0.55)}; border-bottom:2px solid ${hexToRgba(color, 0.3)}">
             <div class="mb-message-header">
-                <span class="mb-agent-name" style="color:${color.name}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
+                <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
                 <span class="mb-message-time">${formatTime(m.created_at)}</span>
                 <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
             </div>
-            <div class="mb-message-body">${_renderMarkdown(m.content)}</div>
+            <div class="mb-message-body">${renderMarkdown(m.content)}</div>
         </div>`;
     }).join('');
     if (wasAtBottom) {
@@ -756,10 +715,6 @@ function parseAgentHistory(messages, agentRole) {
     return entries;
 }
 
-function esc(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
 function agentHue(name) {
     let h = 0;
     for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xFFFFFF;
@@ -786,14 +741,6 @@ function renderExportMarkdown(d) {
     return out;
 }
 
-function _renderMd(text) {
-    if (typeof marked !== 'undefined') {
-        const html = marked.parse(text || '');
-        return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-    }
-    return esc(text);
-}
-
 function renderExportHTML(d) {
     const msgs = d.messages.map(e => {
         const cls = e.source === 'agent-chat' ? 'msg side-chat' : 'msg';
@@ -801,16 +748,16 @@ function renderExportHTML(d) {
         const tag = e.source === 'agent-chat' ? '<span class="msg-tag">AGENT CHAT</span>' : '';
         return `<div class="${cls}">
   <div class="msg-header">
-    <span class="msg-role" style="color:${color}">${esc(e.role)}</span>
-    <span class="msg-time">${esc(e.timestamp)}</span>
+    <span class="msg-role" style="color:${color}">${escapeHtml(e.role)}</span>
+    <span class="msg-time">${escapeHtml(e.timestamp)}</span>
     ${tag}
   </div>
-  <div class="msg-content">${_renderMd(e.content)}</div>
+  <div class="msg-content">${renderMarkdown(e.content)}</div>
 </div>`;
     }).join('\n');
 
     const subList = d.subscribers.map(s =>
-        `<div class="sub-chip"><span class="role">${esc(s.role)}</span></div>`
+        `<div class="sub-chip"><span class="role">${escapeHtml(s.role)}</span></div>`
     ).join('\n');
 
     return `<!DOCTYPE html>
@@ -818,7 +765,7 @@ function renderExportHTML(d) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Board Chat Export: ${esc(d.project)}</title>
+<title>Board Chat Export: ${escapeHtml(d.project)}</title>
 <style>
   :root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --side-chat: #1a1a2e; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -858,9 +805,9 @@ function renderExportHTML(d) {
 </head>
 <body>
 <div class="container">
-<h1>${esc(d.project)}</h1>
+<h1>${escapeHtml(d.project)}</h1>
 <div class="stats">
-  <span>Exported: ${esc(d.exported_at)}</span>
+  <span>Exported: ${escapeHtml(d.exported_at)}</span>
   <span>Messages: ${d.stats.total}</span>
   ${d.stats.agent_chat > 0 ? `<span>Board: ${d.stats.board}</span><span>Agent chats: ${d.stats.agent_chat}</span>` : ''}
 </div>

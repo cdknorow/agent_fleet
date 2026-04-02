@@ -29,10 +29,10 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
-func TestCleanMatch(t *testing.T) {
-	assert.Equal(t, "hello world", CleanMatch("  hello   world  "))
-	assert.Equal(t, "", CleanMatch("Emit ||PULSE:SUMMARY <your current goal>||"))
-	assert.Equal(t, "real status update", CleanMatch("real status update"))
+func Test_cleanMatch(t *testing.T) {
+	assert.Equal(t, "hello world", cleanMatch("  hello   world  "))
+	assert.Equal(t, "", cleanMatch("Emit ||PULSE:SUMMARY <your current goal>||"))
+	assert.Equal(t, "real status update", cleanMatch("real status update"))
 }
 
 func TestExtractStatus(t *testing.T) {
@@ -46,19 +46,6 @@ func TestExtractSummary(t *testing.T) {
 	assert.Equal(t, "Implementing auth system",
 		ExtractSummary("||PULSE:SUMMARY Implementing auth system||"))
 	assert.Equal(t, "", ExtractSummary("no summary"))
-}
-
-func TestExtractConfidence(t *testing.T) {
-	c := ExtractConfidence("||PULSE:CONFIDENCE Low unsure about the API design||")
-	assert.NotNil(t, c)
-	assert.Equal(t, "Low", c.Level)
-	assert.Equal(t, "unsure about the API design", c.Reason)
-
-	c = ExtractConfidence("||PULSE:CONFIDENCE High tests are passing||")
-	assert.NotNil(t, c)
-	assert.Equal(t, "High", c.Level)
-
-	assert.Nil(t, ExtractConfidence("no confidence here"))
 }
 
 func TestRejoinPulseLines(t *testing.T) {

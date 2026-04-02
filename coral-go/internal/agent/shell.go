@@ -20,7 +20,7 @@ const (
 
 // DetectShell determines the shell type from CORAL_SHELL env var,
 // falling back to platform defaults.
-func DetectShell() ShellType {
+func detectShell() ShellType {
 	if env := os.Getenv("CORAL_SHELL"); env != "" {
 		return classifyShell(env)
 	}
@@ -58,7 +58,7 @@ func classifyShell(shell string) ShellType {
 // AppBundleBinDir returns the directory containing hook binaries if the
 // current executable is running from a macOS .app bundle or a similar
 // packaged install. Returns empty string if not in a bundle.
-func AppBundleBinDir() string {
+func appBundleBinDir() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
@@ -88,9 +88,9 @@ func AppBundleBinDir() string {
 }
 
 // CoralToolsDir returns the directory containing coral-board and other Coral
-// CLI tools. Tries AppBundleBinDir() first, then checks known install locations.
+// CLI tools. Tries appBundleBinDir() first, then checks known install locations.
 func CoralToolsDir() string {
-	if dir := AppBundleBinDir(); dir != "" {
+	if dir := appBundleBinDir(); dir != "" {
 		return dir
 	}
 
@@ -131,11 +131,11 @@ func SanitizeShellValue(s string) string {
 
 // PrefixWithPathEnv returns a shell command prefix that prepends the given
 // directory to PATH. Returns empty string if binDir is empty.
-func PrefixWithPathEnv(binDir string) string {
+func prefixWithPathEnv(binDir string) string {
 	if binDir == "" {
 		return ""
 	}
-	shell := DetectShell()
+	shell := detectShell()
 	switch shell {
 	case ShellPowerShell:
 		return fmt.Sprintf(`$env:PATH="%s;$env:PATH"; `, binDir)
@@ -149,7 +149,7 @@ func PrefixWithPathEnv(binDir string) string {
 // WrapWithBundlePath prepends the app bundle bin directory to PATH in the
 // given command string, if running from a packaged install. No-op otherwise.
 func WrapWithBundlePath(cmd string) string {
-	if prefix := PrefixWithPathEnv(CoralToolsDir()); prefix != "" {
+	if prefix := prefixWithPathEnv(CoralToolsDir()); prefix != "" {
 		return prefix + cmd
 	}
 	return cmd
@@ -206,7 +206,7 @@ func FindCLIInCommonPaths(binary string) string {
 	}
 
 	// Also check app bundle directory
-	if binDir := AppBundleBinDir(); binDir != "" {
+	if binDir := appBundleBinDir(); binDir != "" {
 		candidates = append(candidates, filepath.Join(binDir, binary))
 	}
 
@@ -221,7 +221,7 @@ func FindCLIInCommonPaths(binary string) string {
 // FormatPromptFileArg returns shell-appropriate syntax for reading a prompt
 // file and passing its content as a CLI argument.
 func FormatPromptFileArg(promptFile string) string {
-	shell := DetectShell()
+	shell := detectShell()
 	switch shell {
 	case ShellPowerShell:
 		return fmt.Sprintf("$(Get-Content -Raw '%s')", promptFile)

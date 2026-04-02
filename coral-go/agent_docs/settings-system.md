@@ -489,7 +489,7 @@ Imports a team definition from a folder of markdown files.
 }
 ```
 
-See [Import Team from Folder](../import-team-folder.md) for the expected directory structure and frontmatter format.
+See [Import Team from Folder](../../docs/import-team-folder.md) for the expected directory structure and frontmatter format.
 
 ### Generate Team (Async)
 

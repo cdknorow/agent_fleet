@@ -37,11 +37,33 @@ type SystemHandler struct {
 	ss      *store.SessionStore
 	cfg     *config.Config
 	indexer Indexer
+
+	generateJobs   map[string]*generateJob
+	generateJobsMu sync.Mutex
 }
 
 // NewSystemHandler creates a SystemHandler.
 func NewSystemHandler(db *store.DB, cfg *config.Config) *SystemHandler {
-	return &SystemHandler{db: db, ss: store.NewSessionStore(db), cfg: cfg}
+	h := &SystemHandler{
+		db:           db,
+		ss:           store.NewSessionStore(db),
+		cfg:          cfg,
+		generateJobs: make(map[string]*generateJob),
+	}
+	// Cleanup expired generation jobs every minute
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			h.generateJobsMu.Lock()
+			for id, job := range h.generateJobs {
+				if time.Since(job.CreatedAt) > 10*time.Minute {
+					delete(h.generateJobs, id)
+				}
+			}
+			h.generateJobsMu.Unlock()
+		}
+	}()
+	return h
 }
 
 // SetIndexer injects the session indexer for manual refresh triggers.
@@ -80,7 +102,7 @@ func (h *SystemHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 // PUT /api/settings
 func (h *SystemHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		errBadRequest(w, "invalid JSON")
 		return
 	}
@@ -110,31 +132,17 @@ func (h *SystemHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Default Prompt Constants ─────────────────────────────────────────
-
-const DefaultOrchestratorSystemPrompt = `Post a message with coral-board post "<your introduction>" that introduces yourself, then discuss your proposed plan with the operator (the human user) before posting assignments to the team.
-
-When posting messages to specific agents, you MUST @mention them by name (e.g. @Lead Developer) so they receive a notification. You can also use the --to flag: coral-board post --to "Agent1,Agent2" "message" which auto-prepends @mentions. Messages without @mentions will NOT notify agents.`
-
-const DefaultWorkerSystemPrompt = `Post a message with coral-board post "<your introduction>" that introduces yourself, then STOP and wait. Do NOT poll the message board in a loop. Coral will notify you when there are new messages.`
-
-const DefaultOrchestratorPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Post a message with coral-board post "<your introduction>" that introduces yourself, then discuss your proposed plan with the operator (the human user) before posting assignments.
-
-CRITICAL: Do NOT poll or loop on 'coral-board read'. After posting your introduction or any message, STOP. Coral will send you a notification (as a user message) when new messages arrive. Only run 'coral-board read' after receiving such a notification.
-
-When posting messages to specific agents, you MUST @mention them by name (e.g. @Lead Developer) so they receive a notification. You can also use the --to flag: coral-board post --to "Agent1,Agent2" "message" which auto-prepends @mentions. Messages without @mentions will NOT notify agents.`
-
-const DefaultWorkerPrompt = `IMPORTANT: You were automatically joined to message board "{board_name}". Do NOT run coral-board join. Do not start any actions until you receive instructions from the Orchestrator on the message board. Post a message with coral-board post "<your introduction>" that introduces yourself, then STOP.
-
-CRITICAL: Do NOT poll or loop on 'coral-board read'. Coral will automatically notify you (as a user message) when new messages arrive — only run 'coral-board read' after receiving a notification. Between notifications, do nothing and wait.`
+// These reference the authoritative constants in the agent package so
+// the frontend defaults stay in sync with the runtime prompts.
 
 // GetDefaultPrompts returns the hardcoded default prompt templates.
 // GET /api/settings/default-prompts
 func (h *SystemHandler) GetDefaultPrompts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"default_prompt_orchestrator":        DefaultOrchestratorPrompt,
-		"default_prompt_worker":              DefaultWorkerPrompt,
-		"default_system_prompt_orchestrator": DefaultOrchestratorSystemPrompt,
-		"default_system_prompt_worker":       DefaultWorkerSystemPrompt,
+		"default_prompt_orchestrator":        agent.DefaultOrchestratorActionPrompt,
+		"default_prompt_worker":              agent.DefaultWorkerActionPrompt,
+		"default_system_prompt_orchestrator": agent.DefaultOrchestratorSystemPrompt,
+		"default_system_prompt_worker":       agent.DefaultWorkerSystemPrompt,
 		"team_reminder_orchestrator":         "Remember to coordinate with your team and check the message board for updates",
 		"team_reminder_worker":               "Remember to work with your team",
 	})
@@ -357,7 +365,7 @@ func (h *SystemHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		Name  string `json:"name"`
 		Color string `json:"color"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+	if err := decodeJSON(r, &body); err != nil || body.Name == "" {
 		errBadRequest(w, "Tag name is required")
 		return
 	}
@@ -389,7 +397,7 @@ func (h *SystemHandler) AddSessionTag(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TagID int `json:"tag_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TagID == 0 {
+	if err := decodeJSON(r, &body); err != nil || body.TagID == 0 {
 		errBadRequest(w, "tag_id is required")
 		return
 	}
@@ -445,7 +453,7 @@ func (h *SystemHandler) AddFolderTag(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TagID int64 `json:"tag_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TagID == 0 {
+	if err := decodeJSON(r, &body); err != nil || body.TagID == 0 {
 		errBadRequest(w, "tag_id is required")
 		return
 	}
@@ -628,26 +636,6 @@ type generateJob struct {
 	CreatedAt time.Time      `json:"-"`
 }
 
-var (
-	generateJobs   = make(map[string]*generateJob)
-	generateJobsMu sync.Mutex
-)
-
-func init() {
-	// Cleanup expired jobs every minute
-	go func() {
-		for {
-			time.Sleep(time.Minute)
-			generateJobsMu.Lock()
-			for id, job := range generateJobs {
-				if time.Since(job.CreatedAt) > 10*time.Minute {
-					delete(generateJobs, id)
-				}
-			}
-			generateJobsMu.Unlock()
-		}
-	}()
-}
 
 // GenerateTeam kicks off an async Claude CLI call and returns a job ID.
 // POST /api/teams/generate
@@ -686,9 +674,9 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 	jobID := "gen-" + uuid.New().String()
 	job := &generateJob{Status: "pending", CreatedAt: time.Now()}
 
-	generateJobsMu.Lock()
-	generateJobs[jobID] = job
-	generateJobsMu.Unlock()
+	h.generateJobsMu.Lock()
+	h.generateJobs[jobID] = job
+	h.generateJobsMu.Unlock()
 
 	prompt := teamGeneratePrompt +
 		"\n\n<inputs>" +
@@ -704,8 +692,8 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 
 		result, errMsg := runTeamGeneration(ctx, claudePath, prompt, coralDir)
 
-		generateJobsMu.Lock()
-		defer generateJobsMu.Unlock()
+		h.generateJobsMu.Lock()
+		defer h.generateJobsMu.Unlock()
 		if errMsg != "" {
 			job.Status = "error"
 			job.Error = errMsg
@@ -723,9 +711,9 @@ func (h *SystemHandler) GenerateTeam(w http.ResponseWriter, r *http.Request) {
 func (h *SystemHandler) GenerateTeamStatus(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobId")
 
-	generateJobsMu.Lock()
-	job, ok := generateJobs[jobID]
-	generateJobsMu.Unlock()
+	h.generateJobsMu.Lock()
+	job, ok := h.generateJobs[jobID]
+	h.generateJobsMu.Unlock()
 
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})

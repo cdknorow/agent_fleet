@@ -62,7 +62,10 @@ func TestSchema_AllTablesExist(t *testing.T) {
 		"webhook_configs",
 		"webhook_deliveries",
 		"git_changed_files",
-		"agent_live_state",
+		"workflows",
+		"workflow_runs",
+		"connected_apps",
+		"custom_views",
 	}
 
 	for _, table := range expectedTables {

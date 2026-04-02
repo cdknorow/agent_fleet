@@ -25,54 +25,24 @@ func findTempFile(t *testing.T, prefix, sessionID, ext string) string {
 
 // ── Factory Tests ───────────────────────────────────────────
 
-func TestGetAgent_Claude(t *testing.T) {
-	a := GetAgent("claude")
-	if a.AgentType() != "claude" {
-		t.Errorf("expected claude, got %s", a.AgentType())
+func TestGetAgent(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"claude", "claude"},
+		{"gemini", "gemini"},
+		{"codex", "codex"},
+		{"unknown-agent", "claude"},
+		{"", "claude"},
 	}
-}
-
-func TestGetAgent_Gemini(t *testing.T) {
-	a := GetAgent("gemini")
-	if a.AgentType() != "gemini" {
-		t.Errorf("expected gemini, got %s", a.AgentType())
-	}
-}
-
-func TestGetAgent_Codex(t *testing.T) {
-	a := GetAgent("codex")
-	if a.AgentType() != "codex" {
-		t.Errorf("expected codex, got %s", a.AgentType())
-	}
-}
-
-func TestGetAgent_UnknownDefaultsToClaude(t *testing.T) {
-	a := GetAgent("unknown-agent")
-	if a.AgentType() != "claude" {
-		t.Errorf("expected unknown to default to claude, got %s", a.AgentType())
-	}
-}
-
-func TestGetAgent_EmptyDefaultsToClaude(t *testing.T) {
-	a := GetAgent("")
-	if a.AgentType() != "claude" {
-		t.Errorf("expected empty to default to claude, got %s", a.AgentType())
-	}
-}
-
-func TestGetAllAgents(t *testing.T) {
-	agents := GetAllAgents()
-	if len(agents) != 3 {
-		t.Fatalf("expected 3 agents, got %d", len(agents))
-	}
-	types := map[string]bool{}
-	for _, a := range agents {
-		types[a.AgentType()] = true
-	}
-	for _, expected := range []string{"claude", "gemini", "codex"} {
-		if !types[expected] {
-			t.Errorf("GetAllAgents() missing %s", expected)
-		}
+	for _, tt := range tests {
+		t.Run(tt.input+"->"+tt.expected, func(t *testing.T) {
+			a := GetAgent(tt.input)
+			if a.AgentType() != tt.expected {
+				t.Errorf("GetAgent(%q): expected %s, got %s", tt.input, tt.expected, a.AgentType())
+			}
+		})
 	}
 }
 

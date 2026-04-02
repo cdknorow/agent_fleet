@@ -255,20 +255,6 @@ func (m *Manager) Revoke() {
 	}
 }
 
-// IsTrialing returns true if the license is on a free trial (trial_ends_at is in the future).
-func (m *Manager) IsTrialing() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.cache == nil || m.cache.TrialEndsAt == "" {
-		return false
-	}
-	trialEnd, err := time.Parse(time.RFC3339, m.cache.TrialEndsAt)
-	if err != nil {
-		return false
-	}
-	return time.Now().Before(trialEnd)
-}
-
 // GetInfo returns the cached license info (nil if not activated).
 func (m *Manager) GetInfo() *CachedLicense {
 	m.mu.RLock()

@@ -233,6 +233,21 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 		fileCounts = map[string]int{}
 	}
 
+	// Board unread counts
+	var allUnread map[string]int
+	if h.bs != nil {
+		allUnread, _ = h.bs.GetAllUnreadCounts(ctx)
+	}
+	if allUnread == nil {
+		allUnread = map[string]int{}
+	}
+
+	// Latest goals for summary fallback
+	latestGoals, _ := h.ts.GetLatestGoals(ctx, sessionIDs)
+	if latestGoals == nil {
+		latestGoals = map[string]string{}
+	}
+
 	var sessions []map[string]any
 	liveSIDs := make(map[string]bool)
 	for _, agent := range agents {
@@ -246,11 +261,8 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 		needsInput := latestEv == "notification"
 		done := latestEv == "stop"
 		staleF, _ := logInfo["staleness_seconds"].(float64)
-		working := latestEv == "tool_use" || latestEv == "prompt_submit"
+		working := (latestEv == "tool_use" || latestEv == "prompt_submit") && staleF < 120
 		if working && strings.HasPrefix(evSummary, "Ran: sleep") {
-			working = false
-		}
-		if working && staleF > 420 {
 			working = false
 		}
 
@@ -260,13 +272,28 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 			waitingSummary = evSummary
 		}
 
+		// Summary fallback to latest goal
+		summary, _ := logInfo["summary"].(string)
+		if summary == "" {
+			if goal, ok := latestGoals[sid]; ok {
+				summary = goal
+			}
+		}
+
+		// Board unread
+		tmuxName := agent.TmuxSession
+		boardUnread := 0
+		if boardSubs[tmuxName] != nil {
+			boardUnread = allUnread[tmuxName]
+		}
+
 		entry := map[string]any{
 			"name":               agent.AgentName,
 			"agent_type":         agent.AgentType,
 			"session_id":         sid,
 			"tmux_session":       agent.TmuxSession,
 			"status":             logInfo["status"],
-			"summary":            logInfo["summary"],
+			"summary":            summary,
 			"staleness_seconds":  logInfo["staleness_seconds"],
 			"display_name":       nilIfEmpty(displayNames[sid]),
 			"icon":               nilIfEmpty(icons[sid]),
@@ -285,7 +312,7 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 			"commands":           map[string]string{"compress": "/compact", "clear": "/clear"},
 			"board_project":      boardProject(boardSubs, liveBoardNames, agent.TmuxSession, sid),
 			"board_job_title":    boardJobTitle(boardSubs, liveBoardNames, agent.TmuxSession, sid),
-			"board_unread":       0,
+			"board_unread":       boardUnread,
 			"log_path":           agent.LogPath,
 			"sleeping":           false,
 		}
@@ -339,8 +366,37 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 
 // getActiveRuns fetches active job runs for the Jobs sidebar.
 func (h *SessionsHandler) getActiveRuns(ctx context.Context) []map[string]any {
-	// Stub — will be wired when ScheduleStore is injected into SessionsHandler
-	return []map[string]any{}
+	if h.schedStore == nil {
+		return []map[string]any{}
+	}
+	runs, err := h.schedStore.ListActiveRuns(ctx)
+	if err != nil {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0, len(runs))
+	for _, r := range runs {
+		entry := map[string]any{
+			"id":           r.ID,
+			"job_id":       r.JobID,
+			"status":       r.Status,
+			"scheduled_at": r.ScheduledAt,
+			"created_at":   r.CreatedAt,
+		}
+		if r.JobName != nil {
+			entry["job_name"] = *r.JobName
+		}
+		if r.SessionID != nil {
+			entry["session_id"] = *r.SessionID
+		}
+		if r.StartedAt != nil {
+			entry["started_at"] = *r.StartedAt
+		}
+		if r.DisplayName != nil {
+			entry["display_name"] = *r.DisplayName
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 // ── /ws/terminal/{name} — Bidirectional terminal WebSocket ──────────
@@ -510,27 +566,13 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 
 	var (
 		lastContent string
-		closed      bool
-		closedMu    sync.Mutex
 		inputEvent  = make(chan struct{}, 1)
 		targetMu    sync.Mutex
 	)
 
-	isClosed := func() bool {
-		closedMu.Lock()
-		defer closedMu.Unlock()
-		return closed
-	}
-	setClosed := func() {
-		closedMu.Lock()
-		closed = true
-		closedMu.Unlock()
-		cancel()
-	}
-
 	// Reader goroutine
 	go func() {
-		defer setClosed()
+		defer cancel()
 		for {
 			_, raw, err := conn.Read(ctx)
 			if err != nil {
@@ -698,7 +740,7 @@ func (h *SessionsHandler) wsTerminalPolling(ctx context.Context, conn *websocket
 	pollTicker := time.NewTicker(pollInterval)
 	defer pollTicker.Stop()
 
-	for !isClosed() {
+	for ctx.Err() == nil {
 		if paneGoneNotified {
 			// Pane is gone — slow heartbeat to detect if it comes back
 			select {

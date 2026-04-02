@@ -106,24 +106,6 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 	}, nil
 }
 
-// CreateAgentTaskIfNotExists creates a task only if one with the same title doesn't exist.
-func (s *TaskStore) CreateAgentTaskIfNotExists(ctx context.Context, agentName, title string, sessionID *string) (*AgentTask, error) {
-	filter, filterArgs := sessionFilter(sessionID)
-	args := append([]interface{}{agentName, title}, filterArgs...)
-	var existing AgentTask
-	err := s.db.GetContext(ctx, &existing,
-		`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
-		 FROM agent_tasks WHERE agent_name = ? AND title = ?`+filter,
-		args...)
-	if err == nil {
-		return &existing, nil
-	}
-	if err != sql.ErrNoRows {
-		return nil, err
-	}
-	return s.CreateAgentTask(ctx, agentName, title, sessionID)
-}
-
 // UpdateAgentTask updates task fields (title, completed, sort_order).
 func (s *TaskStore) UpdateAgentTask(ctx context.Context, taskID int64, title *string, completed *int, sortOrder *int) error {
 	now := nowUTC()
@@ -357,57 +339,6 @@ func (s *TaskStore) ClearAgentEvents(ctx context.Context, agentName string, sess
 	return err
 }
 
-// GetLastKnownStatusSummary returns the most recent status and goal per agent/session.
-func (s *TaskStore) GetLastKnownStatusSummary(ctx context.Context) (map[string]map[string]*string, error) {
-	type row struct {
-		SessionID *string `db:"session_id"`
-		AgentName string  `db:"agent_name"`
-		Summary   string  `db:"summary"`
-	}
-	var statusRows []row
-	if err := s.db.SelectContext(ctx, &statusRows,
-		`SELECT session_id, agent_name, summary FROM agent_events
-		 WHERE event_type = 'status' AND id IN
-		 (SELECT MAX(id) FROM agent_events WHERE event_type = 'status'
-		  GROUP BY COALESCE(session_id, agent_name))`); err != nil {
-		log.Printf("[store] query last known status: %v", err)
-	}
-
-	var goalRows []row
-	if err := s.db.SelectContext(ctx, &goalRows,
-		`SELECT session_id, agent_name, summary FROM agent_events
-		 WHERE event_type = 'goal' AND id IN
-		 (SELECT MAX(id) FROM agent_events WHERE event_type = 'goal'
-		  GROUP BY COALESCE(session_id, agent_name))`); err != nil {
-		log.Printf("[store] query last known goal: %v", err)
-	}
-
-	result := make(map[string]map[string]*string)
-	for _, r := range statusRows {
-		key := r.AgentName
-		if r.SessionID != nil {
-			key = *r.SessionID
-		}
-		if result[key] == nil {
-			result[key] = map[string]*string{"status": nil, "summary": nil}
-		}
-		s := r.Summary
-		result[key]["status"] = &s
-	}
-	for _, r := range goalRows {
-		key := r.AgentName
-		if r.SessionID != nil {
-			key = *r.SessionID
-		}
-		if result[key] == nil {
-			result[key] = map[string]*string{"status": nil, "summary": nil}
-		}
-		s := r.Summary
-		result[key]["summary"] = &s
-	}
-	return result, nil
-}
-
 // ── History queries (by session_id only) ────────────────────────────────
 
 // ListTasksBySession returns tasks for a historical session.
@@ -428,11 +359,3 @@ func (s *TaskStore) ListNotesBySession(ctx context.Context, sessionID string) ([
 	return notes, err
 }
 
-// ListEventsBySession returns events for a historical session.
-func (s *TaskStore) ListEventsBySession(ctx context.Context, sessionID string, limit int) ([]AgentEvent, error) {
-	var events []AgentEvent
-	err := s.db.SelectContext(ctx, &events,
-		`SELECT id, agent_name, session_id, event_type, tool_name, summary, detail_json, created_at
-		 FROM agent_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`, sessionID, limit)
-	return events, err
-}

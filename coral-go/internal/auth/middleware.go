@@ -15,7 +15,7 @@ func Middleware(ks *KeyStore) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Always allow localhost — but validate Host header to prevent
 			// DNS rebinding (attacker domain resolving to 127.0.0.1)
-			if IsLocalhost(r) {
+			if isLocalhost(r) {
 				if isValidLocalhostHost(r.Host) {
 					next.ServeHTTP(w, r)
 					return
@@ -35,7 +35,7 @@ func Middleware(ks *KeyStore) func(http.Handler) http.Handler {
 			}
 
 			// Check API key (header or query param)
-			if key := ExtractAPIKey(r); key != "" {
+			if key := extractAPIKey(r); key != "" {
 				if !ks.CheckRateLimit(clientIP(r)) {
 					http.Error(w, "Too many authentication attempts", http.StatusTooManyRequests)
 					return
@@ -47,7 +47,7 @@ func Middleware(ks *KeyStore) func(http.Handler) http.Handler {
 						if err != nil {
 							log.Printf("[auth] failed to create session: %v", err)
 						} else {
-							SetSessionCookie(w, r, token)
+							setSessionCookie(w, r, token)
 						}
 					}
 					next.ServeHTTP(w, r)
@@ -57,7 +57,7 @@ func Middleware(ks *KeyStore) func(http.Handler) http.Handler {
 			}
 
 			// Check session cookie
-			if token := ExtractSessionCookie(r); token != "" {
+			if token := extractSessionCookie(r); token != "" {
 				if ks.ValidateSession(token) {
 					next.ServeHTTP(w, r)
 					return

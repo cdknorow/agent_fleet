@@ -222,11 +222,49 @@ func TestFTSSearch(t *testing.T) {
 	s := NewSessionStore(db)
 	ctx := context.Background()
 
-	err := s.UpsertFTS(ctx, "sess-1", "implementing a new feature for the dashboard")
+	ts := "2024-01-01T10:00:00"
+
+	// Insert session index records (required for the FTS JOIN in ListSessionsPaged)
+	err := s.UpsertSessionIndex(ctx, &SessionIndex{
+		SessionID: "sess-1", SourceType: "claude", SourceFile: "/tmp/1.jsonl",
+		FirstTimestamp: &ts, LastTimestamp: &ts, MessageCount: 1,
+	})
+	require.NoError(t, err)
+	err = s.UpsertSessionIndex(ctx, &SessionIndex{
+		SessionID: "sess-2", SourceType: "claude", SourceFile: "/tmp/2.jsonl",
+		FirstTimestamp: &ts, LastTimestamp: &ts, MessageCount: 1,
+	})
+	require.NoError(t, err)
+
+	err = s.UpsertFTS(ctx, "sess-1", "implementing a new feature for the dashboard")
 	require.NoError(t, err)
 
 	err = s.UpsertFTS(ctx, "sess-2", "fixing a critical bug in the authentication system")
 	require.NoError(t, err)
+
+	// Verify FTS search returns matching sessions
+	result, err := s.ListSessionsPaged(ctx, SessionListParams{
+		Search:   "dashboard",
+		FTSMode:  "and",
+		PageSize: 10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Total, "search for 'dashboard' should match exactly one session")
+	if result.Total > 0 {
+		assert.Equal(t, "sess-1", result.Sessions[0].SessionID)
+	}
+
+	// Verify a different search term matches the other session
+	result, err = s.ListSessionsPaged(ctx, SessionListParams{
+		Search:   "authentication",
+		FTSMode:  "and",
+		PageSize: 10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Total, "search for 'authentication' should match exactly one session")
+	if result.Total > 0 {
+		assert.Equal(t, "sess-2", result.Sessions[0].SessionID)
+	}
 }
 
 func TestSummarizerQueue(t *testing.T) {
@@ -247,34 +285,6 @@ func TestSummarizerQueue(t *testing.T) {
 	pending, err = s.GetPendingSummaries(ctx, 10)
 	require.NoError(t, err)
 	assert.Empty(t, pending)
-}
-
-func TestAgentLiveState(t *testing.T) {
-	db := openTestDB(t)
-	s := NewSessionStore(db)
-	ctx := context.Background()
-
-	// Initially nil
-	id, err := s.GetAgentSessionID(ctx, "agent-1")
-	require.NoError(t, err)
-	assert.Nil(t, id)
-
-	// Set
-	err = s.SetAgentSessionID(ctx, "agent-1", "sess-abc")
-	require.NoError(t, err)
-
-	id, err = s.GetAgentSessionID(ctx, "agent-1")
-	require.NoError(t, err)
-	require.NotNil(t, id)
-	assert.Equal(t, "sess-abc", *id)
-
-	// Clear
-	err = s.ClearAgentSessionID(ctx, "agent-1")
-	require.NoError(t, err)
-
-	id, err = s.GetAgentSessionID(ctx, "agent-1")
-	require.NoError(t, err)
-	assert.Nil(t, id)
 }
 
 func TestLiveSessions(t *testing.T) {
@@ -306,14 +316,6 @@ func TestLiveSessions(t *testing.T) {
 	require.NotNil(t, info)
 	assert.Equal(t, &prompt, info.Prompt)
 	assert.Equal(t, &board, info.BoardName)
-
-	// Agent type lookup
-	agentType := s.GetAgentTypeForSession(ctx, "sess-1")
-	assert.Equal(t, "claude", agentType)
-
-	// Missing session defaults to claude
-	agentType = s.GetAgentTypeForSession(ctx, "nonexistent")
-	assert.Equal(t, "claude", agentType)
 
 	// Replace
 	newPrompt := "Updated prompt"
@@ -400,12 +402,12 @@ func TestExtractFirstHeader(t *testing.T) {
 	assert.Equal(t, "", extractFirstHeader(""))
 }
 
-func TestParseFlags(t *testing.T) {
-	assert.Nil(t, ParseFlags(nil))
+func TestUnmarshalFlags(t *testing.T) {
+	assert.Nil(t, UnmarshalFlags(nil))
 	empty := ""
-	assert.Nil(t, ParseFlags(&empty))
+	assert.Nil(t, UnmarshalFlags(&empty))
 	flags := `["--verbose","--model","opus"]`
-	result := ParseFlags(&flags)
+	result := UnmarshalFlags(&flags)
 	assert.Equal(t, []string{"--verbose", "--model", "opus"}, result)
 }
 

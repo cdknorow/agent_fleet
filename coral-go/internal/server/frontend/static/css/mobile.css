@@ -440,10 +440,6 @@
         white-space: nowrap;
     }
 
-    /* Hide the separate Attach and Restart buttons, keep only the overflow menu */
-    .session-title-actions .btn-icon-label {
-        display: none !important;
-    }
 
     .session-title-actions {
         flex-shrink: 0;
@@ -1226,12 +1222,6 @@
     /* Always show task delete button on touch */
     .task-delete-btn {
         opacity: 0.5 !important;
-    }
-
-    /* Event filter chips: larger for touch */
-    .event-filter-chip {
-        width: 34px;
-        height: 32px;
     }
 
     /* Group kebab always visible on touch */

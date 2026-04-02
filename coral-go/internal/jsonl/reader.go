@@ -271,9 +271,7 @@ func parseClaudeUserEntry(entry map[string]any, timestamp string, toolUseNames m
 				if resultContent == "" {
 					continue
 				}
-				if len(resultContent) > 10000 {
-					resultContent = resultContent[:10000] + "\n... (truncated)"
-				}
+				resultContent = truncateContent(resultContent)
 				toolName := ""
 				if toolUseID != "" {
 					toolName = toolUseNames[toolUseID]
@@ -407,10 +405,7 @@ func parseClaudeAssistantEntry(entry map[string]any, timestamp string, toolUseNa
 					}
 				case "Write":
 					if wc, _ := toolInput["content"].(string); wc != "" {
-						if len(wc) > 10000 {
-							wc = wc[:10000] + "\n... (truncated)"
-						}
-						toolEntry["write_content"] = wc
+						toolEntry["write_content"] = truncateContent(wc)
 					}
 				}
 
@@ -504,6 +499,14 @@ func summarizeToolInput(name string, input map[string]any) string {
 func truncate(s string, n int) string {
 	if len(s) > n {
 		return s[:n] + "..."
+	}
+	return s
+}
+
+// truncateContent truncates large content blocks (tool results, file writes) to 10KB.
+func truncateContent(s string) string {
+	if len(s) > 10000 {
+		return s[:10000] + "\n... (truncated)"
 	}
 	return s
 }
@@ -604,9 +607,7 @@ func parseCodexUserEntry(content any, timestamp string, toolUseNames map[string]
 				if output == "" {
 					continue
 				}
-				if len(output) > 10000 {
-					output = output[:10000] + "\n... (truncated)"
-				}
+				output = truncateContent(output)
 				toolName := ""
 				if callID != "" {
 					toolName = toolUseNames[callID]

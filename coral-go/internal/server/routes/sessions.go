@@ -6,6 +6,7 @@ import (
 	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -47,8 +48,9 @@ type SessionsHandler struct {
 	jsonl   *jsonl.SessionReader
 	backend ptymanager.TerminalBackend // nil = use tmux directly
 
-	boardHandler *BoardHandler       // for sleep/wake board pausing
-	licenseMgr   *license.Manager    // for runtime trial limit checks
+	boardHandler *BoardHandler        // for sleep/wake board pausing
+	licenseMgr   *license.Manager     // for runtime trial limit checks
+	schedStore   *store.ScheduleStore // for active runs in websocket
 
 	// Deduplication state for status/summary events (mirrors Python _last_known)
 	lastKnownMu sync.RWMutex
@@ -63,6 +65,11 @@ func (h *SessionsHandler) SetBoardHandler(bh *BoardHandler) {
 // SetLicenseManager sets the license manager for runtime trial limit checks.
 func (h *SessionsHandler) SetLicenseManager(lm *license.Manager) {
 	h.licenseMgr = lm
+}
+
+// SetScheduleStore sets the schedule store for active runs in websocket.
+func (h *SessionsHandler) SetScheduleStore(ss *store.ScheduleStore) {
+	h.schedStore = ss
 }
 
 // effectiveMaxAgents returns the max concurrent agents.
@@ -178,24 +185,24 @@ func getLogStatus(logPath string) map[string]any {
 
 	// Read tail of the file (last ~256KB)
 	const tailBytes = 256_000
+	fileSize := info.Size()
+	start := int64(0)
+	if fileSize > tailBytes {
+		start = fileSize - tailBytes
+	}
+
 	f, err := os.Open(logPath)
 	if err != nil {
 		return result
 	}
 	defer f.Close()
 
-	fileSize := info.Size()
-	start := int64(0)
-	if fileSize > tailBytes {
-		start = fileSize - tailBytes
+	if start > 0 {
+		f.Seek(start, 0)
 	}
-	f.Seek(start, 0)
-	raw, err := os.ReadFile(logPath)
+	raw, err := io.ReadAll(f)
 	if err != nil {
 		return result
-	}
-	if start > 0 {
-		raw = raw[start:]
 	}
 
 	// Split into lines, decode, strip ANSI
@@ -932,9 +939,7 @@ func (h *SessionsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 
 	// Path traversal protection
 	fullPath, _ := filepath.Abs(filepath.Join(workdir, fp))
-	realWorkdir, _ := filepath.EvalSymlinks(workdir)
-	realPath, _ := filepath.EvalSymlinks(fullPath)
-	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+	if !isPathWithinDir(workdir, fullPath) {
 		errForbidden(w, "path traversal not allowed")
 		return
 	}
@@ -1640,9 +1645,9 @@ func (h *SessionsHandler) Resume(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Edition limits: check max live agents before resuming
+	// Edition limits: check max active (non-sleeping) agents before resuming
 	if h.effectiveMaxAgents() > 0 {
-		count, err := h.ss.CountLiveSessions(ctx)
+		count, err := h.ss.CountActiveLiveSessions(ctx)
 		if err == nil && count >= h.effectiveMaxAgents() {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.effectiveMaxAgents()),
@@ -1820,9 +1825,9 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Edition limits: check max live agents
+	// Edition limits: check max active (non-sleeping) agents
 	if h.effectiveMaxAgents() > 0 {
-		count, err := h.ss.CountLiveSessions(r.Context())
+		count, err := h.ss.CountActiveLiveSessions(r.Context())
 		if err == nil && count >= h.effectiveMaxAgents() {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.effectiveMaxAgents()),
@@ -1898,9 +1903,9 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Edition limits: check max live agents
+	// Edition limits: check max active (non-sleeping) agents
 	if h.effectiveMaxAgents() > 0 {
-		agentCount, err := h.ss.CountLiveSessions(ctx)
+		agentCount, err := h.ss.CountActiveLiveSessions(ctx)
 		if err == nil && agentCount+len(body.Agents) > h.effectiveMaxAgents() {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.effectiveMaxAgents()),
@@ -2696,9 +2701,7 @@ func (h *SessionsHandler) GetFileContent(w http.ResponseWriter, r *http.Request)
 		errBadRequest(w, "invalid path")
 		return
 	}
-	realWorkdir, _ := filepath.EvalSymlinks(workdir)
-	realPath, _ := filepath.EvalSymlinks(fullPath)
-	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+	if !isPathWithinDir(workdir, fullPath) {
 		errForbidden(w, "Path traversal not allowed")
 		return
 	}
@@ -2746,9 +2749,7 @@ func (h *SessionsHandler) GetFileOriginal(w http.ResponseWriter, r *http.Request
 		errBadRequest(w, "invalid path")
 		return
 	}
-	realWorkdir, _ := filepath.EvalSymlinks(workdir)
-	realPath, _ := filepath.EvalSymlinks(fullPath)
-	if realPath != "" && !strings.HasPrefix(realPath, realWorkdir+string(os.PathSeparator)) {
+	if !isPathWithinDir(workdir, fullPath) {
 		errForbidden(w, "path traversal not allowed")
 		return
 	}
@@ -2992,17 +2993,7 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Relaunch the session
-		flags := store.ParseFlags(ls.Flags)
-		prompt := derefStrPtr(ls.Prompt)
-		bn := derefStrPtr(ls.BoardName)
-		bs := derefStrPtr(ls.BoardServer)
-		bk := "tmux"
-		if ls.Backend != nil {
-			bk = *ls.Backend
-		}
-		dn := derefStrPtr(ls.DisplayName)
-		bt := derefStrPtr(ls.BoardType)
-		if err := h.wakeExistingSession(ctx, &ls, flags, prompt, bn, bs, bk, bt, dn); err != nil {
+		if err := h.wakeExistingSession(ctx, &ls); err != nil {
 			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
 			continue
 		}
@@ -3039,8 +3030,18 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 
 // wakeExistingSession recreates the tmux/pty session for a sleeping agent
 // using the EXISTING session ID. Preserves display name, board subscriptions, and history.
-func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.LiveSession,
-	flags []string, prompt, boardName, boardServer, backend, boardType, displayName string) error {
+func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.LiveSession) error {
+	flags := store.UnmarshalFlags(ls.Flags)
+	prompt := derefStrPtr(ls.Prompt)
+	boardName := derefStrPtr(ls.BoardName)
+	boardServer := derefStrPtr(ls.BoardServer)
+	backend := "tmux"
+	if ls.Backend != nil {
+		backend = *ls.Backend
+	}
+	displayName := derefStrPtr(ls.DisplayName)
+	boardType := derefStrPtr(ls.BoardType)
+	_ = boardServer // retained for future use
 
 	sessionName := naming.SessionName(ls.AgentType, ls.SessionID)
 	logFile := naming.LogFile(h.cfg.LogDir, ls.AgentType, ls.SessionID)
@@ -3129,15 +3130,8 @@ func (h *SessionsHandler) SleepSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 	ctx := r.Context()
 
-	allLive, _ := h.ss.GetAllLiveSessions(ctx)
-	var sess *store.LiveSession
-	for i := range allLive {
-		if allLive[i].SessionID == sessionID {
-			sess = &allLive[i]
-			break
-		}
-	}
-	if sess == nil {
+	sess, err := h.ss.GetLiveSession(ctx, sessionID)
+	if err != nil || sess == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session not found"})
 		return
 	}
@@ -3145,8 +3139,7 @@ func (h *SessionsHandler) SleepSession(w http.ResponseWriter, r *http.Request) {
 	h.ss.SetSessionSleeping(ctx, sessionID, true)
 
 	// Kill tmux session to free resources
-	err := h.terminal.KillSessionOnly(ctx, sess.AgentName, sess.AgentType, sessionID)
-	if err != nil {
+	if err := h.terminal.KillSessionOnly(ctx, sess.AgentName, sess.AgentType, sessionID); err != nil {
 		log.Printf("Failed to kill tmux for session %s during sleep: %v", sessionID[:8], err)
 	}
 
@@ -3159,15 +3152,8 @@ func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 	ctx := r.Context()
 
-	allLive, _ := h.ss.GetAllLiveSessions(ctx)
-	var sess *store.LiveSession
-	for i := range allLive {
-		if allLive[i].SessionID == sessionID {
-			sess = &allLive[i]
-			break
-		}
-	}
-	if sess == nil {
+	sess, err := h.ss.GetLiveSession(ctx, sessionID)
+	if err != nil || sess == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Session not found"})
 		return
 	}
@@ -3178,12 +3164,7 @@ func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
 
 	// Edition limits: check max live agents before waking
 	if h.effectiveMaxAgents() > 0 {
-		activeCount := 0
-		for _, ls := range allLive {
-			if ls.IsSleeping == 0 {
-				activeCount++
-			}
-		}
+		activeCount, _ := h.ss.CountActiveLiveSessions(ctx)
 		if activeCount >= h.effectiveMaxAgents() {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": fmt.Sprintf("Demo limit reached: maximum %d concurrent agents allowed", h.effectiveMaxAgents()),
@@ -3192,24 +3173,14 @@ func (h *SessionsHandler) WakeSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	flags := store.ParseFlags(sess.Flags)
-	prompt := derefStrPtr(sess.Prompt)
-	bn := derefStrPtr(sess.BoardName)
-	bs := derefStrPtr(sess.BoardServer)
-	bk := "tmux"
-	if sess.Backend != nil {
-		bk = *sess.Backend
-	}
-	dn := derefStrPtr(sess.DisplayName)
-	bt := derefStrPtr(sess.BoardType)
-
-	if err := h.wakeExistingSession(ctx, sess, flags, prompt, bn, bs, bk, bt, dn); err != nil {
+	if err := h.wakeExistingSession(ctx, sess); err != nil {
 		log.Printf("Failed to wake session %s: %v", sessionID[:8], err)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Failed to relaunch session"})
 		return
 	}
 
 	// Unpause the board if this agent was on one
+	bn := derefStrPtr(sess.BoardName)
 	if bn != "" && h.boardHandler != nil {
 		h.boardHandler.SetPaused(bn, false)
 	}
@@ -3285,23 +3256,12 @@ func (h *SessionsHandler) WakeAll(w http.ResponseWriter, r *http.Request) {
 	boards := map[string]bool{}
 	relaunched := 0
 	for _, ls := range sleeping {
-		flags := store.ParseFlags(ls.Flags)
-		prompt := derefStrPtr(ls.Prompt)
-		bn := derefStrPtr(ls.BoardName)
-		bs := derefStrPtr(ls.BoardServer)
-		bk := "tmux"
-		if ls.Backend != nil {
-			bk = *ls.Backend
-		}
-		dn := derefStrPtr(ls.DisplayName)
-		bt := derefStrPtr(ls.BoardType)
-
-		if err := h.wakeExistingSession(ctx, &ls, flags, prompt, bn, bs, bk, bt, dn); err != nil {
+		if err := h.wakeExistingSession(ctx, &ls); err != nil {
 			log.Printf("Failed to wake session %s — keeping asleep: %v", ls.SessionID[:8], err)
 			continue
 		}
 		relaunched++
-		if bn != "" {
+		if bn := derefStrPtr(ls.BoardName); bn != "" {
 			boards[bn] = true
 		}
 	}

@@ -22,7 +22,6 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		DBPath:          filepath.Join(tmpDir, "test.db"),
 		Host:            "127.0.0.1",
 		Port:            0,
-		DevMode:         true,
 		LogDir:          tmpDir,
 		WSPollIntervalS: 1,
 		CoralRoot:       tmpDir,

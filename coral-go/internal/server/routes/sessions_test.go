@@ -198,62 +198,10 @@ func (m *mockSessionTerminal) sentCommands() []string {
 	return commands
 }
 
-// setupSessionsTestServer creates a test HTTP server with a SessionsHandler.
+// setupSessionsTestServer creates a test HTTP server with a SessionsHandler and all routes.
 func setupSessionsTestServer(t *testing.T) (*httptest.Server, *SessionsHandler, *mockSessionTerminal, *store.SessionStore) {
 	t.Helper()
-
-	cfg := &config.Config{
-		LogDir: t.TempDir(),
-	}
-
-	dbPath := t.TempDir() + "/test.db"
-	db, err := store.Open(dbPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
-
-	boardDBPath := t.TempDir() + "/board.db"
-	bs, err := board.NewStore(boardDBPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { bs.Close() })
-
-	terminal := newMockTerminal()
-	handler := NewSessionsHandler(db, cfg, nil, terminal, bs)
-	ss := store.NewSessionStore(db)
-
-	r := chi.NewRouter()
-
-	// Session routes
-	r.Get("/api/sessions/live", handler.List)
-	r.Get("/api/sessions/live/{name}", handler.Detail)
-	r.Get("/api/sessions/live/{name}/capture", handler.Capture)
-	r.Post("/api/sessions/live/{name}/send", handler.Send)
-	r.Post("/api/sessions/live/{name}/keys", handler.Keys)
-	r.Post("/api/sessions/live/{name}/resize", handler.Resize)
-	r.Post("/api/sessions/live/{name}/kill", handler.Kill)
-	r.Post("/api/sessions/live/{name}/set-display-name", handler.SetDisplayName)
-	r.Post("/api/sessions/live/{name}/set-icon", handler.SetIcon)
-	r.Post("/api/sessions/launch", handler.Launch)
-	r.Post("/api/sessions/launch-team", handler.LaunchTeam)
-
-	// Task routes
-	r.Get("/api/sessions/live/{name}/tasks", handler.ListTasks)
-	r.Post("/api/sessions/live/{name}/tasks", handler.CreateTask)
-	r.Put("/api/sessions/live/{name}/tasks/{taskID}", handler.UpdateTask)
-	r.Delete("/api/sessions/live/{name}/tasks/{taskID}", handler.DeleteTask)
-
-	// Note routes
-	r.Get("/api/sessions/live/{name}/notes", handler.ListNotes)
-	r.Post("/api/sessions/live/{name}/notes", handler.CreateNote)
-
-	// Event routes
-	r.Get("/api/sessions/live/{name}/events", handler.ListEvents)
-	r.Post("/api/sessions/live/{name}/events", handler.CreateEvent)
-	r.Get("/api/sessions/live/{name}/event-counts", handler.EventCounts)
-
-	server := httptest.NewServer(r)
-	t.Cleanup(server.Close)
-
-	return server, handler, terminal, ss
+	return setupSessionsTestServerWithConfig(t, &config.Config{})
 }
 
 func TestSessionsList_Empty(t *testing.T) {
@@ -298,8 +246,13 @@ func TestSessionsCapture_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	// Should return an error or empty capture
-	assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusInternalServerError}, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	assert.Nil(t, result["capture"], "capture should be nil for nonexistent session")
+	assert.NotEmpty(t, result["error"], "should include an error message")
 }
 
 func TestSessionsCapture_WithOutput(t *testing.T) {
@@ -606,7 +559,7 @@ func TestSessionsKeys(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// setupSessionsTestServerWithConfig creates a test server with custom config.
+// setupSessionsTestServerWithConfig creates a test server with custom config and all session routes.
 func setupSessionsTestServerWithConfig(t *testing.T, cfg *config.Config) (*httptest.Server, *SessionsHandler, *mockSessionTerminal, *store.SessionStore) {
 	t.Helper()
 
@@ -629,8 +582,34 @@ func setupSessionsTestServerWithConfig(t *testing.T, cfg *config.Config) (*httpt
 	ss := store.NewSessionStore(db)
 
 	r := chi.NewRouter()
+
+	// Session routes
+	r.Get("/api/sessions/live", handler.List)
+	r.Get("/api/sessions/live/{name}", handler.Detail)
+	r.Get("/api/sessions/live/{name}/capture", handler.Capture)
+	r.Post("/api/sessions/live/{name}/send", handler.Send)
+	r.Post("/api/sessions/live/{name}/keys", handler.Keys)
+	r.Post("/api/sessions/live/{name}/resize", handler.Resize)
+	r.Post("/api/sessions/live/{name}/kill", handler.Kill)
+	r.Post("/api/sessions/live/{name}/set-display-name", handler.SetDisplayName)
+	r.Post("/api/sessions/live/{name}/set-icon", handler.SetIcon)
 	r.Post("/api/sessions/launch", handler.Launch)
 	r.Post("/api/sessions/launch-team", handler.LaunchTeam)
+
+	// Task routes
+	r.Get("/api/sessions/live/{name}/tasks", handler.ListTasks)
+	r.Post("/api/sessions/live/{name}/tasks", handler.CreateTask)
+	r.Put("/api/sessions/live/{name}/tasks/{taskID}", handler.UpdateTask)
+	r.Delete("/api/sessions/live/{name}/tasks/{taskID}", handler.DeleteTask)
+
+	// Note routes
+	r.Get("/api/sessions/live/{name}/notes", handler.ListNotes)
+	r.Post("/api/sessions/live/{name}/notes", handler.CreateNote)
+
+	// Event routes
+	r.Get("/api/sessions/live/{name}/events", handler.ListEvents)
+	r.Post("/api/sessions/live/{name}/events", handler.CreateEvent)
+	r.Get("/api/sessions/live/{name}/event-counts", handler.EventCounts)
 
 	server := httptest.NewServer(r)
 	t.Cleanup(server.Close)

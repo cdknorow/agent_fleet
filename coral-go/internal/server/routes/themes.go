@@ -429,8 +429,15 @@ func (h *ThemesHandler) ImportTheme(w http.ResponseWriter, r *http.Request) {
 		"base":        parsed["base"],
 		"variables":   parsed["variables"],
 	}
-	out, _ := json.MarshalIndent(themeData, "", "  ")
-	os.WriteFile(filepath.Join(h.themesDir, safe+".json"), out, 0644)
+	out, err := json.MarshalIndent(themeData, "", "  ")
+	if err != nil {
+		errBadRequest(w, "Failed to encode theme")
+		return
+	}
+	if err := os.WriteFile(filepath.Join(h.themesDir, safe+".json"), out, 0644); err != nil {
+		http.Error(w, "Failed to save theme", http.StatusInternalServerError)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": safe})
 }

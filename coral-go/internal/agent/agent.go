@@ -11,18 +11,18 @@ import (
 	at "github.com/cdknorow/coral/internal/agenttypes"
 )
 
-// CLINames maps board_type to CLI command name. The nil/empty key is the default.
-var CLINames = map[string]string{
+// cliNames maps board_type to CLI command name. The nil/empty key is the default.
+var cliNames = map[string]string{
 	"":      "coral-board",
 	"coral": "coral-board",
 }
 
 // GetCLIName returns the CLI command name for the given board type.
 func GetCLIName(boardType string) string {
-	if cli, ok := CLINames[boardType]; ok {
+	if cli, ok := cliNames[boardType]; ok {
 		return cli
 	}
-	return CLINames[""]
+	return cliNames[""]
 }
 
 // LaunchParams holds all parameters for building a launch command.
@@ -86,19 +86,14 @@ func GetAgent(agentType string) Agent {
 	}
 }
 
-// GetAllAgents returns all registered agent implementations.
-func GetAllAgents() []Agent {
-	return []Agent{&ClaudeAgent{}, &GeminiAgent{}, &CodexAgent{}}
-}
-
 // CLIInfo holds the CLI binary name and install instructions for an agent type.
 type CLIInfo struct {
 	Binary         string `json:"binary"`
 	InstallCommand string `json:"install_command"`
 }
 
-// AgentCLIs maps agent types to their required CLI tools and install instructions.
-var AgentCLIs = map[string]CLIInfo{
+// agentCLIs maps agent types to their required CLI tools and install instructions.
+var agentCLIs = map[string]CLIInfo{
 	at.Claude: {Binary: "claude", InstallCommand: "npm install -g @anthropic-ai/claude-code"},
 	at.Gemini: {Binary: "gemini", InstallCommand: "pip install google-gemini-cli"},
 	at.Codex:  {Binary: "codex", InstallCommand: "npm install -g @openai/codex"},
@@ -106,7 +101,7 @@ var AgentCLIs = map[string]CLIInfo{
 
 // GetCLIInfo returns CLI info for an agent type, or nil if unknown.
 func GetCLIInfo(agentType string) *CLIInfo {
-	if info, ok := AgentCLIs[agentType]; ok {
+	if info, ok := agentCLIs[agentType]; ok {
 		return &info
 	}
 	return nil

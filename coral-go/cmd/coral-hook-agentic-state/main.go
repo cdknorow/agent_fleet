@@ -93,7 +93,7 @@ func parseAgenticEvent(d map[string]any, hookType, sessionID string) map[string]
 		return map[string]any{
 			"event_type":  "tool_use",
 			"tool_name":   tool,
-			"summary":     hooks.MakeToolSummary(tool, inp, d["tool_response"]),
+			"summary":     hooks.MakeToolSummary(tool, inp),
 			"detail_json": makeToolDetail(tool, inp),
 			"session_id":  sessionID,
 		}

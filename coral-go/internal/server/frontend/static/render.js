@@ -1,7 +1,7 @@
 /* Rendering functions for session lists, chat history, and status updates */
 
 import { state } from './state.js';
-import { escapeHtml, showToast, escapeAttr, dbg, showView } from './utils.js';
+import { escapeHtml, showToast, escapeAttr, dbg, showView, renderMarkdown, getAgentColor } from './utils.js';
 import { renderSidebarTagDots } from './tags.js';
 import { getFolderTags, renderFolderTagPills } from './folder_tags.js';
 import { updateSectionVisibility } from './sidebar.js';
@@ -244,29 +244,6 @@ export function hideBoardChatTab() {
     if (panel) panel.innerHTML = '';
 }
 
-// Agent colors for board chat (same palette as message_board.js)
-const _boardChatColors = [
-    '#81a1c1', '#a3be8c', '#b48ead', '#d08770',
-    '#bf616a', '#88c0d0', '#ebcb8b', '#8fbcbb',
-];
-const _boardChatColorMap = {};
-function _getBoardChatColor(name) {
-    if (!name) return _boardChatColors[0];
-    if (_boardChatColorMap[name]) return _boardChatColorMap[name];
-    const idx = Object.keys(_boardChatColorMap).length % _boardChatColors.length;
-    _boardChatColorMap[name] = _boardChatColors[idx];
-    return _boardChatColorMap[name];
-}
-function _renderMd(content) {
-    if (!content) return '';
-    if (typeof marked !== 'undefined') {
-        try {
-            const html = marked.parse(content);
-            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-        } catch { /* fall through */ }
-    }
-    return escapeHtml(content);
-}
 function _formatTime(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -348,7 +325,7 @@ function _renderBoardPanelMessages(msgsEl, scrollToBottom) {
 
     msgsEl.innerHTML = loadEarlierHtml + messages.map((m, i) => {
         const agent = m.job_title || m.sender_name || 'Unknown';
-        const color = _getBoardChatColor(agent);
+        const color = getAgentColor(agent);
         const prevAgent = i > 0 ? (messages[i - 1].job_title || messages[i - 1].sender_name || 'Unknown') : null;
         const sameAsPrev = agent === prevAgent;
         const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
@@ -361,7 +338,7 @@ function _renderBoardPanelMessages(msgsEl, scrollToBottom) {
                 <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
                 <span class="mb-message-time">${_formatTime(m.created_at)}</span>
             </div>
-            <div class="mb-message-body">${_renderMd(m.content)}</div>
+            <div class="mb-message-body">${renderMarkdown(m.content)}</div>
         </div>`;
     }).join('');
     if (wasAtBottom) msgsEl.scrollTop = msgsEl.scrollHeight;

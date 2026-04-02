@@ -37,11 +37,6 @@ func TestAgentTasksCRUD(t *testing.T) {
 	err = s.CompleteAgentTaskByTitle(ctx, "agent-1", "Add tests", nil)
 	require.NoError(t, err)
 
-	// Create if not exists (should return existing)
-	existing, err := s.CreateAgentTaskIfNotExists(ctx, "agent-1", "Fix bug", nil)
-	require.NoError(t, err)
-	assert.Equal(t, task1.ID, existing.ID)
-
 	// Reorder
 	err = s.ReorderAgentTasks(ctx, "agent-1", []int64{task2.ID, task1.ID})
 	require.NoError(t, err)
@@ -149,24 +144,3 @@ func TestAgentEventsCRUD(t *testing.T) {
 	assert.Empty(t, events)
 }
 
-func TestLastKnownStatusSummary(t *testing.T) {
-	db := openTestDB(t)
-	s := NewTaskStore(db)
-	ctx := context.Background()
-
-	sid := "sess-1"
-	s.InsertAgentEvent(ctx, &AgentEvent{
-		AgentName: "agent-1", SessionID: &sid,
-		EventType: "status", Summary: "Working on feature",
-	})
-	s.InsertAgentEvent(ctx, &AgentEvent{
-		AgentName: "agent-1", SessionID: &sid,
-		EventType: "goal", Summary: "Implement auth",
-	})
-
-	result, err := s.GetLastKnownStatusSummary(ctx)
-	require.NoError(t, err)
-	assert.NotNil(t, result["sess-1"]["status"])
-	assert.Equal(t, "Working on feature", *result["sess-1"]["status"])
-	assert.Equal(t, "Implement auth", *result["sess-1"]["summary"])
-}

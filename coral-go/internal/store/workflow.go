@@ -304,9 +304,6 @@ func (s *WorkflowStore) ListRunsForWorkflow(ctx context.Context, workflowID int6
 	if err != nil {
 		return nil, err
 	}
-	for i := range runs {
-		runs[i].HydrateStepResults()
-	}
 	return runs, nil
 }
 
@@ -326,9 +323,6 @@ func (s *WorkflowStore) ListRecentRuns(ctx context.Context, limit, offset int, s
 	err := s.db.SelectContext(ctx, &runs, query, args...)
 	if err != nil {
 		return nil, err
-	}
-	for i := range runs {
-		runs[i].HydrateStepResults()
 	}
 	return runs, err
 }

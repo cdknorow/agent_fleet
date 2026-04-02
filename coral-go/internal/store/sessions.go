@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 	"time"
 
-	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -20,7 +18,6 @@ type SessionMeta struct {
 	NotesMD      string  `db:"notes_md" json:"notes_md"`
 	AutoSummary  string  `db:"auto_summary" json:"auto_summary"`
 	IsUserEdited bool    `db:"is_user_edited" json:"is_user_edited"`
-	DisplayName  *string `db:"display_name" json:"display_name,omitempty"`
 	UpdatedAt    *string `db:"updated_at" json:"updated_at,omitempty"`
 }
 
@@ -160,21 +157,13 @@ func (s *SessionStore) SaveSessionNotes(ctx context.Context, sessionID, notesMD 
 // SaveAutoSummary saves an AI-generated summary, but only if the user hasn't edited.
 func (s *SessionStore) SaveAutoSummary(ctx context.Context, sessionID, summary string) error {
 	now := nowUTC()
-
-	// Check if user has edited
-	var edited int
-	err := s.db.GetContext(ctx, &edited,
-		"SELECT is_user_edited FROM session_meta WHERE session_id = ?", sessionID)
-	if err == nil && edited == 1 {
-		return nil // Don't overwrite user edits
-	}
-
-	_, err = s.db.ExecContext(ctx,
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO session_meta (session_id, auto_summary, created_at, updated_at)
 		 VALUES (?, ?, ?, ?)
 		 ON CONFLICT(session_id) DO UPDATE SET
 		     auto_summary = excluded.auto_summary,
-		     updated_at = excluded.updated_at`,
+		     updated_at = excluded.updated_at
+		 WHERE is_user_edited = 0`,
 		sessionID, summary, now, now)
 	return err
 }
@@ -695,37 +684,6 @@ func (s *SessionStore) ListSessionsPaged(ctx context.Context, params SessionList
 	}, nil
 }
 
-// ── Agent Live State ──────────────────────────────────────────────────
-
-// GetAgentSessionID returns the current session_id for a live agent.
-func (s *SessionStore) GetAgentSessionID(ctx context.Context, agentName string) (*string, error) {
-	var id *string
-	err := s.db.GetContext(ctx, &id,
-		"SELECT current_session_id FROM agent_live_state WHERE agent_name = ?", agentName)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return id, err
-}
-
-// SetAgentSessionID sets the current session_id for a live agent.
-func (s *SessionStore) SetAgentSessionID(ctx context.Context, agentName, sessionID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_live_state (agent_name, current_session_id) VALUES (?, ?)
-		 ON CONFLICT(agent_name) DO UPDATE SET current_session_id = excluded.current_session_id`,
-		agentName, sessionID)
-	return err
-}
-
-// ClearAgentSessionID clears the current session_id for a live agent.
-func (s *SessionStore) ClearAgentSessionID(ctx context.Context, agentName string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_live_state (agent_name, current_session_id) VALUES (?, NULL)
-		 ON CONFLICT(agent_name) DO UPDATE SET current_session_id = NULL`,
-		agentName)
-	return err
-}
-
 // ── Live Sessions ─────────────────────────────────────────────────────
 
 // RegisterLiveSession registers a new live session.
@@ -756,9 +714,17 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, created_at
 		 FROM live_sessions ORDER BY created_at`)
 	return sessions, err
+}
+
+// CountActiveLiveSessions returns the number of non-sleeping live sessions.
+func (s *SessionStore) CountActiveLiveSessions(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.GetContext(ctx, &count,
+		"SELECT COUNT(*) FROM live_sessions WHERE is_sleeping = 0")
+	return count, err
 }
 
 // GetBoardSessions returns all live sessions on a given board.
@@ -766,7 +732,7 @@ func (s *SessionStore) GetBoardSessions(ctx context.Context, boardName string) (
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, created_at
 		 FROM live_sessions WHERE board_name = ? ORDER BY created_at`, boardName)
 	return sessions, err
 }
@@ -792,13 +758,13 @@ func (s *SessionStore) ResolveByPIDs(ctx context.Context, pids []int) (*LiveSess
 	if len(pids) == 0 {
 		return nil, fmt.Errorf("no PIDs provided")
 	}
-	query := "SELECT session_id, agent_type, agent_name, working_dir, display_name, board_name, pid FROM live_sessions WHERE pid IN (?" + strings.Repeat(",?", len(pids)-1) + ") AND pid > 0 LIMIT 1"
-	args := make([]interface{}, len(pids))
-	for i, p := range pids {
-		args[i] = p
+	query, args, err := sqlx.In("SELECT session_id, agent_type, agent_name, working_dir, display_name, board_name, pid FROM live_sessions WHERE pid IN (?) AND pid > 0 LIMIT 1", pids)
+	if err != nil {
+		return nil, err
 	}
+	query = s.db.Rebind(query)
 	var ls LiveSession
-	err := s.db.GetContext(ctx, &ls, query, args...)
+	err = s.db.GetContext(ctx, &ls, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -838,23 +804,12 @@ func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*L
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, tools, mcp_servers, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, tools, mcp_servers, pid, created_at
 		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return &ls, err
-}
-
-// GetAgentTypeForSession looks up the agent type for a live session.
-func (s *SessionStore) GetAgentTypeForSession(ctx context.Context, sessionID string) string {
-	var agentType string
-	err := s.db.GetContext(ctx, &agentType,
-		"SELECT agent_type FROM live_sessions WHERE session_id = ?", sessionID)
-	if err != nil {
-		return at.Claude
-	}
-	return agentType
 }
 
 // ReplaceLiveSession replaces an old session with a new one, carrying forward metadata.
@@ -863,7 +818,7 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 		// Carry forward flags, prompt, board from old session if not set
 		var old LiveSession
 		err := tx.GetContext(ctx, &old,
-			"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type, display_name FROM live_sessions WHERE session_id = ?",
+			"SELECT flags, prompt, board_name, board_server, icon, is_sleeping, board_type, display_name, is_job, backend, capabilities, model, tools, mcp_servers FROM live_sessions WHERE session_id = ?",
 			oldSessionID)
 		if err == nil {
 			if newSession.Flags == nil {
@@ -887,7 +842,25 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 			if newSession.DisplayName == nil {
 				newSession.DisplayName = old.DisplayName
 			}
+			if newSession.Capabilities == nil {
+				newSession.Capabilities = old.Capabilities
+			}
+			if newSession.Model == nil {
+				newSession.Model = old.Model
+			}
+			if newSession.Tools == nil {
+				newSession.Tools = old.Tools
+			}
+			if newSession.MCPServers == nil {
+				newSession.MCPServers = old.MCPServers
+			}
+			if newSession.Backend == nil {
+				newSession.Backend = old.Backend
+			}
 			newSession.IsSleeping = old.IsSleeping
+			if newSession.IsJob == 0 {
+				newSession.IsJob = old.IsJob
+			}
 		}
 
 		if _, err := tx.ExecContext(ctx, "DELETE FROM live_sessions WHERE session_id = ?", oldSessionID); err != nil {
@@ -897,22 +870,15 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 		now := nowUTC()
 		_, err = tx.ExecContext(ctx,
 			`INSERT OR REPLACE INTO live_sessions
-			 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, prompt, board_name, board_server, icon, is_sleeping, board_type, pid, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 (session_id, agent_type, agent_name, working_dir, display_name, resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			newSession.SessionID, newSession.AgentType, newSession.AgentName,
 			newSession.WorkingDir, newSession.DisplayName, newSession.ResumeFromID,
-			newSession.Flags, newSession.Prompt, newSession.BoardName,
-			newSession.BoardServer, newSession.Icon, newSession.IsSleeping, newSession.BoardType, newSession.PID, now)
+			newSession.Flags, newSession.IsJob, newSession.Prompt, newSession.BoardName,
+			newSession.BoardServer, newSession.Backend, newSession.Icon, newSession.IsSleeping, newSession.BoardType,
+			newSession.Capabilities, newSession.Model, newSession.Tools, newSession.MCPServers, newSession.PID, now)
 		return err
 	})
-}
-
-// UpdateLiveSessionDisplayName updates only the display_name field on a live session.
-func (s *SessionStore) UpdateLiveSessionDisplayName(ctx context.Context, sessionID, displayName string) error {
-	_, err := s.db.ExecContext(ctx,
-		"UPDATE live_sessions SET display_name = ? WHERE session_id = ?",
-		displayName, sessionID)
-	return err
 }
 
 // SetIcon sets or clears the emoji icon for a live session.
@@ -1013,18 +979,6 @@ func (s *SessionStore) CleanupOrphanedSleeping(ctx context.Context) (int, error)
 }
 
 // ── Live Session Flags Helper ──────────────────────────────────────────
-
-// ParseFlags deserializes a JSON flags string into a slice.
-func ParseFlags(flagsJSON *string) []string {
-	if flagsJSON == nil || *flagsJSON == "" {
-		return nil
-	}
-	var flags []string
-	if err := json.Unmarshal([]byte(*flagsJSON), &flags); err != nil {
-		return nil
-	}
-	return flags
-}
 
 // MarshalFlags serializes a flags slice to JSON.
 func MarshalFlags(flags []string) *string {
@@ -1154,43 +1108,47 @@ func sanitizeFTSQuery(raw, mode string) string {
 	return strings.Join(tokens, joiner)
 }
 
+var tsFormats = []string{
+	time.RFC3339Nano,
+	"2006-01-02T15:04:05.999999999",
+	"2006-01-02T15:04:05",
+}
+
+func parseTimestamp(ts string) (time.Time, error) {
+	for _, fmt := range tsFormats {
+		if t, err := time.Parse(fmt, ts); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized timestamp format: %s", ts)
+}
+
 func computeDuration(firstTS, lastTS *string) *int {
 	if firstTS == nil || lastTS == nil || *firstTS == "" || *lastTS == "" {
 		return nil
 	}
 
-	parseTS := func(ts string) (time.Time, error) {
-		// Strip timezone suffix and fractional seconds for parsing
-		base := ts
-		for _, sep := range []string{"+", "Z"} {
-			if idx := strings.Index(base, sep); idx > 0 {
-				base = base[:idx]
-			}
-		}
-		if idx := strings.Index(base, "."); idx > 0 {
-			base = base[:idx]
-		}
-		return time.Parse("2006-01-02T15:04:05", base)
-	}
-
-	a, err := parseTS(*firstTS)
+	a, err := parseTimestamp(*firstTS)
 	if err != nil {
 		return nil
 	}
-	b, err := parseTS(*lastTS)
+	b, err := parseTimestamp(*lastTS)
 	if err != nil {
 		return nil
 	}
 
-	delta := int(math.Max(0, b.Sub(a).Seconds()))
+	delta := int(b.Sub(a).Seconds())
+	if delta < 0 {
+		delta = 0
+	}
 	return &delta
 }
 
-// isoFormat matches Python's datetime.isoformat() which includes microseconds and uses +00:00 instead of Z for UTC.
-const isoFormat = "2006-01-02T15:04:05.000000+00:00"
+// ISOFormat matches Python's datetime.isoformat() which includes microseconds and uses +00:00 instead of Z for UTC.
+const ISOFormat = "2006-01-02T15:04:05.000000+00:00"
 
 func nowUTC() string {
-	return time.Now().UTC().Format(isoFormat)
+	return time.Now().UTC().Format(ISOFormat)
 }
 
 // NowUTC returns the current time as an ISO 8601 UTC string (exported for use by route handlers).

@@ -142,14 +142,14 @@ func (wr *WorkflowRunner) KillRun(ctx context.Context, runID int64) bool {
 				}
 				// Send SIGTERM to process group
 				syscall.Kill(-pgid, syscall.SIGTERM)
-				// Wait up to 5s, then SIGKILL. We don't call cmd.Wait() here
-				// because cmd.Start()/Wait() is managed by executeShellStep.
-				// Instead, just wait and escalate.
-				time.Sleep(5 * time.Second)
-				// Check if process is still alive, send SIGKILL if so
-				if err := syscall.Kill(-pgid, 0); err == nil {
-					syscall.Kill(-pgid, syscall.SIGKILL)
-				}
+				// Escalate to SIGKILL after grace period in background
+				// to avoid blocking the HTTP handler goroutine.
+				go func(pgid int) {
+					time.Sleep(5 * time.Second)
+					if err := syscall.Kill(-pgid, 0); err == nil {
+						syscall.Kill(-pgid, syscall.SIGKILL)
+					}
+				}(pgid)
 			}
 		case "agent":
 			if child.sessionName != "" && wr.runtime != nil {
@@ -164,7 +164,7 @@ func (wr *WorkflowRunner) KillRun(ctx context.Context, runID int64) bool {
 	}
 
 	// Mark remaining steps as skipped and run as killed
-	wr.markRunKilled(ctx, runID)
+	wr.markRunKilled(runID)
 	return true
 }
 
@@ -244,7 +244,7 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 			for j := i; j < len(steps); j++ {
 				results[j].Status = "skipped"
 			}
-			wr.persistResults(ctx, runID, i, results)
+			wr.persistResults(context.Background(), runID, i, results)
 
 			status := "killed"
 			var errMsg *string
@@ -273,7 +273,7 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 		}
 
 		// Mark step as running
-		now := time.Now().UTC().Format(isoFormat)
+		now := time.Now().UTC().Format(store.ISOFormat)
 		results[i].Status = "running"
 		results[i].StartedAt = &now
 		wr.persistResults(ctx, runID, i, results)
@@ -290,7 +290,7 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 		}
 
 		// Record step completion
-		finishedAt := time.Now().UTC().Format(isoFormat)
+		finishedAt := time.Now().UTC().Format(store.ISOFormat)
 		results[i].FinishedAt = &finishedAt
 
 		// List files in step directory
@@ -309,14 +309,13 @@ func (wr *WorkflowRunner) executeRun(runID int64, workflow *store.Workflow) {
 
 		if stepErr != nil {
 			results[i].Status = "failed"
-			wr.persistResults(ctx, runID, i, results)
 
 			if !step.ContinueOnFailure {
 				// Skip remaining steps
 				for j := i + 1; j < len(steps); j++ {
 					results[j].Status = "skipped"
 				}
-				wr.persistResults(ctx, runID, i, results)
+				wr.persistResults(context.Background(), runID, i, results)
 				// Only set failed if not already killed by KillRun
 				if !wr.isRunKilled(runID) {
 					errMsg := fmt.Sprintf("step %d (%s) failed: %v", i, step.Name, stepErr)
@@ -444,7 +443,7 @@ func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, ste
 	if step.Interactive {
 		stepErr = wr.executeAgentInteractive(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
 	} else {
-		stepErr = wr.executeAgentPrint(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, result)
+		stepErr = wr.executeAgentPrint(stepCtx, runID, step, stepDir, repoPath, env, agentCfg, prompt, stepHooks, result)
 	}
 
 	// For non-Claude agents, fire Stop hooks via the runner after process exit
@@ -459,7 +458,7 @@ func (wr *WorkflowRunner) executeAgentStep(ctx context.Context, runID int64, ste
 // When the agent config includes tools/capabilities, those are passed via a settings
 // file (same as BuildLaunchCommand) so the agent has tool access in headless mode.
 // Captures stdout/stderr to step files. No tmux session.
-func (wr *WorkflowRunner) executeAgentPrint(ctx context.Context, runID int64, step StepDef, stepDir, repoPath string, env []string, agentCfg *AgentStepConfig, prompt string, result *StepResult) error {
+func (wr *WorkflowRunner) executeAgentPrint(ctx context.Context, runID int64, step StepDef, stepDir, repoPath string, env []string, agentCfg *AgentStepConfig, prompt string, stepHooks map[string]interface{}, result *StepResult) error {
 	binPath, err := exec.LookPath(agentCfg.AgentType)
 	if err != nil {
 		return fmt.Errorf("agent binary %q not found: %w", agentCfg.AgentType, err)
@@ -469,9 +468,6 @@ func (wr *WorkflowRunner) executeAgentPrint(ctx context.Context, runID int64, st
 	// are present, so settings (permissions, tools, MCP) are properly translated.
 	hasCfg := len(agentCfg.Tools) > 0 || agentCfg.Capabilities != nil || agentCfg.MCPServers != nil
 	var args []string
-
-	// Parse step hooks for Claude-native injection
-	stepHooks := parseStepHooks(step.Hooks)
 
 	if hasCfg && agentCfg.AgentType == "claude" {
 		// Use BuildLaunchCommand for full settings support, then inject --print
@@ -662,7 +658,8 @@ func (wr *WorkflowRunner) watchSessionFast(ctx context.Context, sessionName stri
 }
 
 // markRunKilled marks remaining pending steps as skipped and the run as killed.
-func (wr *WorkflowRunner) markRunKilled(ctx context.Context, runID int64) {
+// Uses context.Background() because the run's context may already be cancelled.
+func (wr *WorkflowRunner) markRunKilled(runID int64) {
 	run, err := wr.store.GetWorkflowRunDirect(context.Background(), runID)
 	if err != nil || run == nil {
 		return
@@ -673,7 +670,7 @@ func (wr *WorkflowRunner) markRunKilled(ctx context.Context, runID int64) {
 		json.Unmarshal([]byte(run.StepResults), &results)
 	}
 
-	now := time.Now().UTC().Format(isoFormat)
+	now := time.Now().UTC().Format(store.ISOFormat)
 	for i := range results {
 		if results[i].Status == "pending" || results[i].Status == "running" {
 			results[i].Status = "skipped"
@@ -833,8 +830,8 @@ func mergeAgentConfig(defaultCfg, stepCfg *AgentStepConfig) *AgentStepConfig {
 	}
 	if stepCfg == nil {
 		// Return a copy of default
-		copy := *defaultCfg
-		return &copy
+		cfg := *defaultCfg
+		return &cfg
 	}
 
 	// Merge: step overrides default

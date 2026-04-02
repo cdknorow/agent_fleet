@@ -1,7 +1,7 @@
 /* Scheduler: scheduled jobs sidebar list, job detail view, and CRUD operations */
 
 import { state } from './state.js';
-import { showToast, showView } from './utils.js';
+import { escapeHtml, showToast, showView } from './utils.js';
 
 let scheduledJobs = [];
 let selectedJobId = null;
@@ -60,12 +60,6 @@ function renderJobsSidebar() {
             <span class="sched-cron" style="font-size:10px;color:var(--text-muted);margin-left:auto">${escapeHtml(job.cron_expr)}</span>
         </li>`;
     }).join('');
-}
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
 }
 
 // ── Job detail view ──────────────────────────────────────────────────────

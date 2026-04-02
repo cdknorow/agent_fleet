@@ -1,6 +1,6 @@
 /* Workflows: list, detail, run views, and CRUD */
 
-import { showView, showToast } from './utils.js';
+import { escapeHtml as esc, escapeAttr as escAttr, showView, showToast } from './utils.js';
 import { apiFetch } from './api.js';
 
 let workflows = [];
@@ -548,17 +548,6 @@ export function workflowsBackToList() {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-function esc(s) {
-    if (s == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-}
-
-function escAttr(s) {
-    return esc(s).replace(/"/g, '&quot;');
-}
 
 function formatTime(ts) {
     if (!ts) return '';

@@ -4,9 +4,7 @@ package tracking
 
 import (
 	"bytes"
-	crand "crypto/rand"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/google/uuid"
 )
 
 const posthogURL = "https://us.i.posthog.com/capture/"
@@ -162,8 +161,5 @@ func resolveCoralDir() string {
 }
 
 func generateUUID() string {
-	b := make([]byte, 16)
-	crand.Read(b)
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	return uuid.New().String()
 }

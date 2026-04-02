@@ -114,6 +114,9 @@ func main() {
 		log.Fatalf("Cannot find executable: %v", err)
 	}
 	args := []string{"--foreground", "--host", *host, "--port", strconv.Itoa(*port), "--home", home, "--backend", *backendFlag}
+	if *noBrowser {
+		args = append(args, "--no-browser")
+	}
 	if *devMode {
 		args = append(args, "--dev")
 	}
@@ -205,10 +208,6 @@ func runForeground(host string, port int, noBrowser, devMode, debugMode bool, ba
 	cfg := config.Load()
 	cfg.Host = host
 	cfg.Port = port
-	if devMode {
-		cfg.DevMode = true
-	}
-
 	rs, err := startup.Start(ctx, cfg, startup.Options{
 		BackendType: backendType,
 		OnServerError: func(err error) {

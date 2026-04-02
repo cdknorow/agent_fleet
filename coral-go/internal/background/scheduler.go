@@ -28,13 +28,11 @@ var (
 
 const defaultMaxAutoAccepts = 10
 
-// isoFormat matches Python's datetime.isoformat() with microseconds.
-const isoFormat = "2006-01-02T15:04:05.000000+00:00"
 
-// parseTimestamp parses a timestamp string, trying isoFormat (with microseconds) first,
+// parseTimestamp parses a timestamp string, trying store.ISOFormat (with microseconds) first,
 // then falling back to time.RFC3339 for backwards compatibility.
 func parseTimestamp(s string) (time.Time, error) {
-	if t, err := time.Parse(isoFormat, s); err == nil {
+	if t, err := time.Parse(store.ISOFormat, s); err == nil {
 		return t, nil
 	}
 	return time.Parse(time.RFC3339, s)
@@ -167,7 +165,7 @@ func (s *JobScheduler) reapStaleRuns(ctx context.Context) {
 		elapsed := now.Sub(started)
 		if elapsed > maxDur*2 { // generous 2x buffer
 			s.logger.Warn("reaping stale run", "run_id", run.ID, "elapsed", elapsed)
-			finished := now.Format(isoFormat)
+			finished := now.Format(store.ISOFormat)
 			s.store.UpdateScheduledRun(ctx, run.ID, map[string]interface{}{
 				"status":      "killed",
 				"exit_reason": "timeout_reap",
@@ -244,19 +242,23 @@ func (s *JobScheduler) evaluateJob(ctx context.Context, job store.ScheduledJob, 
 		return nil // Not due yet
 	}
 
-	// Check concurrency limit
+	// Check concurrency limit and pre-register to prevent TOCTOU race
 	s.runningMu.Lock()
 	if len(s.running) >= s.maxConcurrent {
 		s.runningMu.Unlock()
 		return nil // At capacity
 	}
-	s.runningMu.Unlock()
 
-	// Create a run record
-	runID, err := s.store.CreateScheduledRun(ctx, job.ID, now.Format(isoFormat), "pending")
+	// Create a run record while holding the lock
+	runID, err := s.store.CreateScheduledRun(ctx, job.ID, now.Format(store.ISOFormat), "pending")
 	if err != nil {
+		s.runningMu.Unlock()
 		return err
 	}
+
+	// Pre-register placeholder so concurrent evaluateJob calls see it
+	s.running[runID] = func() {}
+	s.runningMu.Unlock()
 
 	// Dispatch based on job type
 	if job.JobType == "workflow" && job.WorkflowID != nil {
@@ -301,7 +303,7 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 		s.logger.Error("workflow runner not configured", "job", job.Name)
 		s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 			"status": "failed", "error_msg": "workflow runner not configured",
-			"finished_at": time.Now().UTC().Format(isoFormat),
+			"finished_at": time.Now().UTC().Format(store.ISOFormat),
 		})
 		return
 	}
@@ -311,14 +313,14 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 		s.logger.Error("workflow not found", "workflow_id", *job.WorkflowID, "error", err)
 		s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 			"status": "failed", "error_msg": "workflow not found",
-			"finished_at": time.Now().UTC().Format(isoFormat),
+			"finished_at": time.Now().UTC().Format(store.ISOFormat),
 		})
 		return
 	}
 
 	// Mark scheduled run as running
 	s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
-		"status": "running", "started_at": time.Now().UTC().Format(isoFormat),
+		"status": "running", "started_at": time.Now().UTC().Format(store.ISOFormat),
 	})
 
 	// Trigger the workflow
@@ -328,7 +330,7 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 		s.logger.Error("failed to trigger workflow", "job", job.Name, "error", err)
 		s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 			"status": "failed", "error_msg": err.Error(),
-			"finished_at": time.Now().UTC().Format(isoFormat),
+			"finished_at": time.Now().UTC().Format(store.ISOFormat),
 		})
 		return
 	}
@@ -342,7 +344,7 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 		case <-runCtx.Done():
 			s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 				"status": "failed", "error_msg": "cancelled",
-				"finished_at": time.Now().UTC().Format(isoFormat),
+				"finished_at": time.Now().UTC().Format(store.ISOFormat),
 			})
 			return
 		case <-ticker.C:
@@ -357,7 +359,7 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 			case "completed":
 				s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 					"status": "completed",
-					"finished_at": time.Now().UTC().Format(isoFormat),
+					"finished_at": time.Now().UTC().Format(store.ISOFormat),
 				})
 				return
 			case "failed", "killed":
@@ -367,7 +369,7 @@ func (s *JobScheduler) triggerWorkflowForJob(runID int64, job store.ScheduledJob
 				}
 				s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 					"status": run.Status, "error_msg": errMsg,
-					"finished_at": time.Now().UTC().Format(isoFormat),
+					"finished_at": time.Now().UTC().Format(store.ISOFormat),
 				})
 				return
 			}
@@ -398,7 +400,7 @@ func (s *JobScheduler) FireOneshot(ctx context.Context, config map[string]interf
 	}
 	s.runningMu.Unlock()
 
-	now := time.Now().UTC().Format(isoFormat)
+	now := time.Now().UTC().Format(store.ISOFormat)
 	var displayName, webhookURL *string
 	if v, ok := config["display_name"].(string); ok && v != "" {
 		displayName = &v
@@ -484,7 +486,7 @@ func (s *JobScheduler) KillRun(ctx context.Context, runID int64) bool {
 		s.runtime.KillAgent(ctx, sessionName)
 	}
 
-	now := time.Now().UTC().Format(isoFormat)
+	now := time.Now().UTC().Format(store.ISOFormat)
 	s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 		"status":      "killed",
 		"exit_reason": "user_cancelled",
@@ -555,7 +557,7 @@ func (s *JobScheduler) launchAndWatch(runID int64, job store.ScheduledJob, rc ru
 		if err != nil {
 			errMsg := fmt.Sprintf("git worktree add failed: %v", err)
 			s.logger.Error(errMsg, "run_id", runID)
-			now := time.Now().UTC().Format(isoFormat)
+			now := time.Now().UTC().Format(store.ISOFormat)
 			s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 				"status":      "failed",
 				"error_msg":   errMsg,
@@ -568,7 +570,7 @@ func (s *JobScheduler) launchAndWatch(runID int64, job store.ScheduledJob, rc ru
 	}
 
 	// Update run with worktree path
-	startedAt := time.Now().UTC().Format(isoFormat)
+	startedAt := time.Now().UTC().Format(store.ISOFormat)
 	s.store.UpdateScheduledRun(ctx, runID, map[string]interface{}{
 		"status":        "running",
 		"started_at":    startedAt,
@@ -606,7 +608,7 @@ func (s *JobScheduler) launchAndWatch(runID int64, job store.ScheduledJob, rc ru
 	}
 
 	// Determine final status
-	now := time.Now().UTC().Format(isoFormat)
+	now := time.Now().UTC().Format(store.ISOFormat)
 	status := "completed"
 	exitReason := "agent_done"
 	if launchErr != nil {

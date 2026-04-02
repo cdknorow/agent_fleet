@@ -264,7 +264,8 @@ func TestCleanupStale(t *testing.T) {
 	}
 	fm.mu.Unlock()
 
-	fm.cleanupStale()
+	// Cleanup is now triggered inline during StartAuth — use a real provider
+	fm.StartAuth("gmail", "test", "id", "secret", "http://localhost/cb", []string{"read"})
 
 	fm.mu.Lock()
 	_, exists := fm.pending["stale-state"]

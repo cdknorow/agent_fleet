@@ -97,10 +97,14 @@ func (fm *FlowManager) StartAuth(providerID, name, clientID, clientSecret, redir
 		RedirectURI:  redirectURI,
 		CreatedAt:    time.Now(),
 	}
+	// Clean up stale pending auths inline (map is small, no need for goroutine)
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for s, p := range fm.pending {
+		if p.CreatedAt.Before(cutoff) {
+			delete(fm.pending, s)
+		}
+	}
 	fm.mu.Unlock()
-
-	// Clean up stale pending auths (older than 10 minutes)
-	go fm.cleanupStale()
 
 	return authURL, state, nil
 }
@@ -158,18 +162,6 @@ func (fm *FlowManager) RefreshAccessToken(ctx context.Context, providerID, clien
 func (fm *FlowManager) BuildRefreshFn(providerID string) func(clientID, clientSecret, refreshToken string) (string, string, *string, error) {
 	return func(clientID, clientSecret, refreshToken string) (string, string, *string, error) {
 		return fm.RefreshAccessToken(context.Background(), providerID, clientID, clientSecret, refreshToken)
-	}
-}
-
-// cleanupStale removes pending auths older than 10 minutes.
-func (fm *FlowManager) cleanupStale() {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-	cutoff := time.Now().Add(-10 * time.Minute)
-	for state, p := range fm.pending {
-		if p.CreatedAt.Before(cutoff) {
-			delete(fm.pending, state)
-		}
 	}
 }
 

@@ -208,21 +208,6 @@
     flex-wrap: wrap;
 }
 
-.event-filter-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 26px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-tertiary);
-    cursor: pointer;
-    transition: all 0.15s;
-    padding: 0;
-    flex-shrink: 0;
-}
-
 .event-filter-char {
     font-family: 'Material Icons';
     font-size: 15px;
@@ -236,43 +221,6 @@
     direction: ltr;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-}
-
-.event-filter-chip.tool-read  .event-filter-char { color: var(--color-tool-read); }
-.event-filter-chip.tool-write .event-filter-char { color: var(--color-tool-write); }
-.event-filter-chip.tool-edit  .event-filter-char { color: var(--color-tool-edit); }
-.event-filter-chip.tool-bash  .event-filter-char { color: var(--color-tool-bash); }
-.event-filter-chip.tool-grep  .event-filter-char { color: var(--color-tool-grep); }
-.event-filter-chip.tool-web   .event-filter-char { color: var(--color-tool-web); }
-.event-filter-chip.tool-task  .event-filter-char { color: var(--color-tool-task); }
-.event-filter-chip.tool-agent .event-filter-char { color: var(--color-tool-agent); }
-.event-filter-chip.tool-status     .event-filter-char { color: var(--color-tool-status); }
-.event-filter-chip.tool-goal       .event-filter-char { color: var(--color-tool-goal); }
-.event-filter-chip.tool-confidence .event-filter-char { color: var(--color-tool-confidence); }
-.event-filter-chip.tool-stop       .event-filter-char { color: var(--color-tool-stop); }
-.event-filter-chip.tool-pulse      .event-filter-char { color: var(--color-tool-pulse); }
-
-.event-filter-chip.filter-toggle .event-filter-char { color: var(--text-secondary); }
-.event-filter-chip.filter-toggle {
-    border-color: var(--border-light);
-    margin-right: 2px;
-}
-
-.event-filter-chip.filter-partial {
-    opacity: 0.6;
-}
-
-.event-filter-chip:hover {
-    border-color: var(--border-light);
-    background: var(--bg-hover);
-}
-
-.event-filter-chip.filter-hidden {
-    opacity: 0.3;
-}
-
-.event-filter-chip.filter-hidden:hover {
-    opacity: 0.6;
 }
 
 /* ── Filter Dropdown Button ────────────────────────────────── */
@@ -649,10 +597,6 @@
     display: none;
 }
 
-.activity-chart-bottom {
-    padding: 6px 14px 10px;
-}
-
 .activity-chart-row {
     display: flex;
     align-items: center;
@@ -837,38 +781,6 @@
 
 .task-delete-btn:hover {
     color: var(--error);
-}
-
-.task-bar-input-area {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-top: 1px solid var(--border);
-    flex-shrink: 0;
-}
-
-.task-bar-input-area input {
-    flex: 1;
-    padding: 6px 10px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 12px;
-    outline: none;
-}
-
-.task-bar-input-area input:focus {
-    border-color: var(--accent);
-}
-
-.task-bar-add-btn {
-    margin: 0 !important;
-    padding: 4px 10px !important;
-    font-size: 14px !important;
-    line-height: 1;
-    flex-shrink: 0;
 }
 
 /* ── Board Tasks ──────────────────────────────────────────── */
@@ -1517,41 +1429,6 @@
     outline: none;
 }
 
-/* Agentic block headers */
-
-.agentic-block-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    flex-shrink: 0;
-}
-
-.agentic-block-header-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-
-/* Activity stats details */
-
-.activity-stats-details {
-    border-top: 1px solid var(--border);
-    flex-shrink: 0;
-}
-
-.activity-stats-summary {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 12px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    cursor: pointer;
-    user-select: none;
-}
 
 .activity-stats-summary:hover {
     color: var(--text-primary);

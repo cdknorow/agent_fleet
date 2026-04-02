@@ -1,6 +1,7 @@
 /* @file mention autocomplete for the command input textarea */
 
 import { state, sessionKey } from './state.js';
+import { escapeHtml } from './utils.js';
 
 let dropdown = null;
 let selectedIndex = 0;
@@ -404,10 +405,6 @@ function highlightMatch(filepath, query) {
     }
     if (inStrong) html += "</strong>";
     return html;
-}
-
-function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function selectItem(index) {

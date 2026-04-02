@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -15,9 +14,6 @@ import (
 // DB wraps an sqlx.DB with schema management and migration support.
 type DB struct {
 	*sqlx.DB
-	mu            sync.Mutex
-	dbPath        string
-	schemaEnsured bool
 }
 
 // Open creates a new DB connection to the given SQLite path.
@@ -42,8 +38,7 @@ func OpenWithContext(ctx context.Context, dbPath string) (*DB, error) {
 	db.SetMaxOpenConns(1)
 
 	d := &DB{
-		DB:     db,
-		dbPath: dbPath,
+		DB: db,
 	}
 
 	if err := d.ensureSchema(ctx); err != nil {
@@ -56,13 +51,6 @@ func OpenWithContext(ctx context.Context, dbPath string) (*DB, error) {
 
 // ensureSchema creates all tables, indexes, and runs migrations.
 func (d *DB) ensureSchema(ctx context.Context) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.schemaEnsured {
-		return nil
-	}
-
 	// Create all tables
 	if _, err := d.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("create schema: %w", err)
@@ -74,50 +62,12 @@ func (d *DB) ensureSchema(ctx context.Context) error {
 		d.ExecContext(ctx, sql) // Ignore error — column may already exist
 	}
 
-	// Create migration tables
-	d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_live_state (
-		agent_name         TEXT PRIMARY KEY,
-		current_session_id TEXT
-	)`)
-
-	d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS remote_board_subscriptions (
-		id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-		session_id           TEXT NOT NULL,
-		remote_server        TEXT NOT NULL,
-		project              TEXT NOT NULL,
-		job_title            TEXT NOT NULL,
-		last_notified_unread INTEGER NOT NULL DEFAULT 0,
-		created_at           TEXT NOT NULL,
-		UNIQUE(session_id, remote_server, project)
-	)`)
-
-	d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS custom_views (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		name       TEXT NOT NULL,
-		prompt     TEXT NOT NULL DEFAULT '',
-		html       TEXT NOT NULL DEFAULT '',
-		tab_order  INTEGER NOT NULL DEFAULT 0,
-		scope      TEXT NOT NULL DEFAULT 'global',
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`)
-
-	// Create additional indexes
-	for _, ddl := range additionalIndexes {
-		d.ExecContext(ctx, ddl) // Ignore errors for existing indexes
-	}
-
-	d.schemaEnsured = true
 	return nil
 }
 
-type columnMigration struct {
-	table      string
-	column     string
-	definition string
-}
-
-var columnMigrations = []columnMigration{
+var columnMigrations = []struct {
+	table, column, definition string
+}{
 	{"agent_notes", "session_id", "TEXT"},
 	{"agent_tasks", "session_id", "TEXT"},
 	{"session_meta", "display_name", "TEXT"},
@@ -143,16 +93,6 @@ var columnMigrations = []columnMigration{
 	{"live_sessions", "mcp_servers", "TEXT"},
 	{"scheduled_jobs", "job_type", "TEXT DEFAULT 'prompt'"},
 	{"scheduled_jobs", "workflow_id", "INTEGER"},
-}
-
-var additionalIndexes = []string{
-	"CREATE INDEX IF NOT EXISTS idx_git_snap_session ON git_snapshots(session_id)",
-	"CREATE INDEX IF NOT EXISTS idx_session_tags_tag_id ON session_tags(tag_id)",
-	"CREATE INDEX IF NOT EXISTS idx_folder_tags_tag_id ON folder_tags(tag_id)",
-	"CREATE INDEX IF NOT EXISTS idx_session_index_first_ts ON session_index(first_timestamp)",
-	"CREATE INDEX IF NOT EXISTS idx_agent_events_session ON agent_events(session_id)",
-	"CREATE INDEX IF NOT EXISTS idx_agent_events_session_type ON agent_events(session_id, event_type)",
-	"CREATE INDEX IF NOT EXISTS idx_git_snap_session_time ON git_snapshots(session_id, recorded_at DESC)",
 }
 
 const schemaSQL = `
@@ -426,4 +366,23 @@ CREATE TABLE IF NOT EXISTS connected_apps (
 	updated_at      TEXT NOT NULL,
 	UNIQUE(provider_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS custom_views (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	prompt     TEXT NOT NULL DEFAULT '',
+	html       TEXT NOT NULL DEFAULT '',
+	tab_order  INTEGER NOT NULL DEFAULT 0,
+	scope      TEXT NOT NULL DEFAULT 'global',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_git_snap_session ON git_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_tags_tag_id ON session_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_folder_tags_tag_id ON folder_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_session_index_first_ts ON session_index(first_timestamp);
+CREATE INDEX IF NOT EXISTS idx_agent_events_session ON agent_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_agent_events_session_type ON agent_events(session_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_git_snap_session_time ON git_snapshots(session_id, recorded_at DESC);
 `

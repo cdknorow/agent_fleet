@@ -1,6 +1,6 @@
 /* Connected Apps: provider cards, connection list, OAuth flow */
 
-import { showView, showToast } from './utils.js';
+import { escapeHtml as esc, escapeAttr as escAttr, showView, showToast } from './utils.js';
 import { apiFetch } from './api.js';
 
 let providers = [];
@@ -292,17 +292,6 @@ export async function disconnectApp(id, name) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-function esc(s) {
-    if (s == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-}
-
-function escAttr(s) {
-    return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
 
 function showError(el, msg) {
     el.textContent = msg;

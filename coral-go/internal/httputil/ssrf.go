@@ -45,7 +45,7 @@ func ResolveAndValidateURL(rawURL string) (string, error) {
 		if ip == nil {
 			return "", fmt.Errorf("invalid IP address resolved")
 		}
-		if IsIPBlocked(ip) {
+		if isIPBlocked(ip) {
 			return "", fmt.Errorf("remote server URL resolves to a private or reserved IP address")
 		}
 	}
@@ -57,21 +57,28 @@ func ResolveAndValidateURL(rawURL string) (string, error) {
 	return addrs[0], nil
 }
 
+// Pre-parsed CIDR blocks for SSRF checks (parsed once at init, not on every call).
+var blockedCIDRs []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"100.64.0.0/10",   // CGNAT
+		"192.0.2.0/24",    // Documentation (TEST-NET-1)
+		"198.51.100.0/24", // Documentation (TEST-NET-2)
+		"203.0.113.0/24",  // Documentation (TEST-NET-3)
+	} {
+		_, network, _ := net.ParseCIDR(cidr)
+		blockedCIDRs = append(blockedCIDRs, network)
+	}
+}
+
 // IsIPBlocked checks if an IP address is private, reserved, or otherwise unsafe for SSRF.
-func IsIPBlocked(ip net.IP) bool {
+func isIPBlocked(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return true
 	}
 
-	// CGNAT range (100.64.0.0/10)
-	_, cgnat, _ := net.ParseCIDR("100.64.0.0/10")
-	if cgnat.Contains(ip) {
-		return true
-	}
-
-	// Documentation ranges
-	for _, cidr := range []string{"192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"} {
-		_, network, _ := net.ParseCIDR(cidr)
+	for _, network := range blockedCIDRs {
 		if network.Contains(ip) {
 			return true
 		}

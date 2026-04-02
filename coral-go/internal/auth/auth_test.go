@@ -166,19 +166,19 @@ func TestKeyStore_RateLimitWindowReset(t *testing.T) {
 func TestIsLocalhost_IPv4(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "127.0.0.1:54321"
-	assert.True(t, IsLocalhost(r))
+	assert.True(t, isLocalhost(r))
 }
 
 func TestIsLocalhost_IPv6(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "[::1]:54321"
-	assert.True(t, IsLocalhost(r))
+	assert.True(t, isLocalhost(r))
 }
 
 func TestIsLocalhost_Remote(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "192.168.1.5:54321"
-	assert.False(t, IsLocalhost(r))
+	assert.False(t, isLocalhost(r))
 }
 
 // ── ExtractAPIKey Tests ─────────────────────────────────────
@@ -186,23 +186,23 @@ func TestIsLocalhost_Remote(t *testing.T) {
 func TestExtractAPIKey_BearerHeader(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer my-api-key-123")
-	assert.Equal(t, "my-api-key-123", ExtractAPIKey(r))
+	assert.Equal(t, "my-api-key-123", extractAPIKey(r))
 }
 
 func TestExtractAPIKey_QueryParam(t *testing.T) {
 	r := httptest.NewRequest("GET", "/?api_key=my-key-456", nil)
-	assert.Equal(t, "my-key-456", ExtractAPIKey(r))
+	assert.Equal(t, "my-key-456", extractAPIKey(r))
 }
 
 func TestExtractAPIKey_None(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
-	assert.Equal(t, "", ExtractAPIKey(r))
+	assert.Equal(t, "", extractAPIKey(r))
 }
 
 func TestExtractAPIKey_HeaderPrecedence(t *testing.T) {
 	r := httptest.NewRequest("GET", "/?api_key=query-key", nil)
 	r.Header.Set("Authorization", "Bearer header-key")
-	assert.Equal(t, "header-key", ExtractAPIKey(r))
+	assert.Equal(t, "header-key", extractAPIKey(r))
 }
 
 // ── Middleware Tests ─────────────────────────────────────────
@@ -357,7 +357,7 @@ func TestSetSessionCookie_Attributes(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "127.0.0.1:12345"
-	SetSessionCookie(w, r, "test-token-123")
+	setSessionCookie(w, r, "test-token-123")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
@@ -375,7 +375,7 @@ func TestSetSessionCookie_SecureOnTLS(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://192.168.1.100/", nil)
 	r.TLS = &tls.ConnectionState{} // simulate TLS
 	r.RemoteAddr = "192.168.1.100:12345"
-	SetSessionCookie(w, r, "test-token-456")
+	setSessionCookie(w, r, "test-token-456")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
 	assert.True(t, cookies[0].Secure, "TLS requests should set Secure")
@@ -385,7 +385,7 @@ func TestSetSessionCookie_NotSecureOnPlainHTTP(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "http://192.168.1.100/", nil)
 	r.RemoteAddr = "192.168.1.100:12345"
-	SetSessionCookie(w, r, "test-token-789")
+	setSessionCookie(w, r, "test-token-789")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
 	assert.False(t, cookies[0].Secure, "plain HTTP requests should not set Secure")

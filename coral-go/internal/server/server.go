@@ -116,10 +116,6 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 
 	s.router = s.buildRouter()
 
-	// Seed bundled themes on startup (matches Python's seed_bundled_themes())
-	themeHandler := routes.NewThemesHandler(cfg)
-	themeHandler.SeedBundledThemes()
-
 	return s
 }
 
@@ -276,6 +272,7 @@ func (s *Server) buildRouter() chi.Router {
 	workflowHandler := routes.NewWorkflowHandler(s.db, s.cfg)
 	s.workflowHandler = workflowHandler
 	themeHandler := routes.NewThemesHandler(s.cfg)
+	themeHandler.SeedBundledThemes()
 
 	// Live sessions
 	r.Get("/api/sessions/resolve", sessHandler.ResolveByPIDs)
@@ -472,6 +469,7 @@ func (s *Server) buildRouter() chi.Router {
 	s.boardHandler = boardHandler
 	sessHandler.SetBoardHandler(boardHandler)
 	sessHandler.SetLicenseManager(s.licenseMgr)
+	sessHandler.SetScheduleStore(store.NewScheduleStore(s.db))
 	r.Get("/api/board/projects", boardHandler.ListProjects)
 	r.Post("/api/board/{project}/subscribe", boardHandler.Subscribe)
 	r.Delete("/api/board/{project}/subscribe", boardHandler.Unsubscribe)

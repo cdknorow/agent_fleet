@@ -404,9 +404,7 @@ func (h *HistoryHandler) GetSessionDetail(w http.ResponseWriter, r *http.Request
 		messages, _ = h.jsonl.ReadNewMessages(sid, "", "gemini")
 	}
 	if messages == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"error": "Session '" + sid + "' not found",
-		})
+		errNotFound(w, "Session '"+sid+"' not found")
 		return
 	}
 

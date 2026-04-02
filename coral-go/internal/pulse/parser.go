@@ -10,25 +10,6 @@ import (
 	"strings"
 )
 
-// Event types parsed from PULSE protocol.
-const (
-	EventStatus     = "STATUS"
-	EventSummary    = "SUMMARY"
-	EventConfidence = "CONFIDENCE"
-)
-
-// Event represents a parsed PULSE protocol event.
-type Event struct {
-	Type    string // STATUS, SUMMARY, or CONFIDENCE
-	Payload string // The event payload text
-}
-
-// ConfidenceEvent is a parsed CONFIDENCE event with level and reason.
-type ConfidenceEvent struct {
-	Level  string // "Low" or "High"
-	Reason string
-}
-
 // Compiled regex patterns matching the Python implementation.
 var (
 	// ANSI escape sequence regex — handles OSC, CSI, and Fe sequences.
@@ -44,9 +25,8 @@ var (
 	controlCharRE = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
 
 	// PULSE event regexes.
-	statusRE     = regexp.MustCompile(`\|\|PULSE:STATUS (.*?)\|\|`)
-	summaryRE    = regexp.MustCompile(`\|\|PULSE:SUMMARY (.*?)\|\|`)
-	confidenceRE = regexp.MustCompile(`\|\|PULSE:CONFIDENCE (Low|High)\s+(.*?)\|\|`)
+	statusRE  = regexp.MustCompile(`\|\|PULSE:STATUS (.*?)\|\|`)
+	summaryRE = regexp.MustCompile(`\|\|PULSE:SUMMARY (.*?)\|\|`)
 
 	// UUID regex for parsing tmux session names: {agent_type}-{uuid}
 	UUIDSessionRE = regexp.MustCompile(
@@ -62,7 +42,7 @@ func StripANSI(text string) string {
 
 // CleanMatch collapses whitespace runs into a single space and strips.
 // Returns empty string for template/instruction text containing angle-bracket placeholders.
-func CleanMatch(text string) string {
+func cleanMatch(text string) string {
 	cleaned := strings.Join(strings.Fields(text), " ")
 	// Skip protocol instruction echoes like "Emit a ||PULSE:SUMMARY <your current goal>||"
 	if strings.Contains(cleaned, "<") && strings.Contains(cleaned, ">") {
@@ -123,7 +103,7 @@ func ExtractStatus(line string) string {
 	if len(matches) == 0 {
 		return ""
 	}
-	return CleanMatch(matches[len(matches)-1][1])
+	return cleanMatch(matches[len(matches)-1][1])
 }
 
 // ExtractSummary extracts the most recent SUMMARY event from a line.
@@ -132,19 +112,7 @@ func ExtractSummary(line string) string {
 	if len(matches) == 0 {
 		return ""
 	}
-	return CleanMatch(matches[len(matches)-1][1])
-}
-
-// ExtractConfidence extracts a CONFIDENCE event from a line.
-func ExtractConfidence(line string) *ConfidenceEvent {
-	m := confidenceRE.FindStringSubmatch(line)
-	if m == nil {
-		return nil
-	}
-	return &ConfidenceEvent{
-		Level:  m[1],
-		Reason: strings.TrimSpace(m[2]),
-	}
+	return cleanMatch(matches[len(matches)-1][1])
 }
 
 // LogStatus holds the parsed status information from a log file.

@@ -327,26 +327,16 @@ func (c *Client) DisplayMessage(ctx context.Context, target, format string) (str
 
 // KillSession kills the tmux session for a given agent.
 func (c *Client) KillSession(ctx context.Context, agentName, agentType, sessionID string) error {
-	pane, err := c.FindPane(ctx, agentName, agentType, sessionID)
-	if err != nil {
+	if err := c.killTmuxSession(ctx, agentName, agentType, sessionID); err != nil {
 		return err
 	}
-	if pane == nil {
-		return fmt.Errorf("pane %q not found in any tmux session", agentName)
-	}
 
-	_, err = c.run(ctx, "kill-session", "-t", pane.SessionName)
-	if err != nil {
-		return fmt.Errorf("kill-session failed: %w", err)
-	}
-
-	// Clean up log file
+	// Clean up log and settings files
 	if sessionID != "" {
 		logDir := os.TempDir()
 		logPath := naming.LogFile(logDir, agentType, sessionID)
 		os.Remove(logPath)
 
-		// Clean up settings temp file
 		settingsFile := filepath.Join(os.TempDir(), fmt.Sprintf("coral_settings_%s.json", sessionID))
 		os.Remove(settingsFile)
 	}
@@ -357,6 +347,11 @@ func (c *Client) KillSession(ctx context.Context, agentName, agentType, sessionI
 // KillSessionOnly kills a tmux session without cleaning up log/settings files.
 // Used by sleep to preserve state for later wake.
 func (c *Client) KillSessionOnly(ctx context.Context, agentName, agentType, sessionID string) error {
+	return c.killTmuxSession(ctx, agentName, agentType, sessionID)
+}
+
+// killTmuxSession finds and kills a tmux session by agent identity.
+func (c *Client) killTmuxSession(ctx context.Context, agentName, agentType, sessionID string) error {
 	pane, err := c.FindPane(ctx, agentName, agentType, sessionID)
 	if err != nil {
 		return err

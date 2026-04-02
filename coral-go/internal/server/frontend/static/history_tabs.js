@@ -1,6 +1,7 @@
 /* History tabs — read-only rendering of Activity, Tasks, and Agent Notes for historical sessions */
 
 import { state } from './state.js';
+import { escapeHtml, escapeAttr } from './utils.js';
 
 // Re-use tool icon/filter definitions from agentic_state.js
 const TOOL_ICONS = {
@@ -40,16 +41,6 @@ let historyFilterHidden = new Set();
 let historyEvents = [];
 let historyTasks = [];
 let historyAgentNotes = [];
-
-function escapeAttr(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
 
 function formatTime(isoStr) {
     if (!isoStr) return '';

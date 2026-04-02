@@ -123,12 +123,3 @@ func ShowPrefix(ctx context.Context, workdir string) string {
 	prefix, _ := git(ctx, workdir, "rev-parse", "--show-prefix")
 	return prefix
 }
-
-// IsRepo returns true if the directory is inside a git repository.
-func IsRepo(ctx context.Context, workdir string) bool {
-	if !Available() {
-		return false
-	}
-	_, err := git(ctx, workdir, "rev-parse", "--git-dir")
-	return err == nil
-}

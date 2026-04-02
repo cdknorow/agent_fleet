@@ -427,7 +427,7 @@ func TestReadTail(t *testing.T) {
 		t.Fatal("expected non-empty tail")
 	}
 	// Should contain the last few lines
-	if !containsStr(tail, "line 199") {
+	if !strings.Contains(tail, "line 199") {
 		t.Errorf("expected tail to contain 'line 199', got %q", tail)
 	}
 }
@@ -763,40 +763,3 @@ func joinLines(lines []string) string {
 	return result
 }
 
-func splitLines(s string) []string {
-	var lines []string
-	for _, l := range splitByNewline(s) {
-		if l != "" {
-			lines = append(lines, l)
-		}
-	}
-	return lines
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
-}
-
-func findSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func splitByNewline(s string) []string {
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			result = append(result, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		result = append(result, s[start:])
-	}
-	return result
-}

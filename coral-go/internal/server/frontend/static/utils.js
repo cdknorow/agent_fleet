@@ -9,8 +9,9 @@ export function dbg(...args) {
 }
 
 export function escapeHtml(str) {
+    if (str == null) return '';
     const div = document.createElement("div");
-    div.textContent = str;
+    div.textContent = String(str);
     return div.innerHTML;
 }
 
@@ -87,6 +88,39 @@ export function showView(activeId) {
         const el = document.getElementById(id);
         if (el) el.style.display = id === activeId ? VIEW_DISPLAY[id] : "none";
     }
+}
+
+export function renderMarkdown(content) {
+    if (!content) return '';
+    if (typeof marked !== 'undefined') {
+        try {
+            const html = marked.parse(content);
+            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
+        } catch { /* fall through */ }
+    }
+    return escapeHtml(content);
+}
+
+// Shared agent color palette (Nord-inspired muted tones)
+const _agentColorPalette = [
+    '#81a1c1', '#a3be8c', '#b48ead', '#d08770',
+    '#bf616a', '#88c0d0', '#ebcb8b', '#8fbcbb',
+];
+const _agentColorCache = {};
+
+export function getAgentColor(name) {
+    if (!name) return _agentColorPalette[0];
+    if (_agentColorCache[name]) return _agentColorCache[name];
+    const idx = Object.keys(_agentColorCache).length % _agentColorPalette.length;
+    _agentColorCache[name] = _agentColorPalette[idx];
+    return _agentColorCache[name];
+}
+
+export function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
 }
 
 export function copyBranchName(btn) {

@@ -142,14 +142,8 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 
 	// Validate and canonicalize repo_path if provided
 	if body.RepoPath != "" {
-		cleaned := filepath.Clean(body.RepoPath)
-		resolved, err := filepath.EvalSymlinks(cleaned)
+		resolved, err := canonicalizeRepoPath(body.RepoPath)
 		if err != nil {
-			errBadRequest(w, "repo_path does not exist")
-			return
-		}
-		info, err := os.Stat(resolved)
-		if err != nil || !info.IsDir() {
 			errBadRequest(w, "repo_path does not exist")
 			return
 		}
@@ -228,7 +222,10 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 	// Handle name update with validation
 	if nameRaw, ok := raw["name"]; ok {
 		var name string
-		json.Unmarshal(nameRaw, &name)
+		if err := json.Unmarshal(nameRaw, &name); err != nil {
+			errBadRequest(w, "invalid name value")
+			return
+		}
 		if !workflowNameRe.MatchString(name) {
 			errBadRequest(w, "name contains invalid characters")
 			return
@@ -240,7 +237,10 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 	for _, key := range []string{"description", "repo_path", "base_branch"} {
 		if v, ok := raw[key]; ok {
 			var s string
-			json.Unmarshal(v, &s)
+			if err := json.Unmarshal(v, &s); err != nil {
+				errBadRequest(w, "invalid value for "+key)
+				return
+			}
 			fields[key] = s
 		}
 	}
@@ -248,14 +248,8 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 	// Handle repo_path validation and canonicalization
 	if rp, ok := fields["repo_path"]; ok {
 		if rpStr, ok := rp.(string); ok && rpStr != "" {
-			cleaned := filepath.Clean(rpStr)
-			resolved, err := filepath.EvalSymlinks(cleaned)
+			resolved, err := canonicalizeRepoPath(rpStr)
 			if err != nil {
-				errBadRequest(w, "repo_path does not exist")
-				return
-			}
-			info, err := os.Stat(resolved)
-			if err != nil || !info.IsDir() {
 				errBadRequest(w, "repo_path does not exist")
 				return
 			}
@@ -267,7 +261,10 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 	for _, key := range []string{"max_duration_s", "cleanup_worktree", "enabled"} {
 		if v, ok := raw[key]; ok {
 			var n int
-			json.Unmarshal(v, &n)
+			if err := json.Unmarshal(v, &n); err != nil {
+				errBadRequest(w, "invalid value for "+key)
+				return
+			}
 			fields[key] = n
 		}
 	}
@@ -600,6 +597,20 @@ func (h *WorkflowHandler) GetStepFile(w http.ResponseWriter, r *http.Request) {
 
 	// Serve the file with appropriate content type
 	http.ServeFile(w, r, absPath)
+}
+
+// canonicalizeRepoPath resolves symlinks and validates that the path is an existing directory.
+func canonicalizeRepoPath(p string) (string, error) {
+	cleaned := filepath.Clean(p)
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("not a directory")
+	}
+	return resolved, nil
 }
 
 // ── Step Validation ──────────────────────────────────────────────────

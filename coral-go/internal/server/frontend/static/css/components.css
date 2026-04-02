@@ -290,23 +290,6 @@
     color: var(--text-muted);
 }
 
-/* Icon + label buttons */
-.btn-icon-label {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 5px 12px;
-    font-size: 12px;
-    border-radius: 6px;
-    flex-shrink: 0;
-    height: 30px;
-}
-
-.btn-icon-label svg {
-    flex-shrink: 0;
-}
-
 /* Keyboard-key style buttons */
 .btn-nav {
     border: 1px solid var(--border-light);
@@ -2413,10 +2396,6 @@
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
-}
-
-.agent-preset-custom {
-    font-style: italic;
 }
 
 .agent-preset-saved {

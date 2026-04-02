@@ -29,14 +29,12 @@ type Config struct {
 	DBBusyTimeoutMS int
 
 	// Server
-	Host    string
-	Port    int
-	DevMode bool
+	Host string
+	Port int
 
 	// Directories
-	CoralRoot  string
-	LogDir     string
-	LogPattern string
+	CoralRoot string
+	LogDir    string
 
 	// Background task intervals (seconds)
 	IndexerIntervalS         int
@@ -49,19 +47,6 @@ type Config struct {
 
 	// WebSocket
 	WSPollIntervalS int
-
-	// Message board
-	BoardPageSize               int
-	BoardMaxLimit               int
-	BoardPollIntervalS          int
-	BoardSubscriberPollMultiplier int
-
-	// Startup
-	DeferredStartupDelayS int
-
-	// History paths
-	ClaudeProjectsDir string
-	GeminiHistoryBase  string
 
 	// Edition limits (0 = unlimited)
 	MaxLiveTeams  int
@@ -97,9 +82,8 @@ func Load(dataDir ...string) *Config {
 		Host: envOrDefault("CORAL_HOST", "0.0.0.0"),
 		Port: envIntOrDefault("CORAL_PORT", 8420),
 
-		CoralRoot:  envOrDefault("CORAL_ROOT", ""),
-		LogDir:     logDir,
-		LogPattern: filepath.Join(logDir, "*_coral_*.log"),
+		CoralRoot: envOrDefault("CORAL_ROOT", ""),
+		LogDir:    logDir,
 
 		IndexerIntervalS:           120,
 		IndexerStartupDelayS:       30,
@@ -111,21 +95,7 @@ func Load(dataDir ...string) *Config {
 
 		WSPollIntervalS: 5,
 
-		BoardPageSize:                50,
-		BoardMaxLimit:                500,
-		BoardPollIntervalS:           10,
-		BoardSubscriberPollMultiplier: 3,
-
-		DeferredStartupDelayS: 2,
-
-		ClaudeProjectsDir: envOrDefault("CLAUDE_PROJECTS_DIR",
-			filepath.Join(homeDir, ".claude", "projects")),
-		GeminiHistoryBase: envOrDefault("GEMINI_TMP_DIR",
-			filepath.Join(homeDir, ".gemini", "tmp")),
 	}
-
-	// DevMode is derived from the build tier (dev tier only)
-	cfg.DevMode = TierSkipEULA && TierSkipLicense
 
 	// Demo limits from build tier (beta) or runtime LS plan (prod)
 	if TierDemoLimits {

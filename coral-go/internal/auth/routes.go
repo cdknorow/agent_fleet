@@ -55,14 +55,14 @@ func (ar *Routes) ValidateKey(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create session"})
 		return
 	}
-	SetSessionCookie(w, r, token)
+	setSessionCookie(w, r, token)
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // GetAPIKey returns the API key (localhost only).
 // GET /api/system/api-key
 func (ar *Routes) GetAPIKey(w http.ResponseWriter, r *http.Request) {
-	if !IsLocalhost(r) {
+	if !isLocalhost(r) {
 		httputil.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
 		return
 	}
@@ -72,7 +72,7 @@ func (ar *Routes) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 // RegenerateKey generates a new API key (localhost only).
 // POST /api/system/api-key/regenerate
 func (ar *Routes) RegenerateKey(w http.ResponseWriter, r *http.Request) {
-	if !IsLocalhost(r) {
+	if !isLocalhost(r) {
 		httputil.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "localhost only"})
 		return
 	}
@@ -91,13 +91,13 @@ func (ar *Routes) AuthStatus(w http.ResponseWriter, r *http.Request) {
 	method := "none"
 	authenticated := false
 
-	if IsLocalhost(r) {
+	if isLocalhost(r) {
 		method = "localhost"
 		authenticated = true
-	} else if key := ExtractAPIKey(r); key != "" && ar.ks.ValidateKey(key) {
+	} else if key := extractAPIKey(r); key != "" && ar.ks.ValidateKey(key) {
 		method = "key"
 		authenticated = true
-	} else if token := ExtractSessionCookie(r); token != "" && ar.ks.ValidateSession(token) {
+	} else if token := extractSessionCookie(r); token != "" && ar.ks.ValidateSession(token) {
 		method = "session"
 		authenticated = true
 	}

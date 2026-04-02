@@ -189,7 +189,7 @@ func (ks *KeyStore) CheckRateLimit(ip string) bool {
 
 // IsLocalhost checks if the request originates from localhost.
 // Uses the raw RemoteAddr (not X-Forwarded-For) to prevent spoofing.
-func IsLocalhost(r *http.Request) bool {
+func isLocalhost(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return false
@@ -199,7 +199,7 @@ func IsLocalhost(r *http.Request) bool {
 
 // ExtractAPIKey extracts the API key from the request.
 // Checks Authorization header first, then query parameter.
-func ExtractAPIKey(r *http.Request) string {
+func extractAPIKey(r *http.Request) string {
 	// Authorization: Bearer <key>
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
@@ -212,7 +212,7 @@ func ExtractAPIKey(r *http.Request) string {
 }
 
 // ExtractSessionCookie extracts the session token from the cookie.
-func ExtractSessionCookie(r *http.Request) string {
+func extractSessionCookie(r *http.Request) string {
 	c, err := r.Cookie(cookieName)
 	if err != nil {
 		return ""
@@ -224,7 +224,7 @@ func ExtractSessionCookie(r *http.Request) string {
 // The Secure flag is set when the request arrived over TLS or from
 // a non-localhost remote address (implying a reverse proxy / HTTPS
 // frontend), so the cookie won't leak over plain HTTP.
-func SetSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+func setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	secure := r.TLS != nil
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
