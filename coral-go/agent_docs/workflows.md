@@ -140,6 +140,69 @@ Any step (shell or agent) can define `hooks` to run commands on lifecycle events
 
 Agent steps can also use Claude-native events (`PreToolUse`, `PostToolUse`, `Stop`) which are injected into the agent's settings. `StepComplete` and `StepFailed` work for all step types.
 
+### Environment variables
+
+Every workflow step (shell and agent) receives the following environment variables automatically.
+
+**Server variables** — available in all steps:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CORAL_PORT` | Server port | `8420` |
+| `CORAL_HOST` | Server bind address | `0.0.0.0` |
+| `CORAL_URL` | Full server URL | `http://0.0.0.0:8420` |
+| `CORAL_DIR` | Coral data directory | `~/.coral` |
+| `CORAL_DATA_DIR` | Alias for `CORAL_DIR` | `~/.coral` |
+
+Use these to make API calls from within workflow steps:
+```bash
+curl -X POST ${CORAL_URL}/api/notifications -H 'Content-Type: application/json' \
+  -d '{"title": "Step done", "message": "All tests passed", "level": "success"}'
+```
+
+**Workflow variables** — set per run and step:
+
+| Variable | Description |
+|----------|-------------|
+| `CORAL_WORKFLOW_NAME` | Workflow name |
+| `CORAL_WORKFLOW_RUN_ID` | Current run ID |
+| `CORAL_WORKFLOW_RUN_DIR` | Run artifacts directory |
+| `CORAL_WORKFLOW_STEP` | Current step index (0-based) |
+| `CORAL_WORKFLOW_STEP_DIR` | Current step's artifact directory |
+| `CORAL_WORKFLOW_REPO_PATH` | Workflow's configured repo path |
+
+**Step chaining variables** — reference previous step output:
+
+| Variable | Description |
+|----------|-------------|
+| `CORAL_PREV_DIR` | Previous step's artifact directory |
+| `CORAL_PREV_STDOUT` | Path to previous step's stdout file |
+| `CORAL_PREV_STDERR` | Path to previous step's stderr file |
+| `CORAL_PREV_ARTIFACT` | Path to previous step's output artifact (if `output_artifact` was set) |
+| `CORAL_PREV_ARTIFACT_CONTENT` | Contents of the previous step's output artifact |
+| `CORAL_STEP_N_DIR` | Artifact directory for step N (0-indexed) |
+| `CORAL_STEP_N_STDOUT` | Path to stdout file for step N |
+
+**Template variables** — shorthand placeholders expanded in `command` and `prompt` fields:
+
+| Template | Equivalent env var |
+|----------|--------------------|
+| `{{prev_stdout}}` | `$CORAL_PREV_STDOUT` |
+| `{{prev_stderr}}` | `$CORAL_PREV_STDERR` |
+| `{{prev_artifact_content}}` | `$CORAL_PREV_ARTIFACT_CONTENT` |
+| `{{step_N_stdout}}` | `$CORAL_STEP_N_STDOUT` |
+| `{{step_dir}}` | `$CORAL_WORKFLOW_STEP_DIR` |
+| `{{run_dir}}` | `$CORAL_WORKFLOW_RUN_DIR` |
+| `{{run_id}}` | `$CORAL_WORKFLOW_RUN_ID` |
+
+**Connected Apps tokens** — injected when workflows have connected OAuth apps:
+
+| Variable | Description |
+|----------|-------------|
+| `CORAL_TOKEN_{PROVIDER}_{NAME}` | OAuth access token (e.g. `CORAL_TOKEN_GMAIL_MYACCOUNT`) |
+
+**PATH** — the Coral tools directory (containing `coral-board`, hooks, and agent CLIs) is prepended to `PATH` automatically.
+
 ### Step rules
 
 - Every step needs a unique `name`.
