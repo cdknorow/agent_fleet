@@ -32,9 +32,8 @@ A **Team** is a first-class entity stored in the database. It holds the team con
 | `name` | TEXT UNIQUE | Team name (also used as board_name) |
 | `config_json` | TEXT | Full team config JSON (the launch payload) |
 | `status` | TEXT | `running`, `sleeping`, `stopped` |
-| `working_dir` | TEXT | Original working directory |
-| `worktree_path` | TEXT | Git worktree path (null if no worktree) |
-| `base_branch` | TEXT | Branch the worktree was created from |
+| `working_dir` | TEXT | The directory agents work in (may be a worktree, repo, or plain directory) |
+| `is_worktree` | INTEGER | 1 if `working_dir` was created as a git worktree at launch (cleanup on stop) |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 | `stopped_at` | TEXT | When the team was stopped/killed (null if active) |
@@ -57,8 +56,7 @@ CREATE TABLE IF NOT EXISTS teams (
     status          TEXT NOT NULL DEFAULT 'running'
         CHECK (status IN ('running', 'sleeping', 'stopped')),
     working_dir     TEXT NOT NULL,
-    worktree_path   TEXT,
-    base_branch     TEXT,
+    is_worktree     INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     stopped_at      TEXT
@@ -143,17 +141,17 @@ Returns all teams with status and summary info. Optionally filter by `?status=ru
 
 Launches a new instance of a stopped team using its stored config. Creates a new `teams` row (or reuses the existing one if the name is unique). Optionally creates a fresh worktree.
 
-### Worktree Management
+### Worktree Handling
 
-Worktrees are owned by teams, not individual sessions.
+The team stores a `working_dir` and an `is_worktree` flag. The team doesn't care whether the directory is a worktree — it's just the path where agents work. The `is_worktree` flag is metadata that tells the cleanup logic whether `git worktree remove` should be called when the team stops.
 
-**Creation:** When `worktree: true` is set at launch, the worktree is created before any agents launch. Path format: `{working_dir}_team_{teamName}`.
+**At launch:** If the user checks "Use Git Worktree," the launcher creates a worktree from `base_branch`, sets the team's `working_dir` to the worktree path, and sets `is_worktree = 1`. If no worktree is requested, `working_dir` is the user's chosen directory and `is_worktree = 0`.
 
-**Usage:** All agents in the team share the same worktree as their working directory. The worktree path is stored on the `teams` row, not per-session.
+**On sleep:** The `working_dir` is preserved regardless. Agents are killed but the directory stays intact for wake.
 
-**Cleanup:** Worktrees are cleaned up when the team transitions to `stopped` (kill). They are NOT cleaned up on sleep (preserved for wake). Cleanup uses `git worktree remove --force` with a 30-second timeout.
+**On kill/stop:** If `is_worktree = 1`, run `git worktree remove --force` on `working_dir` with a 30-second timeout. If `is_worktree = 0`, do nothing — the directory belongs to the user.
 
-**Orphan protection:** On server startup, scan for teams with status=`running` where no live sessions exist. These are orphaned teams (server crashed). Mark them as `stopped` and clean up their worktrees.
+**Orphan protection:** On server startup, scan for teams with status=`running` where no live sessions exist. Mark them as `stopped` and clean up worktrees where `is_worktree = 1`.
 
 ### Migration from Current Behavior
 
