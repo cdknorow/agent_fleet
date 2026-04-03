@@ -658,6 +658,12 @@
     color: var(--text-secondary);
 }
 
+.token-usage {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 .summary-inline {
     display: flex;
     align-items: center;

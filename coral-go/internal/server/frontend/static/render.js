@@ -65,6 +65,13 @@ function buildSessionTooltip(s) {
         `<tr><td class="tt-label">Branch</td><td class="tt-value">${escapeHtml(branch)}</td></tr>`,
         `<tr><td class="tt-label">Agent</td><td class="tt-value">${escapeHtml(agent)}</td></tr>`,
     ];
+    if (s.token_cost_usd > 0 || s.token_input > 0) {
+        const tokIn = _formatTokens(s.token_input || 0);
+        const tokOut = _formatTokens(s.token_output || 0);
+        let tokenText = `${tokIn} in / ${tokOut} out`;
+        if (s.token_cost_usd > 0) tokenText += ` · ${_formatCost(s.token_cost_usd)}`;
+        rows.push(`<tr><td class="tt-label">Tokens</td><td class="tt-value">${tokenText}</td></tr>`);
+    }
     if (s.board_project) {
         const unreadBadge = s.board_unread > 0 ? ` <span class="tt-unread">(${s.board_unread} unread)</span>` : '';
         rows.push(`<tr><td class="tt-label">Board</td><td class="tt-value">${escapeHtml(s.board_project)}${unreadBadge}</td></tr>`);
@@ -1275,7 +1282,7 @@ export function renderLiveSessions(sessions) {
             </div>
         </div>`;
         const teamDirLine = boardWorkDir ? `<div class="board-card-dir" title="${escapeAttr(boardWorkDir)}"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H8L6.5 3H3a1 1 0 0 0-1 1z"/></svg> ${escapeHtml(_shortPath(boardWorkDir, 3))}</div>` : '';
-        const teamSubline = `<div class="board-card-subline"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M17 11a4 4 0 0 1 4 4v2"/></svg> Agent Team · ${boardSessions.length} agents</div>`;
+        const teamSubline = `<div class="board-card-subline"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M17 11a4 4 0 0 1 4 4v2"/></svg> Agent Team · ${boardSessions.length} agents<span class="team-token-usage" data-board="${escapeAttr(boardName)}"></span></div>`;
         const sleepingClass = boardIsSleeping ? ' team-sleeping' : '';
         html += `<li class="session-board-card session-board-card-toplevel${sleepingClass}" style="border-left-color: ${accentColor}">
             <div class="session-group-header board-card-header" data-group-name="${escapeAttr(boardName)}" onclick="toggleGroupCollapse('${escapeAttr(boardName)}')">
@@ -1523,6 +1530,13 @@ export function renderLiveSessions(sessions) {
     // Attach drag-and-drop listeners for reordering
     _attachDragListeners(list);
 
+    // Populate team token usage (non-blocking)
+    document.querySelectorAll('.team-token-usage[data-board]').forEach(el => {
+        getTeamTokenUsage(el.dataset.board).then(text => {
+            if (text) el.textContent = ' · ' + text;
+        });
+    });
+
     // Sync mobile agent list
     syncMobileAgentList();
 }
@@ -1750,6 +1764,51 @@ export function updateSessionStatus(status) {
     const el = document.getElementById("session-status");
     if (status) {
         el.querySelector(".status-text").textContent = status;
+    }
+}
+
+function _formatTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+function _formatCost(c) {
+    if (c < 0.01) return '$' + c.toFixed(4);
+    return '$' + c.toFixed(2);
+}
+
+export async function updateTokenUsage(sessionId) {
+    const el = document.getElementById('session-token-usage');
+    if (!el) return;
+    if (!sessionId) { el.style.display = 'none'; return; }
+
+    try {
+        const resp = await fetch(`/api/token-usage?session_id=${encodeURIComponent(sessionId)}`);
+        if (!resp.ok) { el.style.display = 'none'; return; }
+        const data = await resp.json();
+        if (!data.totals.total_tokens || data.totals.total_tokens === 0) { el.style.display = 'none'; return; }
+
+        const parts = [_formatTokens(data.totals.total_tokens) + ' tokens'];
+        if (data.totals.cost_usd > 0) parts.push(_formatCost(data.totals.cost_usd));
+        el.textContent = parts.join(' · ');
+        el.style.display = '';
+    } catch {
+        el.style.display = 'none';
+    }
+}
+
+export async function getTeamTokenUsage(boardName) {
+    try {
+        const resp = await fetch(`/api/token-usage?board_name=${encodeURIComponent(boardName)}`);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        if (!data.totals.total_tokens || data.totals.total_tokens === 0) return null;
+        const parts = [_formatTokens(data.totals.total_tokens) + ' tokens'];
+        if (data.totals.cost_usd > 0) parts.push(_formatCost(data.totals.cost_usd));
+        return parts.join(' · ');
+    } catch {
+        return null;
     }
 }
 

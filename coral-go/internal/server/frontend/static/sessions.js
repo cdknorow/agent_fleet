@@ -4,7 +4,7 @@ import { state, sessionKey } from './state.js';
 import { showToast, escapeHtml, escapeAttr, dbg, showView } from './utils.js';
 import { loadLiveSessionDetail, loadHistoryMessages } from './api.js';
 import { stopCaptureRefresh, startCaptureRefresh } from './capture.js';
-import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
+import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, updateTokenUsage, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
 import { renderQuickActions, updateSidebarActive } from './controls.js';
 import { loadSessionNotes, switchHistoryTab } from './notes.js';
 import { loadSessionTags } from './tags.js';
@@ -95,6 +95,7 @@ export async function selectLiveSession(name, agentType, sessionId) {
     captureWrapper.classList.remove("loading-skeleton");
     updateSessionBranch(agent && agent.branch ? agent.branch : null);
     updateWaitingIndicator(agent || {});
+    updateTokenUsage(sessionId);
 
     // Fetch full detail in background (non-blocking) for pane capture
     loadLiveSessionDetail(name, agentType, sessionId).then(detail => {

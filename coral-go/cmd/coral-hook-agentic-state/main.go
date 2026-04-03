@@ -64,6 +64,19 @@ func main() {
 	}
 
 	hooks.CoralAPI(base, "POST", fmt.Sprintf("/api/sessions/live/%s/events", agentName), event)
+
+	// Forward token usage data on Stop events
+	if hookType == "Stop" && (d["total_input_tokens"] != nil || d["total_output_tokens"] != nil || d["total_cost_usd"] != nil) {
+		tokenData := map[string]any{
+			"session_id":    sessionID,
+			"input_tokens":  d["total_input_tokens"],
+			"output_tokens": d["total_output_tokens"],
+			"cost_usd":      d["total_cost_usd"],
+			"num_turns":     d["num_turns"],
+		}
+		hooks.CoralAPI(base, "POST", fmt.Sprintf("/api/sessions/live/%s/token-usage", agentName), tokenData)
+	}
+
 	hooks.DebugLog(fmt.Sprintf("DONE: agent=%s event_type=%s", agentName, event["event_type"]))
 }
 

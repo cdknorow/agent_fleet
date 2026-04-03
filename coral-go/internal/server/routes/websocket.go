@@ -18,6 +18,7 @@ import (
 	"nhooyr.io/websocket/wsjson"
 
 	"github.com/cdknorow/coral/internal/board"
+	"github.com/cdknorow/coral/internal/store"
 )
 
 // wsAcceptOptions returns WebSocket accept options with origin validation.
@@ -261,6 +262,15 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 		latestGoals = map[string]string{}
 	}
 
+	// Token usage
+	var tokenUsageMap map[string]*store.TokenUsage
+	if h.tokenStore != nil && len(sessionIDs) > 0 {
+		tokenUsageMap, _ = h.tokenStore.GetLatestUsageBySessionIDs(ctx, sessionIDs)
+	}
+	if tokenUsageMap == nil {
+		tokenUsageMap = map[string]*store.TokenUsage{}
+	}
+
 	var sessions []map[string]any
 	liveSIDs := make(map[string]bool)
 	for _, agent := range agents {
@@ -328,6 +338,11 @@ func (h *SessionsHandler) buildSessionListForWS(r *http.Request) ([]map[string]a
 			"board_unread":       boardUnread,
 			"log_path":           agent.LogPath,
 			"sleeping":           false,
+		}
+		if usage, ok := tokenUsageMap[sid]; ok {
+			entry["token_input"] = usage.InputTokens
+			entry["token_output"] = usage.OutputTokens
+			entry["token_cost_usd"] = usage.CostUSD
 		}
 		liveSIDs[sid] = true
 		sessions = append(sessions, entry)

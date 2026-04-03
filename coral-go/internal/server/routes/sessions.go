@@ -53,6 +53,7 @@ type SessionsHandler struct {
 	schedStore    *store.ScheduleStore // for active runs in websocket
 	notifications *NotificationStore   // for UI notifications via websocket
 	teamStore     *store.TeamStore     // for team persistence
+	tokenStore    *store.TokenUsageStore // for token usage tracking
 
 	// Deduplication state for status/summary events (mirrors Python _last_known)
 	lastKnownMu sync.RWMutex
@@ -82,6 +83,11 @@ func (h *SessionsHandler) SetScheduleStore(ss *store.ScheduleStore) {
 // SetTeamStore sets the team store for team persistence.
 func (h *SessionsHandler) SetTeamStore(ts *store.TeamStore) {
 	h.teamStore = ts
+}
+
+// SetTokenStore sets the token usage store for tracking.
+func (h *SessionsHandler) SetTokenStore(ts *store.TokenUsageStore) {
+	h.tokenStore = ts
 }
 
 // effectiveMaxAgents returns the max concurrent agents.
@@ -279,6 +285,14 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if latestEvents == nil {
 		latestEvents = map[string][2]string{}
 	}
+	var tokenUsageMap map[string]*store.TokenUsage
+	if h.tokenStore != nil && len(sessionIDs) > 0 {
+		tokenUsageMap, _ = h.tokenStore.GetLatestUsageBySessionIDs(ctx, sessionIDs)
+	}
+	if tokenUsageMap == nil {
+		tokenUsageMap = map[string]*store.TokenUsage{}
+	}
+
 	var latestGoals map[string]string
 	latestGoals, err = h.ts.GetLatestGoals(ctx, sessionIDs)
 	if err != nil {
@@ -460,6 +474,13 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			if extra.Capabilities != nil && *extra.Capabilities != "" && json.Valid([]byte(*extra.Capabilities)) {
 				entry["capabilities"] = json.RawMessage(*extra.Capabilities)
 			}
+		}
+
+		// Include token usage data if available
+		if usage, ok := tokenUsageMap[sid]; ok {
+			entry["token_input"] = usage.InputTokens
+			entry["token_output"] = usage.OutputTokens
+			entry["token_cost_usd"] = usage.CostUSD
 		}
 
 		// Track status/summary for event deduplication
@@ -2457,6 +2478,71 @@ func (h *SessionsHandler) ClearEvents(w http.ResponseWriter, r *http.Request) {
 		errInternalServer(w, err.Error())
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// RecordTokenUsage records a token usage snapshot for a session.
+// POST /api/sessions/live/{name}/token-usage
+func (h *SessionsHandler) RecordTokenUsage(w http.ResponseWriter, r *http.Request) {
+	if h.tokenStore == nil {
+		errInternalServer(w, "token tracking not available")
+		return
+	}
+
+	name := chi.URLParam(r, "name")
+	var body struct {
+		SessionID    string  `json:"session_id"`
+		InputTokens  float64 `json:"input_tokens"`
+		OutputTokens float64 `json:"output_tokens"`
+		CostUSD      float64 `json:"cost_usd"`
+		NumTurns     float64 `json:"num_turns"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Resolve team_id and board_name from the live session
+	var teamID *int64
+	var boardName *string
+	var agentType string
+	if body.SessionID != "" {
+		if ls, err := h.ss.GetLiveSession(ctx, body.SessionID); err == nil && ls != nil {
+			if ls.TeamID != nil {
+				teamID = ls.TeamID
+			}
+			if ls.BoardName != nil {
+				boardName = ls.BoardName
+			}
+			agentType = ls.AgentType
+		}
+	}
+	if agentType == "" {
+		agentType = "claude"
+	}
+
+	inputTokens := int(body.InputTokens)
+	outputTokens := int(body.OutputTokens)
+
+	err := h.tokenStore.RecordUsage(ctx, &store.TokenUsage{
+		SessionID:    body.SessionID,
+		AgentName:    name,
+		AgentType:    agentType,
+		TeamID:       teamID,
+		BoardName:    boardName,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		CostUSD:      body.CostUSD,
+		NumTurns:     int(body.NumTurns),
+	})
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

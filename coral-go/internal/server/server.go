@@ -336,6 +336,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/live/{name}/events", sessHandler.CreateEvent)
 	r.Get("/api/sessions/live/{name}/events/counts", sessHandler.EventCounts)
 	r.Delete("/api/sessions/live/{name}/events", sessHandler.ClearEvents)
+	r.Post("/api/sessions/live/{name}/token-usage", sessHandler.RecordTokenUsage)
 
 	// WebSocket
 	r.Get("/ws/coral", sessHandler.WSCoral)
@@ -363,6 +364,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/teams/detail/{name}", teamsHandler.GetTeam)
 	r.Delete("/api/teams/detail/{name}", teamsHandler.DeleteTeam)
 	r.Post("/api/teams/detail/{name}/resurrect", sessHandler.ResurrectTeam)
+
+	// Token usage
+	tokenHandler := routes.NewTokenUsageHandler(s.db)
+	r.Get("/api/token-usage", tokenHandler.ListUsage)
+	r.Get("/api/token-usage/summary", tokenHandler.UsageSummary)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)
@@ -481,6 +487,7 @@ func (s *Server) buildRouter() chi.Router {
 	sessHandler.SetLicenseManager(s.licenseMgr)
 	sessHandler.SetScheduleStore(store.NewScheduleStore(s.db))
 	sessHandler.SetTeamStore(teamsHandler.Store())
+	sessHandler.SetTokenStore(store.NewTokenUsageStore(s.db))
 	notifStore := routes.NewNotificationStore()
 	sessHandler.SetNotificationStore(notifStore)
 	notifHandler := routes.NewNotificationHandler(notifStore)

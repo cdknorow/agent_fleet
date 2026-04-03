@@ -66,6 +66,7 @@ type LiveSession struct {
 	PID           int     `db:"pid" json:"pid,omitempty"`
 	WorktreePath  *string `db:"worktree_path" json:"worktree_path,omitempty"`
 	WorktreeRepo  *string `db:"worktree_repo" json:"worktree_repo,omitempty"`
+	TeamID        *int64  `db:"team_id" json:"team_id,omitempty"`
 	CreatedAt     string  `db:"created_at" json:"created_at"`
 }
 
@@ -716,7 +717,7 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
 		 FROM live_sessions ORDER BY created_at`)
 	return sessions, err
 }
@@ -734,7 +735,7 @@ func (s *SessionStore) GetBoardSessions(ctx context.Context, boardName string) (
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
 		 FROM live_sessions WHERE board_name = ? ORDER BY created_at`, boardName)
 	return sessions, err
 }
@@ -813,7 +814,7 @@ func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*L
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
 		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil

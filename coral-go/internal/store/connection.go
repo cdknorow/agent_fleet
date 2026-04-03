@@ -410,6 +410,25 @@ CREATE TABLE IF NOT EXISTS team_members (
 
 CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id, status);
 
+CREATE TABLE IF NOT EXISTS token_usage (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    agent_name      TEXT NOT NULL,
+    agent_type      TEXT NOT NULL DEFAULT 'claude',
+    team_id         INTEGER,
+    board_name      TEXT,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    total_tokens    INTEGER NOT NULL DEFAULT 0,
+    cost_usd        REAL NOT NULL DEFAULT 0,
+    num_turns       INTEGER NOT NULL DEFAULT 0,
+    recorded_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id);
+CREATE INDEX IF NOT EXISTS idx_token_usage_team ON token_usage(team_id);
+CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(recorded_at);
+
 CREATE INDEX IF NOT EXISTS idx_git_snap_session ON git_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_tags_tag_id ON session_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_folder_tags_tag_id ON folder_tags(tag_id);

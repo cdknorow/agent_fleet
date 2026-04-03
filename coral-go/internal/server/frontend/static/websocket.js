@@ -34,6 +34,11 @@ export function connectCoralWs() {
                         if (!changed.icon && sessions[idx].icon) {
                             changed.icon = sessions[idx].icon;
                         }
+                        if (changed.token_input === undefined && sessions[idx].token_input !== undefined) {
+                            changed.token_input = sessions[idx].token_input;
+                            changed.token_output = sessions[idx].token_output;
+                            changed.token_cost_usd = sessions[idx].token_cost_usd;
+                        }
                         sessions[idx] = changed;
                     } else {
                         sessions.push(changed);
