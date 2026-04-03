@@ -1649,6 +1649,24 @@ async function _initTeamForm() {
     const s = state.settings || {};
     const dirInput = document.getElementById("launch-team-dir");
     if (s.default_working_dir && dirInput) dirInput.value = s.default_working_dir;
+
+    // Show worktree option when directory is a git repo
+    const checkGitDir = async () => {
+        const dir = dirInput ? dirInput.value.trim() : '';
+        const worktreeOpt = document.getElementById('team-worktree-option');
+        if (!dir || !worktreeOpt) return;
+        try {
+            const resp = await fetch(`/api/filesystem/is-git?path=${encodeURIComponent(dir)}`);
+            const data = await resp.json();
+            worktreeOpt.style.display = data.is_git ? '' : 'none';
+        } catch { if (worktreeOpt) worktreeOpt.style.display = 'none'; }
+    };
+    if (dirInput) {
+        let _gitCheckTimer;
+        dirInput.addEventListener('input', () => { clearTimeout(_gitCheckTimer); _gitCheckTimer = setTimeout(checkGitDir, 500); });
+        dirInput.addEventListener('change', checkGitDir);
+        checkGitDir(); // initial check
+    }
     const typeSelect = document.getElementById("team-agent-type");
     if (s.default_agent_type && typeSelect) typeSelect.value = s.default_agent_type;
 

@@ -261,17 +261,20 @@ func reconcileOrphanedTeams(ctx context.Context, db *store.DB) {
 
 		// Clean up worktree if applicable
 		if team.IsWorktree == 1 && team.WorkingDir != "" {
-			// Derive repo path by stripping _team_<name> suffix
-			repoPath := team.WorkingDir
-			if idx := strings.LastIndex(repoPath, "_team_"); idx > 0 {
-				repoPath = repoPath[:idx]
-			}
+			// Find the parent repo via git rev-parse from the worktree itself
 			cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			cmd := exec.CommandContext(cleanCtx, "git", "-C", repoPath, "worktree", "remove", "--force", team.WorkingDir)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				log.Printf("[startup] failed to remove orphaned worktree %s: %s", team.WorkingDir, string(out))
+			repoOut, repoErr := exec.CommandContext(cleanCtx, "git", "-C", team.WorkingDir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+			if repoErr == nil {
+				repoPath := filepath.Dir(strings.TrimSpace(string(repoOut)))
+				cmd := exec.CommandContext(cleanCtx, "git", "-C", repoPath, "worktree", "remove", "--force", team.WorkingDir)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					log.Printf("[startup] failed to remove orphaned worktree %s: %s", team.WorkingDir, string(out))
+				} else {
+					log.Printf("[startup] cleaned up orphaned worktree: %s", team.WorkingDir)
+				}
 			} else {
-				log.Printf("[startup] cleaned up orphaned worktree: %s", team.WorkingDir)
+				log.Printf("[startup] cannot find parent repo for worktree %s, removing directory", team.WorkingDir)
+				os.RemoveAll(team.WorkingDir)
 			}
 			cancel()
 		}

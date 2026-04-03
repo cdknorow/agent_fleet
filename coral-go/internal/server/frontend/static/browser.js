@@ -54,7 +54,9 @@ async function loadBrowserEntries(path) {
 
         browserCurrentPath = data.path;
         pathDisplay.textContent = data.path;
-        document.getElementById(_activeDirInputId).value = data.path;
+        const dirInput = document.getElementById(_activeDirInputId);
+        dirInput.value = data.path;
+        dirInput.dispatchEvent(new Event('change'));
 
         if (!data.entries.length) {
             list.innerHTML = '<li class="empty-state">No subdirectories</li>';

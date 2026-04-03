@@ -1968,14 +1968,21 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		if branch == "" {
 			branch = "main"
 		}
-		worktreePath = fmt.Sprintf("%s_team_%s", body.WorkingDir, body.BoardName)
-		cmd := exec.CommandContext(ctx, "git", "-C", body.WorkingDir, "worktree", "add", worktreePath, branch)
+		worktreeDir := filepath.Join(h.cfg.CoralDir(), "worktrees")
+		os.MkdirAll(worktreeDir, 0755)
+		worktreePath = filepath.Join(worktreeDir, body.BoardName)
+		worktreeBranch := fmt.Sprintf("coral-team/%s", body.BoardName)
+		cmd := exec.CommandContext(ctx, "git", "-C", body.WorkingDir, "worktree", "add", "-b", worktreeBranch, worktreePath, branch)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			errBadRequest(w, fmt.Sprintf("git worktree add failed: %s", string(out)))
-			return
+			// Branch may already exist from a previous run — try without -b
+			cmd2 := exec.CommandContext(ctx, "git", "-C", body.WorkingDir, "worktree", "add", worktreePath, worktreeBranch)
+			if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
+				errBadRequest(w, fmt.Sprintf("git worktree add failed: %s / %s", string(out), string(out2)))
+				return
+			}
 		}
 		workingDir = worktreePath
-		log.Printf("[launch-team] created worktree at %s (branch %s)", worktreePath, branch)
+		log.Printf("[launch-team] created worktree at %s (branch %s from %s)", worktreePath, worktreeBranch, branch)
 	}
 
 	// Create team persistence record

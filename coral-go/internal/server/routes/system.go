@@ -340,6 +340,27 @@ func (h *SystemHandler) ListFilesystem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// IsGitDir checks if a directory is a git repository.
+// GET /api/filesystem/is-git?path=/some/dir
+func (h *SystemHandler) IsGitDir(w http.ResponseWriter, r *http.Request) {
+	reqPath := r.URL.Query().Get("path")
+	if reqPath == "" {
+		writeJSON(w, http.StatusOK, map[string]bool{"is_git": false})
+		return
+	}
+	if strings.HasPrefix(reqPath, "~") {
+		home, _ := os.UserHomeDir()
+		reqPath = filepath.Join(home, reqPath[1:])
+	}
+	expanded, err := filepath.Abs(reqPath)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]bool{"is_git": false})
+		return
+	}
+	_, err = os.Stat(filepath.Join(expanded, ".git"))
+	writeJSON(w, http.StatusOK, map[string]bool{"is_git": err == nil})
+}
+
 // ── Tags ────────────────────────────────────────────────────────────────
 
 // ListTags returns all tags.
