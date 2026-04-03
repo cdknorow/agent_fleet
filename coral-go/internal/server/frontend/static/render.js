@@ -190,6 +190,8 @@ let _boardChatMessages = [];
 let _boardChatTotal = 0;
 let _boardChatOffset = 0;
 const _BOARD_CHAT_PAGE = 50;
+let _boardChatSelectMode = false;
+let _boardChatSelectedIds = new Set();
 
 export function showBoardChatTab(boardName) {
     _activeBoardChat = boardName;
@@ -200,6 +202,7 @@ export function showBoardChatTab(boardName) {
     panel.innerHTML = `
         <div class="board-chat-header">
             <a class="board-chat-title" href="#" onclick="event.preventDefault(); selectBoardProject('${escapeAttr(boardName)}')" title="Open full board view">${escapeHtml(boardName)}</a>
+            <button class="btn-nav board-select-btn" onclick="window._toggleBoardChatSelect()" title="Select messages to export">Export</button>
         </div>
         <div class="board-chat-messages" id="board-panel-msgs"></div>
         <div class="board-chat-input-pane" id="board-chat-input-pane">
@@ -231,11 +234,13 @@ export function showBoardChatTab(boardName) {
         if (pane && h >= 80) pane.style.height = h + 'px';
     }
 
-    // Reset pagination state for new board
+    // Reset pagination and select state for new board
     _boardChatMessages = [];
     _boardChatTotal = 0;
     _boardChatOffset = 0;
     _boardChatLastId[boardName] = null;
+    _boardChatSelectMode = false;
+    _boardChatSelectedIds.clear();
 
     _loadBoardPanelChat(boardName);
     _checkBoardPauseState(boardName);
@@ -246,6 +251,8 @@ export function showBoardChatTab(boardName) {
 
 export function hideBoardChatTab() {
     _activeBoardChat = null;
+    _boardChatSelectMode = false;
+    _boardChatSelectedIds.clear();
     if (_boardChatTimer) { clearInterval(_boardChatTimer); _boardChatTimer = null; }
     const panel = document.getElementById('agentic-panel-board');
     if (panel) panel.innerHTML = '';
@@ -340,8 +347,11 @@ function _renderBoardPanelMessages(msgsEl, scrollToBottom) {
         const alignClass = isLeader ? ' board-msg-left' : ' board-msg-right';
         const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
 
-        return `<div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid rgba(${r},${g},${b},0.55); border-bottom:2px solid rgba(${r},${g},${b},0.3)">
+        const selectedClass = _boardChatSelectMode && _boardChatSelectedIds.has(m.id) ? ' mb-message-selected' : '';
+        const checkbox = _boardChatSelectMode ? `<input type="checkbox" class="mb-select-checkbox" data-msg-id="${m.id}" ${_boardChatSelectedIds.has(m.id) ? 'checked' : ''} onclick="window._toggleBoardChatMsgSelect(${m.id}, this.checked)">` : '';
+        return `<div class="mb-message ${spacing}${alignClass}${selectedClass}" style="border-left:3px solid rgba(${r},${g},${b},0.55); border-bottom:2px solid rgba(${r},${g},${b},0.3)">
             <div class="mb-message-header">
+                ${checkbox}
                 <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
                 <span class="mb-message-time">${_formatTime(m.created_at)}</span>
             </div>
@@ -349,7 +359,124 @@ function _renderBoardPanelMessages(msgsEl, scrollToBottom) {
         </div>`;
     }).join('');
     if (wasAtBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
+    // Update select bar if in select mode
+    if (_boardChatSelectMode) _updateBoardChatSelectBar();
 }
+
+function _toggleBoardChatSelect() {
+    _boardChatSelectMode = !_boardChatSelectMode;
+    _boardChatSelectedIds.clear();
+    const btn = document.querySelector('.board-select-btn');
+    if (btn) btn.classList.toggle('active', _boardChatSelectMode);
+    // Hide chat input when in select mode
+    const inputPane = document.getElementById('board-chat-input-pane');
+    if (inputPane) inputPane.style.display = _boardChatSelectMode ? 'none' : '';
+    _updateBoardChatSelectBar();
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (msgsEl) _renderBoardPanelMessages(msgsEl, false);
+}
+window._toggleBoardChatSelect = _toggleBoardChatSelect;
+
+function _toggleBoardChatMsgSelect(msgId, checked) {
+    if (checked) {
+        _boardChatSelectedIds.add(msgId);
+    } else {
+        _boardChatSelectedIds.delete(msgId);
+    }
+    const cb = document.querySelector(`#board-panel-msgs .mb-select-checkbox[data-msg-id="${msgId}"]`);
+    if (cb) cb.closest('.mb-message').classList.toggle('mb-message-selected', checked);
+    _updateBoardChatSelectBar();
+}
+window._toggleBoardChatMsgSelect = _toggleBoardChatMsgSelect;
+
+function _boardChatSelectAll() {
+    _boardChatMessages.forEach(m => _boardChatSelectedIds.add(m.id));
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (msgsEl) _renderBoardPanelMessages(msgsEl, false);
+}
+window._boardChatSelectAll = _boardChatSelectAll;
+
+function _boardChatSelectNone() {
+    _boardChatSelectedIds.clear();
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (msgsEl) _renderBoardPanelMessages(msgsEl, false);
+}
+window._boardChatSelectNone = _boardChatSelectNone;
+
+function _cancelBoardChatSelect() {
+    _boardChatSelectMode = false;
+    _boardChatSelectedIds.clear();
+    const btn = document.querySelector('.board-select-btn');
+    if (btn) btn.classList.remove('active');
+    // Restore chat input
+    const inputPane = document.getElementById('board-chat-input-pane');
+    if (inputPane) inputPane.style.display = '';
+    _updateBoardChatSelectBar();
+    const msgsEl = document.getElementById('board-panel-msgs');
+    if (msgsEl) _renderBoardPanelMessages(msgsEl, false);
+}
+window._cancelBoardChatSelect = _cancelBoardChatSelect;
+
+function _updateBoardChatSelectBar() {
+    const panel = document.getElementById('agentic-panel-board');
+    if (!panel) return;
+    let bar = document.getElementById('board-chat-select-bar');
+    if (!_boardChatSelectMode) {
+        if (bar) bar.style.display = 'none';
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'board-chat-select-bar';
+        bar.className = 'mb-select-bar';
+        panel.appendChild(bar);
+    }
+    const count = _boardChatSelectedIds.size;
+    bar.innerHTML = `
+        <span class="mb-select-count">${count} selected</span>
+        <button class="btn mb-select-action-btn" onclick="_boardChatSelectAll()">Select All</button>
+        <button class="btn mb-select-action-btn" onclick="_boardChatSelectNone()">None</button>
+        <button class="btn btn-primary mb-select-action-btn" onclick="window._exportBoardChatSelected()" ${count === 0 ? 'disabled' : ''}>Export Markdown</button>
+        <button class="btn mb-select-action-btn" onclick="_cancelBoardChatSelect()">Cancel</button>
+    `;
+    bar.style.display = '';
+}
+
+async function _exportBoardChatSelected() {
+    const selected = _boardChatMessages
+        .filter(m => _boardChatSelectedIds.has(m.id))
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    if (!selected.length) return;
+
+    const project = _activeBoardChat || 'board';
+    const now = new Date().toLocaleString();
+    let md = `# ${project} — Exported Chat\n\n`;
+    md += `**Exported**: ${now} · **Messages**: ${selected.length}\n\n---\n\n`;
+    for (const m of selected) {
+        const agent = m.job_title || m.sender_name || 'Unknown';
+        const time = _formatTime(m.created_at);
+        md += `### ${agent} — ${time}\n${m.content}\n\n`;
+    }
+    md += `---\n*Exported from Coral*\n`;
+
+    try {
+        await navigator.clipboard.writeText(md);
+        showToast(`Copied ${selected.length} messages to clipboard`);
+    } catch { /* fallback to download only */ }
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project}-selected-export.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    _cancelBoardChatSelect();
+}
+window._exportBoardChatSelected = _exportBoardChatSelected;
 
 async function _sendBoardChat(boardName) {
     const inputEl = document.getElementById('board-panel-input');

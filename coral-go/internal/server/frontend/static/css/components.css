@@ -228,6 +228,52 @@
     color: var(--error, #f85149);
 }
 
+/* Message board multi-select */
+.mb-select-checkbox {
+    margin-right: 8px;
+    cursor: pointer;
+    accent-color: var(--accent, #58a6ff);
+    flex-shrink: 0;
+}
+
+.mb-message-selected {
+    background: rgba(88, 166, 255, 0.08);
+}
+
+.mb-select-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-secondary, #161b22);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 8px 8px;
+    z-index: 10;
+}
+
+.mb-select-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-right: auto;
+}
+
+.mb-select-action-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+}
+
+#mb-select-btn.active,
+.board-select-btn.active {
+    background: var(--accent, #58a6ff);
+    color: #fff;
+}
+
 /* Message board markdown content */
 .mb-message-body p {
     margin: 0 0 6px;

@@ -1,6 +1,6 @@
 /* Message Board: project list, messages, subscribers, posting */
 
-import { escapeHtml, escapeAttr, showView, renderMarkdown, getAgentColor, hexToRgba } from './utils.js';
+import { escapeHtml, escapeAttr, showView, renderMarkdown, getAgentColor, hexToRgba, showToast } from './utils.js';
 import { loadLiveSessions } from './api.js';
 import { platform } from './platform/detect.js';
 
@@ -12,6 +12,8 @@ const PAGE_SIZE = 50;
 let _allMessages = [];
 let _totalMessages = 0;
 let _loadedOffset = 0;
+let _selectMode = false;
+let _selectedIds = new Set();
 
 // ── API helpers ──────────────────────────────────────────────────────────
 
@@ -81,6 +83,7 @@ export function selectBoardProject(project) {
     if (backBtn) backBtn.style.display = '';
     document.getElementById('mb-pause-btn').style.display = '';
     document.getElementById('mb-export-btn').style.display = '';
+    document.getElementById('mb-select-btn').style.display = '';
     const sleepBtn = document.getElementById('mb-sleep-btn');
     if (sleepBtn) sleepBtn.style.display = '';
     document.getElementById('mb-delete-btn').style.display = '';
@@ -106,6 +109,9 @@ export function selectBoardProject(project) {
 export function showMessageBoardProjects() {
     currentProject = null;
     stopBoardPoll();
+    // Exit select mode if active
+    _selectMode = false;
+    _selectedIds.clear();
 
     showView("messageboard-view");
 
@@ -118,6 +124,7 @@ export function showMessageBoardProjects() {
     const sleepBtn2 = document.getElementById('mb-sleep-btn');
     if (sleepBtn2) sleepBtn2.style.display = 'none';
     document.getElementById('mb-delete-btn').style.display = 'none';
+    document.getElementById('mb-select-btn').style.display = 'none';
     document.getElementById('messageboard-project-badge').style.display = 'none';
 
     loadBoardProjectList();
@@ -232,9 +239,12 @@ function renderMessages(messages) {
         const spacing = sameAsPrev ? 'mb-message-grouped' : 'mb-message-first';
         const isLeader = /orchestrator/i.test(agent) || m.subscriber_id === 'dashboard';
         const alignClass = isLeader ? ' board-msg-left' : ' board-msg-right';
+        const selectedClass = _selectMode && _selectedIds.has(m.id) ? ' mb-message-selected' : '';
+        const checkbox = _selectMode ? `<input type="checkbox" class="mb-select-checkbox" data-msg-id="${m.id}" ${_selectedIds.has(m.id) ? 'checked' : ''} onclick="toggleMessageSelect(${m.id}, this.checked)">` : '';
         return `
-        <div class="mb-message ${spacing}${alignClass}" style="border-left:3px solid ${hexToRgba(color, 0.55)}; border-bottom:2px solid ${hexToRgba(color, 0.3)}">
+        <div class="mb-message ${spacing}${alignClass}${selectedClass}" style="border-left:3px solid ${hexToRgba(color, 0.55)}; border-bottom:2px solid ${hexToRgba(color, 0.3)}">
             <div class="mb-message-header">
+                ${checkbox}
                 <span class="mb-agent-name" style="color:${color}">${m.icon ? escapeHtml(m.icon) + ' ' : ''}${escapeHtml(agent)}</span>
                 <span class="mb-message-time">${formatTime(m.created_at)}</span>
                 <button class="mb-delete-msg-btn" onclick="deleteBoardMessage(${m.id})" title="Delete message">&times;</button>
@@ -818,6 +828,115 @@ ${msgs}
 </div>
 </body>
 </html>`;
+}
+
+// ── Multi-select export ─────────────────────────────────────────────────
+
+export function toggleSelectMode() {
+    _selectMode = !_selectMode;
+    _selectedIds.clear();
+    const btn = document.getElementById('mb-select-btn');
+    if (btn) btn.classList.toggle('active', _selectMode);
+    updateSelectBar();
+    renderMessages(_allMessages);
+}
+
+export function toggleMessageSelect(msgId, checked) {
+    if (checked) {
+        _selectedIds.add(msgId);
+    } else {
+        _selectedIds.delete(msgId);
+    }
+    // Update selected highlight without full re-render
+    const msg = document.querySelector(`.mb-select-checkbox[data-msg-id="${msgId}"]`);
+    if (msg) {
+        msg.closest('.mb-message').classList.toggle('mb-message-selected', checked);
+    }
+    updateSelectBar();
+}
+
+export function selectAllMessages() {
+    _allMessages.forEach(m => _selectedIds.add(m.id));
+    renderMessages(_allMessages);
+    updateSelectBar();
+}
+
+export function selectNoneMessages() {
+    _selectedIds.clear();
+    renderMessages(_allMessages);
+    updateSelectBar();
+}
+
+export function cancelSelectMode() {
+    _selectMode = false;
+    _selectedIds.clear();
+    const btn = document.getElementById('mb-select-btn');
+    if (btn) btn.classList.remove('active');
+    updateSelectBar();
+    renderMessages(_allMessages);
+}
+
+function updateSelectBar() {
+    let bar = document.getElementById('mb-select-bar');
+    if (!_selectMode) {
+        if (bar) bar.style.display = 'none';
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'mb-select-bar';
+        bar.className = 'mb-select-bar';
+        document.getElementById('mb-board').appendChild(bar);
+    }
+    const count = _selectedIds.size;
+    bar.innerHTML = `
+        <span class="mb-select-count">${count} selected</span>
+        <button class="btn mb-select-action-btn" onclick="selectAllMessages()">Select All</button>
+        <button class="btn mb-select-action-btn" onclick="selectNoneMessages()">None</button>
+        <button class="btn btn-primary mb-select-action-btn" onclick="exportSelectedAsMarkdown()" ${count === 0 ? 'disabled' : ''}>Export Markdown</button>
+        <button class="btn mb-select-action-btn" onclick="cancelSelectMode()">Cancel</button>
+    `;
+    bar.style.display = '';
+}
+
+export async function exportSelectedAsMarkdown() {
+    const selected = _allMessages
+        .filter(m => _selectedIds.has(m.id))
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+
+    if (!selected.length) return;
+
+    const now = new Date().toLocaleString();
+    let md = `# ${currentProject} — Exported Chat\n\n`;
+    md += `**Exported**: ${now} · **Messages**: ${selected.length}\n\n---\n\n`;
+
+    for (const m of selected) {
+        const agent = m.job_title || 'Unknown';
+        const time = formatTime(m.created_at);
+        md += `### ${agent} — ${time}\n${m.content}\n\n`;
+    }
+    md += `---\n*Exported from Coral*\n`;
+
+    // Copy to clipboard
+    try {
+        await navigator.clipboard.writeText(md);
+        showToast(`Copied ${selected.length} messages to clipboard`);
+    } catch {
+        // Fallback: just download
+    }
+
+    // Also offer download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentProject}-selected-export.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    cancelSelectMode();
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────
