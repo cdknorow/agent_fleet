@@ -754,6 +754,13 @@ func (s *SessionStore) UpdateSessionPID(ctx context.Context, sessionID string, p
 	return err
 }
 
+// SetTeamID sets the team_id on a live session.
+func (s *SessionStore) SetTeamID(ctx context.Context, sessionID string, teamID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET team_id = ? WHERE session_id = ?", teamID, sessionID)
+	return err
+}
+
 // ResolveByPIDs looks up live sessions matching any of the given PIDs.
 // Returns the first match (used for process-tree-based identity resolution).
 func (s *SessionStore) ResolveByPIDs(ctx context.Context, pids []int) (*LiveSession, error) {

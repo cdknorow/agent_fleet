@@ -302,6 +302,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Put("/api/sessions/live/{name}/icon", sessHandler.SetIcon)
 	r.Post("/api/sessions/launch", sessHandler.Launch)
 	r.Post("/api/sessions/launch-team", sessHandler.LaunchTeam)
+	r.Post("/api/sessions/live/team/{boardName}/kill", sessHandler.KillTeam)
 	r.Post("/api/sessions/live/team/{boardName}/reset", sessHandler.ResetTeam)
 
 	// Bulk sleep/wake all (must be registered before {name} routes to avoid conflicts)
@@ -354,6 +355,13 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/teams/import", sysHandler.ImportTeam)
 	r.Post("/api/teams/generate", sysHandler.GenerateTeam)
 	r.Get("/api/teams/generate/{jobId}", sysHandler.GenerateTeamStatus)
+
+	// Team persistence
+	teamsHandler := routes.NewTeamsHandler(s.db)
+	r.Get("/api/teams/all", teamsHandler.ListTeams)
+	r.Get("/api/teams/detail/{name}", teamsHandler.GetTeam)
+	r.Delete("/api/teams/detail/{name}", teamsHandler.DeleteTeam)
+	r.Post("/api/teams/detail/{name}/resurrect", sessHandler.ResurrectTeam)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)
@@ -471,6 +479,7 @@ func (s *Server) buildRouter() chi.Router {
 	sessHandler.SetBoardHandler(boardHandler)
 	sessHandler.SetLicenseManager(s.licenseMgr)
 	sessHandler.SetScheduleStore(store.NewScheduleStore(s.db))
+	sessHandler.SetTeamStore(teamsHandler.Store())
 	notifStore := routes.NewNotificationStore()
 	sessHandler.SetNotificationStore(notifStore)
 	notifHandler := routes.NewNotificationHandler(notifStore)

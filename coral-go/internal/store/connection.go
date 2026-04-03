@@ -95,6 +95,7 @@ var columnMigrations = []struct {
 	{"scheduled_jobs", "workflow_id", "INTEGER"},
 	{"live_sessions", "worktree_path", "TEXT"},
 	{"live_sessions", "worktree_repo", "TEXT"},
+	{"live_sessions", "team_id", "INTEGER REFERENCES teams(id) ON DELETE SET NULL"},
 }
 
 const schemaSQL = `
@@ -379,6 +380,35 @@ CREATE TABLE IF NOT EXISTS custom_views (
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL UNIQUE,
+    config_json     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running', 'sleeping', 'stopped')),
+    working_dir     TEXT NOT NULL,
+    is_worktree     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    stopped_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_teams_status ON teams(status);
+
+CREATE TABLE IF NOT EXISTS team_members (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id           INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    agent_name        TEXT NOT NULL,
+    agent_config_json TEXT NOT NULL,
+    session_id        TEXT,
+    status            TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'sleeping', 'stopped')),
+    created_at        TEXT NOT NULL,
+    stopped_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_git_snap_session ON git_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_tags_tag_id ON session_tags(tag_id);

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/cdknorow/coral/internal/background"
@@ -128,6 +129,7 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 	// is_sleeping=0 but no actual process running. Detect these and
 	// mark them as sleeping so the user can wake them.
 	reconcileOrphanedSessions(ctx, db, agentRT)
+	reconcileOrphanedTeams(ctx, db)
 
 	httpServer := &http.Server{
 		Handler:           srv.Router(),
@@ -201,6 +203,83 @@ func reconcileOrphanedSessions(ctx context.Context, db *store.DB, agentRT backgr
 	}
 	if orphaned > 0 {
 		log.Printf("[startup] Marked %d orphaned session(s) as sleeping", orphaned)
+	}
+}
+
+// reconcileOrphanedTeams checks for teams in 'running' status whose
+// member sessions no longer exist. These are teams orphaned by a server
+// crash. They are marked as stopped and any worktree is cleaned up.
+func reconcileOrphanedTeams(ctx context.Context, db *store.DB) {
+	ts := store.NewTeamStore(db)
+	ss := store.NewSessionStore(db)
+
+	teams, err := ts.ListTeams(ctx, "running")
+	if err != nil {
+		log.Printf("[startup] failed to list running teams for reconciliation: %v", err)
+		return
+	}
+
+	liveSessions, err := ss.GetAllLiveSessions(ctx)
+	if err != nil {
+		log.Printf("[startup] failed to read live sessions for team reconciliation: %v", err)
+		return
+	}
+	liveSet := make(map[string]bool, len(liveSessions))
+	for _, ls := range liveSessions {
+		liveSet[ls.SessionID] = true
+	}
+
+	orphaned := 0
+	for _, team := range teams {
+		members, err := ts.GetActiveMembers(ctx, team.ID)
+		if err != nil {
+			log.Printf("[startup] failed to get members for team %s: %v", team.Name, err)
+			continue
+		}
+
+		// Check if any member still has a live session
+		hasLive := false
+		for _, m := range members {
+			if m.SessionID != nil && liveSet[*m.SessionID] {
+				hasLive = true
+				break
+			}
+		}
+		if hasLive {
+			continue
+		}
+
+		slog.Warn("detected orphaned team, marking as stopped", "team", team.Name, "id", team.ID)
+
+		// Mark members and team as stopped
+		if err := ts.SetAllMembersStatus(ctx, team.ID, "active", "stopped"); err != nil {
+			log.Printf("[startup] failed to stop members of team %s: %v", team.Name, err)
+		}
+		if err := ts.UpdateTeamStatus(ctx, team.ID, "stopped"); err != nil {
+			log.Printf("[startup] failed to stop team %s: %v", team.Name, err)
+		}
+
+		// Clean up worktree if applicable
+		if team.IsWorktree == 1 && team.WorkingDir != "" {
+			// Derive repo path by stripping _team_<name> suffix
+			repoPath := team.WorkingDir
+			if idx := strings.LastIndex(repoPath, "_team_"); idx > 0 {
+				repoPath = repoPath[:idx]
+			}
+			cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			cmd := exec.CommandContext(cleanCtx, "git", "-C", repoPath, "worktree", "remove", "--force", team.WorkingDir)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("[startup] failed to remove orphaned worktree %s: %s", team.WorkingDir, string(out))
+			} else {
+				log.Printf("[startup] cleaned up orphaned worktree: %s", team.WorkingDir)
+			}
+			cancel()
+		}
+
+		orphaned++
+	}
+	if orphaned > 0 {
+		log.Printf("[startup] Marked %d orphaned team(s) as stopped", orphaned)
 	}
 }
 

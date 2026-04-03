@@ -52,6 +52,7 @@ type SessionsHandler struct {
 	licenseMgr    *license.Manager     // for runtime trial limit checks
 	schedStore    *store.ScheduleStore // for active runs in websocket
 	notifications *NotificationStore   // for UI notifications via websocket
+	teamStore     *store.TeamStore     // for team persistence
 
 	// Deduplication state for status/summary events (mirrors Python _last_known)
 	lastKnownMu sync.RWMutex
@@ -76,6 +77,11 @@ func (h *SessionsHandler) SetNotificationStore(ns *NotificationStore) {
 // SetScheduleStore sets the schedule store for active runs in websocket.
 func (h *SessionsHandler) SetScheduleStore(ss *store.ScheduleStore) {
 	h.schedStore = ss
+}
+
+// SetTeamStore sets the team store for team persistence.
+func (h *SessionsHandler) SetTeamStore(ts *store.TeamStore) {
+	h.teamStore = ts
 }
 
 // effectiveMaxAgents returns the max concurrent agents.
@@ -1384,6 +1390,13 @@ func (h *SessionsHandler) Kill(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Mark the team member as stopped (if this session belongs to a team)
+	if body.SessionID != "" && h.teamStore != nil {
+		if member, err := h.teamStore.GetMemberBySessionID(bgCtx, body.SessionID); err == nil && member != nil {
+			h.teamStore.UpdateMemberStatus(bgCtx, member.ID, "stopped", member.SessionID)
+		}
+	}
+
 	// Unregister from DB BEFORE killing the tmux/pty session.
 	// This ordering is critical: KillSession may hang or take a long time
 	// (e.g., if the tmux socket is in a bad state), and we must ensure the
@@ -1965,6 +1978,28 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[launch-team] created worktree at %s (branch %s)", worktreePath, branch)
 	}
 
+	// Create team persistence record
+	var teamID int64
+	if h.teamStore != nil {
+		configJSON, _ := json.Marshal(body)
+		isWorktree := 0
+		if worktreePath != "" {
+			isWorktree = 1
+		}
+		team, err := h.teamStore.CreateTeam(ctx, &store.Team{
+			Name:       body.BoardName,
+			ConfigJSON: string(configJSON),
+			Status:     "running",
+			WorkingDir: workingDir,
+			IsWorktree: isWorktree,
+		})
+		if err != nil {
+			log.Printf("[launch-team] failed to create team record: %v", err)
+		} else {
+			teamID = team.ID
+		}
+	}
+
 	var launched []map[string]any
 
 	for _, agentDef := range body.Agents {
@@ -1994,20 +2029,34 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		sessionID := result["session_id"].(string)
+
 		// Store worktree info on the live session
 		if worktreePath != "" {
-			sessionID := result["session_id"].(string)
 			h.ss.UpdateWorktreeInfo(ctx, sessionID, worktreePath, body.WorkingDir)
+		}
+
+		// Create team member record and set team_id on live session
+		if teamID > 0 && h.teamStore != nil {
+			agentConfigJSON, _ := json.Marshal(agentDef)
+			h.teamStore.CreateTeamMember(ctx, &store.TeamMember{
+				TeamID:          teamID,
+				AgentName:       agentDef.Name,
+				AgentConfigJSON: string(agentConfigJSON),
+				SessionID:       &sessionID,
+				Status:          "active",
+			})
+			h.ss.SetTeamID(ctx, sessionID, teamID)
 		}
 
 		// Board subscription handled by setupBoardAndPrompt (prompt passed as CLI arg)
 		if body.BoardName != "" {
-			h.setupBoardAndPrompt(result["session_id"].(string), result["session_name"].(string),
+			h.setupBoardAndPrompt(sessionID, result["session_name"].(string),
 				agentType, body.BoardName, agentDef.Name)
 		}
 
 		launchResult := map[string]any{
-			"name": agentDef.Name, "session_id": result["session_id"], "session_name": result["session_name"],
+			"name": agentDef.Name, "session_id": sessionID, "session_name": result["session_name"],
 		}
 		if worktreePath != "" {
 			launchResult["worktree_path"] = worktreePath
@@ -2015,8 +2064,12 @@ func (h *SessionsHandler) LaunchTeam(w http.ResponseWriter, r *http.Request) {
 		launched = append(launched, launchResult)
 	}
 
+	resp := map[string]any{"ok": true, "board": body.BoardName, "agents": launched}
+	if teamID > 0 {
+		resp["team_id"] = teamID
+	}
 	tracking.TrackEvent("team_launched", map[string]string{"agent_count": fmt.Sprintf("%d", len(launched))})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "board": body.BoardName, "agents": launched})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ResetTeam kills all agents on a board and re-launches them with their
@@ -2972,6 +3025,185 @@ func (h *SessionsHandler) SleepStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sleeping": sleeping})
 }
 
+// KillTeam kills all agents in a team, atomically marking active members as stopped.
+// POST /api/sessions/live/team/{boardName}/kill
+func (h *SessionsHandler) KillTeam(w http.ResponseWriter, r *http.Request) {
+	boardName := chi.URLParam(r, "boardName")
+	ctx := r.Context()
+	bgCtx := context.Background()
+
+	// Get all sessions on this board
+	sessions, err := h.ss.GetBoardSessions(ctx, boardName)
+	if err != nil {
+		errInternalServer(w, "failed to get board sessions: "+err.Error())
+		return
+	}
+
+	// Atomically stop the team record (snapshots active members with same stopped_at)
+	if h.teamStore != nil {
+		if team, err := h.teamStore.GetTeam(ctx, boardName); err == nil && team != nil {
+			h.teamStore.StopTeam(ctx, team.ID)
+
+			// Clean up worktree if team owns one
+			if team.IsWorktree == 1 && team.WorkingDir != "" {
+				go func() {
+					wtCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					// Find the parent repo (worktree's parent)
+					parentDir := filepath.Dir(team.WorkingDir)
+					cmd := exec.CommandContext(wtCtx, "git", "-C", parentDir, "worktree", "remove", "--force", team.WorkingDir)
+					if out, err := cmd.CombinedOutput(); err != nil {
+						log.Printf("[kill-team] failed to remove worktree %s: %s", team.WorkingDir, string(out))
+					} else {
+						log.Printf("[kill-team] cleaned up worktree: %s", team.WorkingDir)
+					}
+				}()
+			}
+		}
+	}
+
+	// Kill each session
+	killed := 0
+	for _, ls := range sessions {
+		h.ss.UnregisterLiveSession(bgCtx, ls.SessionID)
+		h.terminal.KillSession(ctx, ls.AgentName, ls.AgentType, ls.SessionID)
+		removeBoardStateFile(ls.AgentName, h.cfg)
+		agent.CleanupTempFiles(ls.SessionID)
+		killed++
+	}
+
+	// Unpause board
+	if h.boardHandler != nil {
+		h.boardHandler.SetPaused(boardName, false)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sessions_killed": killed})
+}
+
+// ResurrectTeam relaunches a stopped team with only the agents that were active at kill time.
+// POST /api/teams/detail/{name}/resurrect
+func (h *SessionsHandler) ResurrectTeam(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		errBadRequest(w, "team name required")
+		return
+	}
+	if h.teamStore == nil {
+		errInternalServer(w, "team persistence not available")
+		return
+	}
+
+	ctx := r.Context()
+	team, err := h.teamStore.GetTeam(ctx, name)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	if team == nil {
+		errNotFound(w, "team not found")
+		return
+	}
+	if team.Status != "stopped" {
+		errBadRequest(w, "can only resurrect stopped teams (current status: "+team.Status+")")
+		return
+	}
+
+	// Get members whose stopped_at matches the team's — these were active at kill time
+	members, err := h.teamStore.GetMembersForResurrect(ctx, team.ID)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	if len(members) == 0 {
+		errBadRequest(w, "no members eligible for resurrection")
+		return
+	}
+
+	// Recreate worktree if team had one
+	workingDir := team.WorkingDir
+	if team.IsWorktree == 1 {
+		// Parse base_branch from stored config
+		var cfg struct {
+			BaseBranch string `json:"base_branch"`
+			WorkingDir string `json:"working_dir"`
+		}
+		json.Unmarshal([]byte(team.ConfigJSON), &cfg)
+		branch := cfg.BaseBranch
+		if branch == "" {
+			branch = "main"
+		}
+		repoDir := cfg.WorkingDir
+		if repoDir == "" {
+			repoDir = filepath.Dir(team.WorkingDir)
+		}
+
+		cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "worktree", "add", team.WorkingDir, branch)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			errBadRequest(w, fmt.Sprintf("failed to recreate worktree: %s", string(out)))
+			return
+		}
+		log.Printf("[resurrect] recreated worktree at %s (branch %s)", team.WorkingDir, branch)
+	}
+
+	// Relaunch each member
+	var launched []map[string]any
+	for _, m := range members {
+		var agentCfg struct {
+			Name         string             `json:"name"`
+			Prompt       string             `json:"prompt"`
+			Capabilities *agent.Capabilities `json:"capabilities"`
+			AgentType    string             `json:"agent_type"`
+			Model        string             `json:"model"`
+			Tools        []string             `json:"tools"`
+			MCPServers   map[string]any       `json:"mcpServers"`
+			Hooks        map[string]interface{} `json:"hooks"`
+		}
+		if err := json.Unmarshal([]byte(m.AgentConfigJSON), &agentCfg); err != nil {
+			log.Printf("[resurrect] failed to parse agent config for %s: %v", m.AgentName, err)
+			launched = append(launched, map[string]any{"name": m.AgentName, "error": "invalid agent config"})
+			continue
+		}
+
+		agentType := agentCfg.AgentType
+		if agentType == "" {
+			agentType = "claude"
+		}
+
+		result, err := h.launchSession(ctx, workingDir, agentType, m.AgentName,
+			"", nil, agentCfg.Prompt, team.Name, "", "", "", agentCfg.Model, agentCfg.Capabilities,
+			agentCfg.Tools, agentCfg.MCPServers, agentCfg.Hooks)
+		if err != nil {
+			log.Printf("[resurrect] failed to launch %s: %v", m.AgentName, err)
+			launched = append(launched, map[string]any{"name": m.AgentName, "error": err.Error()})
+			continue
+		}
+
+		sessionID := result["session_id"].(string)
+
+		// Update team member: active, new session_id
+		h.teamStore.UpdateMemberStatus(ctx, m.ID, "active", &sessionID)
+		h.ss.SetTeamID(ctx, sessionID, team.ID)
+
+		// Setup board subscription
+		h.setupBoardAndPrompt(sessionID, result["session_name"].(string),
+			agentType, team.Name, m.AgentName)
+
+		launched = append(launched, map[string]any{
+			"name": m.AgentName, "session_id": sessionID, "session_name": result["session_name"],
+		})
+	}
+
+	// Update team status to running
+	h.teamStore.UpdateTeamStatus(ctx, team.ID, "running")
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"team_id": team.ID,
+		"board":   team.Name,
+		"agents":  launched,
+	})
+}
+
 // Sleep puts a team to sleep: sets is_sleeping, kills tmux sessions, pauses board.
 // POST /api/sessions/live/team/{boardName}/sleep
 func (h *SessionsHandler) Sleep(w http.ResponseWriter, r *http.Request) {
@@ -2989,6 +3221,14 @@ func (h *SessionsHandler) Sleep(w http.ResponseWriter, r *http.Request) {
 	if len(boardSessions) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "No sessions found on that board"})
 		return
+	}
+
+	// Update team status to sleeping (if a team exists for this board)
+	if h.teamStore != nil {
+		if team, err := h.teamStore.GetTeam(ctx, boardName); err == nil && team != nil && team.Status == "running" {
+			h.teamStore.SetAllMembersStatus(ctx, team.ID, "active", "sleeping")
+			h.teamStore.UpdateTeamStatus(ctx, team.ID, "sleeping")
+		}
 	}
 
 	// Set all board sessions to sleeping
@@ -3072,6 +3312,14 @@ func (h *SessionsHandler) Wake(w http.ResponseWriter, r *http.Request) {
 	}
 	if cleaned > 0 {
 		log.Printf("[wake] cleaned %d orphaned sleeping rows for board %s", cleaned, boardName)
+	}
+
+	// Update team status to running
+	if relaunched > 0 && h.teamStore != nil {
+		if team, err := h.teamStore.GetTeam(ctx, boardName); err == nil && team != nil && team.Status == "sleeping" {
+			h.teamStore.SetAllMembersStatus(ctx, team.ID, "sleeping", "active")
+			h.teamStore.UpdateTeamStatus(ctx, team.ID, "running")
+		}
 	}
 
 	// Unpause board if at least one agent was woken

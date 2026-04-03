@@ -25,6 +25,7 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 
 ### Configuration
 - [Settings & System](settings-system.md) — App settings, status, CLI checks, network info
+- [Teams](teams.md) — Team lifecycle management, members, resurrect/relaunch
 - [Team Configuration](team-config.md) — Agent team configuration (agent.json schema)
 - [Hooks](hooks.md) — Per-agent and per-step hook configuration (lifecycle events, cross-agent support)
 - [Connected Apps](connected-apps.md) — OAuth connections to external services
