@@ -35,6 +35,9 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 - [Templates](templates.md) — Agent and command templates from GitHub
 - [Views](views.md) — Custom dashboard views/tabs
 
+### Observability
+- [LLM Proxy](proxy.md) — Proxy passthrough, cost tracking, dashboard API, WebSocket events
+
 ### Auth
 - [Authentication](auth.md) — API key management, session auth, auth status
 
@@ -79,6 +82,20 @@ Coral exposes a REST API over HTTP. All endpoints are prefixed with `/api/` unle
 | `GET` | `/api/views/{id}` | Get a view |
 | `PUT` | `/api/views/{id}` | Update a view |
 | `DELETE` | `/api/views/{id}` | Delete a view |
+
+### LLM Proxy (10 endpoints)
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/proxy/{sessionID}/v1/messages` | Forward Anthropic request |
+| `POST` | `/proxy/{sessionID}/v1/chat/completions` | Forward OpenAI request |
+| `GET` | `/proxy/health` | Proxy health check |
+| `GET` | `/api/proxy/stats` | Aggregated cost stats |
+| `GET` | `/api/proxy/requests` | List proxy requests |
+| `GET` | `/api/proxy/requests/{requestID}` | Get single request |
+| `GET` | `/api/proxy/session/{sessionID}/cost` | Session cost summary |
+| `GET` | `/api/proxy/tasks/runs/{runID}/cost` | Task run cost summary |
+| `GET` | `/api/proxy/pricing` | Model pricing table |
+| `GET` | `/ws/proxy` | Real-time proxy event stream (WebSocket) |
 
 ### Authentication (5 endpoints)
 | Method | Path | Description |

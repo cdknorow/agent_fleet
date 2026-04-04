@@ -57,6 +57,9 @@ func (a *GeminiAgent) BuildLaunchCommand(params LaunchParams) string {
 	if params.Role != "" {
 		parts = append(parts, fmt.Sprintf(`export CORAL_SUBSCRIBER_ID='%s' &&`, SanitizeShellValue(params.Role)))
 	}
+	if params.ProxyBaseURL != "" {
+		parts = append(parts, fmt.Sprintf(`export GEMINI_API_BASE='%s' &&`, sanitizeURL(params.ProxyBaseURL)))
+	}
 
 	// NOTE: PATH injection is handled by callers via WrapWithBundlePath()
 

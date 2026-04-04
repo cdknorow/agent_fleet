@@ -87,6 +87,9 @@ func (a *ClaudeAgent) BuildLaunchCommand(params LaunchParams) string {
 		if params.Role != "" {
 			envMap["CORAL_SUBSCRIBER_ID"] = params.Role
 		}
+		if params.ProxyBaseURL != "" {
+			envMap["ANTHROPIC_BASE_URL"] = params.ProxyBaseURL
+		}
 		merged["env"] = envMap
 	}
 

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	at "github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/cdknorow/coral/internal/background"
 	"github.com/cdknorow/coral/internal/config"
+	"github.com/cdknorow/coral/internal/proxy"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -19,6 +21,7 @@ type TasksHandler struct {
 	sched     *store.ScheduleStore
 	cfg       *config.Config
 	scheduler *background.JobScheduler
+	proxy     *proxy.Store
 }
 
 func NewTasksHandler(db *store.DB, cfg *config.Config) *TasksHandler {
@@ -33,22 +36,27 @@ func (h *TasksHandler) SetScheduler(s *background.JobScheduler) {
 	h.scheduler = s
 }
 
+// SetProxyStore injects the proxy request store for task-level cost rollups.
+func (h *TasksHandler) SetProxyStore(ps *proxy.Store) {
+	h.proxy = ps
+}
+
 // SubmitTask creates a one-shot task run.
 // POST /api/tasks/run
 func (h *TasksHandler) SubmitTask(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Prompt           string `json:"prompt"`
-		RepoPath         string `json:"repo_path"`
-		AgentType        string `json:"agent_type"`
-		BaseBranch       string `json:"base_branch"`
-		CreateWorktree   *bool  `json:"create_worktree"`
-		MaxDurationS     int    `json:"max_duration_s"`
-		CleanupWorktree  *bool  `json:"cleanup_worktree"`
-		Flags            string `json:"flags"`
-		DisplayName      string `json:"display_name"`
-		WebhookURL       string `json:"webhook_url"`
-		AutoAccept       bool   `json:"auto_accept"`
-		MaxAutoAccepts   int    `json:"max_auto_accepts"`
+		Prompt          string `json:"prompt"`
+		RepoPath        string `json:"repo_path"`
+		AgentType       string `json:"agent_type"`
+		BaseBranch      string `json:"base_branch"`
+		CreateWorktree  *bool  `json:"create_worktree"`
+		MaxDurationS    int    `json:"max_duration_s"`
+		CleanupWorktree *bool  `json:"cleanup_worktree"`
+		Flags           string `json:"flags"`
+		DisplayName     string `json:"display_name"`
+		WebhookURL      string `json:"webhook_url"`
+		AutoAccept      bool   `json:"auto_accept"`
+		MaxAutoAccepts  int    `json:"max_auto_accepts"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		errBadRequest(w, "invalid JSON")
@@ -63,7 +71,7 @@ func (h *TasksHandler) SubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if info, err := os.Stat(body.RepoPath); err != nil || !info.IsDir() {
-		errBadRequest(w, "repo_path '" + body.RepoPath + "' does not exist")
+		errBadRequest(w, "repo_path '"+body.RepoPath+"' does not exist")
 		return
 	}
 
@@ -162,6 +170,7 @@ func (h *TasksHandler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 		errNotFound(w, "run not found")
 		return
 	}
+	h.attachProxyCost(r.Context(), run)
 	writeJSON(w, http.StatusOK, run)
 }
 
@@ -209,6 +218,7 @@ func (h *TasksHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		errInternalServer(w, err.Error())
 		return
 	}
+	h.attachProxyCosts(r.Context(), runs)
 	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
 }
 
@@ -220,5 +230,42 @@ func (h *TasksHandler) ListActiveRuns(w http.ResponseWriter, r *http.Request) {
 		errInternalServer(w, err.Error())
 		return
 	}
+	h.attachProxyCosts(r.Context(), runs)
 	writeJSON(w, http.StatusOK, map[string]any{"runs": emptyIfNil(runs)})
+}
+
+func (h *TasksHandler) attachProxyCost(ctx context.Context, run *store.ScheduledRun) {
+	if h.proxy == nil || run == nil {
+		return
+	}
+	cost, err := h.proxy.GetTaskRunCost(ctx, run.ID)
+	if err != nil {
+		return
+	}
+	run.ProxyCostUSD = cost.TotalCostUSD
+	run.ProxyRequestCount = cost.TotalRequests
+	run.ProxyInputTokens = cost.TotalInputTokens
+	run.ProxyOutputTokens = cost.TotalOutputTokens
+}
+
+func (h *TasksHandler) attachProxyCosts(ctx context.Context, runs []store.ScheduledRun) {
+	if h.proxy == nil || len(runs) == 0 {
+		return
+	}
+	runIDs := make([]int64, 0, len(runs))
+	for _, run := range runs {
+		runIDs = append(runIDs, run.ID)
+	}
+	costs, err := h.proxy.GetTaskRunCosts(ctx, runIDs)
+	if err != nil {
+		return
+	}
+	for i := range runs {
+		if cost, ok := costs[runs[i].ID]; ok {
+			runs[i].ProxyCostUSD = cost.TotalCostUSD
+			runs[i].ProxyRequestCount = cost.TotalRequests
+			runs[i].ProxyInputTokens = cost.TotalInputTokens
+			runs[i].ProxyOutputTokens = cost.TotalOutputTokens
+		}
+	}
 }

@@ -37,6 +37,7 @@
     <link rel="stylesheet" href="/static/css/scheduler.css">
     <link rel="stylesheet" href="/static/css/workflows.css">
     <link rel="stylesheet" href="/static/css/connected_apps.css">
+    <link rel="stylesheet" href="/static/css/cost_dashboard.css">
     <link rel="stylesheet" href="/static/css/docs.css">
     <link rel="stylesheet" href="/static/css/theme-configurator.css">
     <link rel="stylesheet" href="/static/css/mobile.css">
@@ -225,6 +226,9 @@
                     </button>
                 </div>
                 <div class="welcome-secondary">
+                    <button class="welcome-secondary-link" onclick="showCostDashboard()">
+                        <span class="material-icons">payments</span> Token Usage
+                    </button>
                     <button class="welcome-secondary-link" onclick="showThemeConfigurator()">
                         <span class="material-icons">palette</span> Theme
                     </button>
@@ -257,6 +261,8 @@
             {{ template "includes/views/workflows.html" . }}
 
             {{ template "includes/views/connected_apps.html" . }}
+
+            {{ template "includes/views/cost_dashboard.html" . }}
 
             {{ template "includes/views/docs.html" . }}
         </main>

@@ -80,12 +80,21 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 	var launchCmd string
 	if !isTerminal {
 		protocolPath := findProtocolMD()
+		// Resolve proxy URL if proxy is enabled in settings
+		var proxyBaseURL string
+		if settings, err := l.sessDB.GetSettings(ctx); err == nil && settings["proxy_enabled"] == "true" {
+			if port := settings["proxy_port"]; port != "" {
+				proxyBaseURL = fmt.Sprintf("http://127.0.0.1:%s/proxy/%s", port, sessionID)
+			}
+		}
+
 		launchCmd = ag.BuildLaunchCommand(agent.LaunchParams{
 			SessionID:       sessionID,
 			ProtocolPath:    protocolPath,
 			ResumeSessionID: resumeSessionID,
 			Flags:           flags,
 			WorkingDir:      workingDir,
+			ProxyBaseURL:    proxyBaseURL,
 		})
 		// Ensure coral-hook-* binaries are reachable from app bundles
 		launchCmd = agent.WrapWithBundlePath(launchCmd)

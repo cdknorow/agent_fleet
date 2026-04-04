@@ -40,6 +40,7 @@ import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoa
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initWorkflows, showWorkflowsTab, selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow, showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow, editWorkflowWithAgent, workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList, launchWorkflowAgent } from './workflows.js';
 import { showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow, testConnectedApp, disconnectApp } from './connected_apps.js';
+import { showCostDashboard, _refreshCostDashboard, _costTimeRangeChanged } from './cost_dashboard.js';
 import { showDocsTab, selectDoc } from './docs.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 import { platform } from './platform/detect.js';
@@ -122,6 +123,8 @@ Object.assign(window, {
     // connected_apps
     showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow,
     testConnectedApp, disconnectApp,
+    // cost_dashboard
+    showCostDashboard, _refreshCostDashboard, _costTimeRangeChanged,
     // docs
     showDocsTab, selectDoc,
     // folder_tags

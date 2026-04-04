@@ -30,21 +30,25 @@ type ScheduledJob struct {
 
 // ScheduledRun represents a job execution record.
 type ScheduledRun struct {
-	ID            int64   `db:"id" json:"id"`
-	JobID         int64   `db:"job_id" json:"job_id"`
-	SessionID     *string `db:"session_id" json:"session_id"`
-	WorktreePath  *string `db:"worktree_path" json:"worktree_path"`
-	Status        string  `db:"status" json:"status"`
-	ScheduledAt   string  `db:"scheduled_at" json:"scheduled_at"`
-	StartedAt     *string `db:"started_at" json:"started_at"`
-	FinishedAt    *string `db:"finished_at" json:"finished_at"`
-	ExitReason    *string `db:"exit_reason" json:"exit_reason"`
-	ErrorMsg      *string `db:"error_msg" json:"error_msg"`
-	TriggerType   *string `db:"trigger_type" json:"trigger_type"`
-	WebhookURL    *string `db:"webhook_url" json:"webhook_url"`
-	DisplayName   *string `db:"display_name" json:"display_name"`
-	CreatedAt     string  `db:"created_at" json:"created_at"`
-	JobName       *string `db:"job_name" json:"job_name,omitempty"` // populated by JOIN queries
+	ID                int64   `db:"id" json:"id"`
+	JobID             int64   `db:"job_id" json:"job_id"`
+	SessionID         *string `db:"session_id" json:"session_id"`
+	WorktreePath      *string `db:"worktree_path" json:"worktree_path"`
+	Status            string  `db:"status" json:"status"`
+	ScheduledAt       string  `db:"scheduled_at" json:"scheduled_at"`
+	StartedAt         *string `db:"started_at" json:"started_at"`
+	FinishedAt        *string `db:"finished_at" json:"finished_at"`
+	ExitReason        *string `db:"exit_reason" json:"exit_reason"`
+	ErrorMsg          *string `db:"error_msg" json:"error_msg"`
+	TriggerType       *string `db:"trigger_type" json:"trigger_type"`
+	WebhookURL        *string `db:"webhook_url" json:"webhook_url"`
+	DisplayName       *string `db:"display_name" json:"display_name"`
+	CreatedAt         string  `db:"created_at" json:"created_at"`
+	JobName           *string `db:"job_name" json:"job_name,omitempty"` // populated by JOIN queries
+	ProxyCostUSD      float64 `db:"-" json:"proxy_cost_usd"`
+	ProxyRequestCount int     `db:"-" json:"proxy_request_count"`
+	ProxyInputTokens  int     `db:"-" json:"proxy_input_tokens"`
+	ProxyOutputTokens int     `db:"-" json:"proxy_output_tokens"`
 }
 
 // ScheduleStore provides CRUD for scheduled jobs and runs.

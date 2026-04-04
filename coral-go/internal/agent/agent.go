@@ -42,7 +42,8 @@ type LaunchParams struct {
 	Tools           []string              // allowed tools (e.g. ["TodoWrite", "Bash(npm *)"])
 	MCPServers      map[string]any        // MCP server configs keyed by name
 	Hooks           map[string]interface{} // per-agent hooks to merge into settings (Claude-native) or fire via runner (Gemini/Codex)
-	CLIPath         string                // custom path to agent binary (empty = default from PATH)
+	CLIPath      string // custom path to agent binary (empty = default from PATH)
+	ProxyBaseURL string // proxy base URL (e.g. "http://127.0.0.1:8420/proxy/{session_id}")
 }
 
 // Agent defines the interface for all agent implementations.

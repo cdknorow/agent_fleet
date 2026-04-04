@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -22,6 +22,7 @@ import (
 	"github.com/cdknorow/coral/internal/board"
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/license"
+	"github.com/cdknorow/coral/internal/proxy"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/server/routes"
 	"github.com/cdknorow/coral/internal/store"
@@ -40,20 +41,21 @@ var templateFS embed.FS
 
 // Server holds dependencies and exposes the HTTP router.
 type Server struct {
-	cfg           *config.Config
-	db            *store.DB
-	boardStore    *board.Store
-	backend       ptymanager.TerminalBackend
-	terminal      ptymanager.SessionTerminal
-	licenseMgr    *license.Manager
-	keyStore      *auth.KeyStore
-	router        chi.Router
-	indexTmpl     *template.Template
+	cfg             *config.Config
+	db              *store.DB
+	boardStore      *board.Store
+	backend         ptymanager.TerminalBackend
+	terminal        ptymanager.SessionTerminal
+	licenseMgr      *license.Manager
+	keyStore        *auth.KeyStore
+	router          chi.Router
+	indexTmpl       *template.Template
 	tasksHandler    *routes.TasksHandler
 	boardHandler    *routes.BoardHandler
 	historyHandler  *routes.HistoryHandler
 	systemHandler   *routes.SystemHandler
 	workflowHandler *routes.WorkflowHandler
+	proxy           *proxy.Proxy
 }
 
 // templateData is passed to Go templates during rendering.
@@ -528,6 +530,28 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/tasks/active", tasksHandler.ListActiveRuns)
 	r.Get("/api/tasks/runs/{runID}", tasksHandler.GetTaskStatus)
 	r.Post("/api/tasks/runs/{runID}/kill", tasksHandler.KillTask)
+
+	// ── LLM Proxy ──────────────────────────────────────────────
+	llmProxy := proxy.New(s.db.DB, proxy.DefaultProviderConfigs())
+	s.proxy = llmProxy
+	tasksHandler.SetProxyStore(llmProxy.Store())
+
+	// Proxy passthrough routes (outside /api to avoid auth collision with agent requests)
+	r.Route("/proxy", func(sub chi.Router) {
+		sub.Get("/health", llmProxy.Health)
+		sub.Post("/{sessionID}/v1/messages", llmProxy.HandleAnthropicMessages)
+		sub.Post("/{sessionID}/v1/chat/completions", llmProxy.HandleOpenAIChatCompletions)
+	})
+
+	// Proxy dashboard API
+	proxyDash := routes.NewProxyDashboardHandler(llmProxy.Store(), llmProxy.Events())
+	r.Get("/api/proxy/pricing", proxyDash.Pricing)
+	r.Get("/api/proxy/stats", proxyDash.Stats)
+	r.Get("/api/proxy/requests", proxyDash.ListRequests)
+	r.Get("/api/proxy/requests/{requestID}", proxyDash.GetRequest)
+	r.Get("/api/proxy/session/{sessionID}/cost", proxyDash.SessionCost)
+	r.Get("/api/proxy/tasks/runs/{runID}/cost", proxyDash.TaskRunCost)
+	r.Get("/ws/proxy", proxyDash.WSProxy)
 
 	// ── Static Files ────────────────────────────────────────────
 	staticSub, err := fs.Sub(staticFS, "frontend/static")

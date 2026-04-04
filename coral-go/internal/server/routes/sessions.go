@@ -2638,6 +2638,12 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 
 	role := naming.SubscriberID(displayName, agentType)
 
+	// Resolve proxy URL if proxy is enabled in settings
+	var proxyBaseURL string
+	if userSettings["proxy_enabled"] == "true" {
+		proxyBaseURL = fmt.Sprintf("http://127.0.0.1:%d/proxy/%s", h.cfg.Port, sessionID)
+	}
+
 	launchParams := agent.LaunchParams{
 		SessionID:       sessionID,
 		SessionName:     sessionName,
@@ -2655,6 +2661,7 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		MCPServers:      mcpServers,
 		Hooks:           hooks,
 		CLIPath:         cliPath,
+		ProxyBaseURL:    proxyBaseURL,
 	}
 	if cliPath != "" {
 		log.Printf("[launch] using custom CLI path: %s", cliPath)
