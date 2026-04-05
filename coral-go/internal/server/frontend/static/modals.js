@@ -2503,6 +2503,13 @@ export async function loadSettings() {
         if (s.refresh_files_on_switch === undefined) {
             s.refresh_files_on_switch = false;
         }
+        // Coerce proxy_enabled (default: disabled)
+        if (typeof s.proxy_enabled === "string") {
+            s.proxy_enabled = s.proxy_enabled === "True" || s.proxy_enabled === "true";
+        }
+        if (s.proxy_enabled === undefined) {
+            s.proxy_enabled = false;
+        }
         // Default file_search_mode to 'directory'
         if (!s.file_search_mode) {
             s.file_search_mode = 'directory';
@@ -2727,6 +2734,10 @@ export async function showSettingsModal() {
         groupByTeamCheck.checked = localStorage.getItem('coral-group-by-team') !== 'false';
     }
 
+    // Proxy Enabled
+    const proxyCheck = document.getElementById("settings-proxy-enabled");
+    if (proxyCheck) proxyCheck.checked = !!s.proxy_enabled;
+
     // Terminal Scrollback
     const scrollbackSelect = document.getElementById("settings-terminal-scrollback");
     if (scrollbackSelect) scrollbackSelect.value = s.terminal_scrollback || "1000";
@@ -2882,6 +2893,7 @@ export async function applySettings() {
     const checkUpdates = document.getElementById("settings-check-updates")?.checked ?? true;
     localStorage.setItem("coral-update-check-enabled", checkUpdates ? "true" : "false");
     const showScrollbars = document.getElementById("settings-show-scrollbars")?.checked ?? true;
+    const proxyEnabled = document.getElementById("settings-proxy-enabled")?.checked || false;
     const fileSearchMode = document.getElementById("settings-file-search-mode")?.value || "directory";
     const gitDiffMode = document.getElementById("settings-git-diff-mode")?.value || "branch_point";
 
@@ -2908,6 +2920,7 @@ export async function applySettings() {
         cli_path_claude: cliPathClaude,
         cli_path_codex: cliPathCodex,
         cli_path_gemini: cliPathGemini,
+        proxy_enabled: proxyEnabled,
         file_search_mode: fileSearchMode,
         git_diff_mode: gitDiffMode,
     };
