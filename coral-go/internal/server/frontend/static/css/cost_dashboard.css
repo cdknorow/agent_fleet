@@ -75,6 +75,11 @@
     font-variant-numeric: tabular-nums;
 }
 
+.cost-card-value-muted {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
 /* Sections */
 .cost-section {
     margin-bottom: 24px;
@@ -152,6 +157,26 @@
     text-overflow: ellipsis;
 }
 
+.cost-agent-link {
+    color: var(--accent, #58a6ff);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.cost-agent-link:hover {
+    text-decoration: underline;
+}
+
+.cost-agent-terminated {
+    opacity: 0.7;
+}
+
+.cost-agent-ended {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
 .cost-board-name {
     color: var(--text-muted);
     max-width: 120px;
@@ -190,6 +215,40 @@
 }
 
 .cost-agent-terminal {
+    background: rgba(136, 136, 136, 0.12);
+    color: var(--text-muted);
+}
+
+/* Model name */
+.cost-model-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Status badges */
+.cost-status {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.cost-status-ok {
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--success, #3fb950);
+}
+
+.cost-status-error {
+    background: rgba(248, 81, 73, 0.15);
+    color: #f85149;
+}
+
+.cost-status-pending {
     background: rgba(136, 136, 136, 0.12);
     color: var(--text-muted);
 }

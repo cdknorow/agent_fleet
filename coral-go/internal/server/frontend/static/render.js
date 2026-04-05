@@ -1,11 +1,72 @@
 /* Rendering functions for session lists, chat history, and status updates */
 
 import { state } from './state.js';
-import { escapeHtml, showToast, escapeAttr, dbg, showView, renderMarkdown, getAgentColor } from './utils.js';
+import { escapeHtml, showToast, escapeAttr, dbg, showView, renderMarkdown, getAgentColor, hexToRgba } from './utils.js';
 import { renderSidebarTagDots } from './tags.js';
 import { getFolderTags, renderFolderTagPills } from './folder_tags.js';
 import { updateSectionVisibility } from './sidebar.js';
 import { syncMobileAgentList } from './mobile.js';
+
+/* ── Agent Avatars ──────────────────────────────────────────────────── */
+
+const _roleAvatars = {
+    'orchestrator': '🎯', 'lead': '🔨', 'lead dev': '🔨', 'architect': '📐',
+    'frontend': '🎨', 'backend': '⚙️', 'qa': '🔍', 'quality': '🔍', 'test': '🧪',
+    'security': '🛡️', 'devops': '🚀', 'data': '📊', 'llm': '🧠', 'ai': '🤖',
+    'design': '✏️', 'writer': '📝', 'content': '📝', 'research': '🔬',
+    'marketing': '📣', 'seo': '📈', 'product': '💡', 'manager': '📋',
+    'terminal': '💻', 'ops': '🔧', 'infra': '☁️',
+};
+
+function _getAvatarEmoji(name) {
+    if (!name) return null;
+    const lower = name.toLowerCase();
+    for (const [keyword, emoji] of Object.entries(_roleAvatars)) {
+        if (lower.includes(keyword)) return emoji;
+    }
+    return null;
+}
+
+function _getInitials(name) {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+}
+
+function _renderAvatar(s, dotClass) {
+    const name = s.display_name || s.board_job_title || s.name || '';
+    const color = getAgentColor(name);
+    const statusDot = `<span class="avatar-status-dot ${dotClass}"></span>`;
+
+    // Custom icon takes priority
+    if (s.icon && !s.sleeping) {
+        return `<div class="agent-avatar" style="background:${hexToRgba(color, 0.15)}">
+            <span class="agent-avatar-emoji">${escapeHtml(s.icon)}</span>${statusDot}
+        </div>`;
+    }
+
+    // Sleeping
+    if (s.sleeping) {
+        return `<div class="agent-avatar" style="background:rgba(255,193,7,0.1)">
+            <span class="agent-avatar-emoji">🌙</span>${statusDot}
+        </div>`;
+    }
+
+    // Role-based emoji
+    const emoji = _getAvatarEmoji(name);
+    if (emoji) {
+        return `<div class="agent-avatar" style="background:${hexToRgba(color, 0.15)}">
+            <span class="agent-avatar-emoji">${emoji}</span>${statusDot}
+        </div>`;
+    }
+
+    // Fallback: colored initials
+    const initials = _getInitials(name);
+    return `<div class="agent-avatar" style="background:${hexToRgba(color, 0.2)};color:${color}">
+        <span class="agent-avatar-initials">${escapeHtml(initials)}</span>${statusDot}
+    </div>`;
+}
 
 function formatShortTime(isoStr) {
     const d = new Date(isoStr);
@@ -68,7 +129,9 @@ function buildSessionTooltip(s) {
     if (s.token_cost_usd > 0 || s.token_input > 0) {
         const tokIn = _formatTokens(s.token_input || 0);
         const tokOut = _formatTokens(s.token_output || 0);
+        const tokCache = (s.token_cache_read || 0);
         let tokenText = `${tokIn} in / ${tokOut} out`;
+        if (tokCache > 0) tokenText += ` / ${_formatTokens(tokCache)} cache`;
         if (s.token_cost_usd > 0) tokenText += ` · ${_formatCost(s.token_cost_usd)}`;
         rows.push(`<tr><td class="tt-label">Tokens</td><td class="tt-value">${tokenText}</td></tr>`);
     }
@@ -202,6 +265,7 @@ export function showBoardChatTab(boardName) {
     panel.innerHTML = `
         <div class="board-chat-header">
             <a class="board-chat-title" href="#" onclick="event.preventDefault(); selectBoardProject('${escapeAttr(boardName)}')" title="Open full board view">${escapeHtml(boardName)}</a>
+            <button class="btn-nav" id="board-chat-pause-btn" onclick="toggleBoardPause()" title="Pause/Resume message reads">Pause Reads</button>
             <button class="btn-nav board-select-btn" onclick="window._toggleBoardChatSelect()" title="Select messages to export">Export</button>
         </div>
         <div class="board-chat-messages" id="board-panel-msgs"></div>
@@ -511,8 +575,16 @@ async function _checkBoardPauseState(boardName) {
     try {
         const resp = await fetch(`/api/board/${encodeURIComponent(boardName)}/paused`);
         const data = await resp.json();
-        const btn = document.getElementById('board-pause-btn');
-        if (btn && data.paused) btn.classList.add('paused');
+        const btn = document.getElementById('board-chat-pause-btn');
+        if (btn) {
+            if (data.paused) {
+                btn.textContent = 'Resume Reads';
+                btn.classList.add('btn-warning');
+            } else {
+                btn.textContent = 'Pause Reads';
+                btn.classList.remove('btn-warning');
+            }
+        }
     } catch { /* ignore */ }
 }
 
@@ -724,6 +796,16 @@ export function killSessionDirect(name, agentType, sessionId) {
         const result = await resp.json();
         if (result.error) { showToast(result.error, true); return; }
         showToast(`Killed: ${name}`);
+        // Mark as done and preserve for history link instead of removing
+        const killed = state.liveSessions.find(s => s.session_id === sessionId);
+        if (killed) {
+            killed.done = true;
+            killed.working = false;
+            killed.waiting_for_input = false;
+            killed.stuck = false;
+            killed.sleeping = false;
+            state.killedSessions[sessionId] = killed;
+        }
         state.liveSessions = state.liveSessions.filter(s => s.session_id !== sessionId);
         if (state.currentSession && state.currentSession.session_id === sessionId) {
             state.currentSession = null;
@@ -835,6 +917,11 @@ export function hideAlertModal() {
     modal.style.display = "none";
 }
 
+export function dismissKilledSession(sessionId) {
+    delete state.killedSessions[sessionId];
+    renderLiveSessions(state.liveSessions);
+}
+
 export function copyFolderPath(path) {
     if (!path) return;
     navigator.clipboard.writeText(path).then(() => {
@@ -857,6 +944,13 @@ export async function killGroup(groupName) {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ agent_type: s.agent_type, session_id: s.session_id }),
                     });
+                    // Preserve killed session for history link
+                    s.done = true;
+                    s.working = false;
+                    s.waiting_for_input = false;
+                    s.stuck = false;
+                    s.sleeping = false;
+                    state.killedSessions[s.session_id] = s;
                 } catch (e) {
                     console.error(`Failed to kill ${s.name}:`, e);
                 }
@@ -883,6 +977,12 @@ export async function killBoard(boardName) {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ agent_type: s.agent_type, session_id: s.session_id }),
                     });
+                    s.done = true;
+                    s.working = false;
+                    s.waiting_for_input = false;
+                    s.stuck = false;
+                    s.sleeping = false;
+                    state.killedSessions[s.session_id] = s;
                 } catch (e) {
                     console.error(`Failed to kill ${s.name}:`, e);
                 }
@@ -1103,6 +1203,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed, teamDefaultDir) 
     const goalText = (isActive && s.summary) ? escapeHtml(s.summary) : null;
     const goal = goalText || "";
     const goalBtn = (!goalText && !isTerminal) ? `<button class="sidebar-goal-btn" onclick="event.stopPropagation(); requestGoal('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')" title="Generate Goal"><span class="material-icons" style="font-size:16px">auto_awesome</span></button>` : "";
+    const isDone = !!state.killedSessions?.[s.session_id];
     const displayLabel = s.display_name || (isCompact && s.board_job_title) || (isTerminal ? "Terminal" : "Agent");
     const mobileStatus = getMobileStatusChip(s);
     const lastActivity = formatStaleness(s.staleness_seconds);
@@ -1114,10 +1215,7 @@ function _renderSessionItem(s, groupName, isCompact, collapsed, teamDefaultDir) 
     const mobileAttentionBanner = s.waiting_for_input
         ? '<div class="session-mobile-banner">Waiting for your input</div>'
         : (s.stuck ? '<div class="session-mobile-banner error">Session needs attention</div>' : '');
-    const isOrchestrator = (s.display_name || s.board_job_title || '').toLowerCase().includes('orchestrator');
-    const sleepIcon = s.sleeping ? '<span class="agent-icon">🌙</span> ' : '';
-    const agentIcon = !s.sleeping && s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
-    const orchIcon = (!s.sleeping && !s.icon && isOrchestrator) ? '<svg class="orch-icon" width="12" height="12" viewBox="0 0 16 16" fill="var(--warning, #d29922)" stroke="none"><path d="M8 1l2 4 3-1-1 4H4L3 4l3 1 2-4zM4 10h8v2H4z"/></svg> ' : '';
+    const avatar = _renderAvatar(s, dotClass);
     const _sleepingMenu = `
             <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); toggleAgentSleep('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}', 'wake')">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 1 0 0 10 5 5 0 0 1 0-10z"/></svg>
@@ -1188,9 +1286,20 @@ function _renderSessionItem(s, groupName, isCompact, collapsed, teamDefaultDir) 
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
                 Kill Session
             </button>`;
+    const _doneMenu = `
+            <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); selectHistorySession('${sid}')">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3h10v10H3z"/><path d="M6 6h4"/><path d="M6 9h4"/></svg>
+                View History
+            </button>
+            <hr class="overflow-menu-divider">
+            <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); dismissKilledSession('${sid}')">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+                Dismiss
+            </button>`;
+    const kebabMenuContent = isDone ? _doneMenu : (s.sleeping ? _sleepingMenu : _awakeMenu);
     const kebabMenu = `<div class="sidebar-kebab-wrapper">
         <button class="sidebar-kebab-btn" onclick="event.stopPropagation(); toggleSidebarKebab(this)" title="More actions">&#x22EE;</button>
-        <div class="sidebar-kebab-menu" style="display:none">${s.sleeping ? _sleepingMenu : _awakeMenu}
+        <div class="sidebar-kebab-menu" style="display:none">${kebabMenuContent}
         </div>
     </div>`;
     const tooltip = buildSessionTooltip(s);
@@ -1198,16 +1307,20 @@ function _renderSessionItem(s, groupName, isCompact, collapsed, teamDefaultDir) 
     const collapsedClass = collapsed ? ' group-collapsed' : '';
     const sleepingClass = s.sleeping ? ' sleeping' : '';
     const attentionClass = needsAttention ? ' needs-attention' : '';
-    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}${attentionClass}"
+    const doneClass = isDone ? ' session-done' : '';
+    const clickHandler = isDone
+        ? `selectHistorySession('${sid}')`
+        : `selectLiveSession('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')`;
+    return `<li class="session-group-item${isActive ? ' active' : ''}${compactClass}${collapsedClass}${sleepingClass}${attentionClass}${doneClass}"
         draggable="true"
         data-session-id="${sid}"
         data-group="${escapeAttr(groupName)}"
-        onclick="selectLiveSession('${escapeAttr(s.name)}', '${escapeAttr(s.agent_type)}', '${sid}')">
+        onclick="${clickHandler}">
         <span class="drag-grip" title="Drag to reorder">&#x2630;</span>
-        <span class="session-dot ${dotClass}"></span>
+        ${avatar}
         <div class="session-info">
             <div class="session-name-row">
-                <span class="session-label">${isTerminal ? '<svg class="terminal-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,4 8,8 4,12"/><line x1="9" y1="12" x2="13" y2="12"/></svg> ' : ''}${sleepIcon}${agentIcon}${orchIcon}${escapeHtml(displayLabel)}${typeTag}${dirChip}</span>
+                <span class="session-label">${escapeHtml(displayLabel)}${typeTag}${dirChip}</span>
                 <span class="session-name-spacer"></span>
                 ${waitingBadge}
                 ${goalBtn}
@@ -1291,6 +1404,14 @@ export function toggleGroupByTeam() {
 }
 
 export function renderLiveSessions(sessions) {
+    // Merge killed sessions back so they appear as "done" with history links
+    const liveIds = new Set(sessions.map(s => s.session_id));
+    for (const [sid, ks] of Object.entries(state.killedSessions)) {
+        if (!liveIds.has(sid)) {
+            sessions.push(ks);
+        }
+    }
+
     const list = document.getElementById("live-sessions-list");
 
     updateSectionVisibility('live-sessions', sessions.length);
@@ -1391,6 +1512,10 @@ export function renderLiveSessions(sessions) {
                 <button class="overflow-menu-item" onclick="event.stopPropagation(); setBoardAccentColor('${escapeAttr(boardName)}'); closeSidebarKebabs()">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
                     Set Color
+                </button>
+                <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); showTeamTokenUsage('${escapeAttr(boardName)}')">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13V5h3v8H2zM7 13V3h3v10H7zM12 13V7h3v6h-3z"/></svg>
+                    Token Usage
                 </button>
                 <hr class="overflow-menu-divider">
                 <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); moveGroupUp('${escapeAttr(boardName)}')">
@@ -1611,6 +1736,10 @@ export function renderLiveSessions(sessions) {
                         <button class="overflow-menu-item" onclick="event.stopPropagation(); setBoardAccentColor('${escapeAttr(boardName)}'); closeSidebarKebabs()">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5v13M1.5 8h13"/></svg>
                             Set Color
+                        </button>
+                        <button class="overflow-menu-item" onclick="event.stopPropagation(); closeSidebarKebabs(); showTeamTokenUsage('${escapeAttr(boardName)}')">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13V5h3v8H2zM7 13V3h3v10H7zM12 13V7h3v6h-3z"/></svg>
+                            Token Usage
                         </button>
                         <hr class="overflow-menu-divider">
                         <button class="overflow-menu-item overflow-menu-danger" onclick="event.stopPropagation(); closeSidebarKebabs(); killBoard('${escapeAttr(boardName)}')">
@@ -1854,11 +1983,14 @@ export function renderHistoryChat(messages) {
 
     for (const entry of messages) {
         const type = entry.type || "unknown";
-        const msg = entry.message || {};
+        // Handle both normalized format (content/text on entry) and raw JSONL (nested under entry.message)
+        const msg = entry.message || entry;
         let content = "";
 
         if (typeof msg.content === "string") {
             content = msg.content;
+        } else if (typeof msg.text === "string") {
+            content = msg.text;
         } else if (Array.isArray(msg.content)) {
             content = msg.content
                 .filter(b => b.type === "text")
@@ -1933,6 +2065,29 @@ export async function updateTokenUsage(sessionId) {
     }
 }
 
+export async function updateHistoryTokenUsage(sessionId) {
+    const container = document.getElementById('history-token-usage');
+    if (!container) return;
+    if (!sessionId) { container.style.display = 'none'; return; }
+
+    try {
+        const resp = await fetch(`/api/proxy/session/${encodeURIComponent(sessionId)}/cost`);
+        if (!resp.ok) { container.style.display = 'none'; return; }
+        const data = await resp.json();
+        if (!data.total_requests) { container.style.display = 'none'; return; }
+
+        document.getElementById('htu-input').textContent = _formatTokens(data.total_input_tokens || 0);
+        document.getElementById('htu-output').textContent = _formatTokens(data.total_output_tokens || 0);
+        const cache = (data.total_cache_read_tokens || 0) + (data.total_cache_write_tokens || 0);
+        document.getElementById('htu-cache').textContent = cache > 0 ? _formatTokens(cache) : '—';
+        document.getElementById('htu-requests').textContent = String(data.total_requests);
+        document.getElementById('htu-cost').textContent = data.total_cost_usd > 0 ? _formatCost(data.total_cost_usd) : '—';
+        container.style.display = '';
+    } catch {
+        container.style.display = 'none';
+    }
+}
+
 export async function getTeamTokenUsage(boardName) {
     try {
         const resp = await fetch(`/api/token-usage?board_name=${encodeURIComponent(boardName)}`);
@@ -1945,6 +2100,86 @@ export async function getTeamTokenUsage(boardName) {
     } catch {
         return null;
     }
+}
+
+export async function showTeamTokenUsage(boardName) {
+    const modal = document.getElementById('task-detail-modal');
+    const titleEl = document.getElementById('task-detail-modal-title');
+    const content = document.getElementById('task-detail-content');
+    if (!modal || !content) return;
+
+    titleEl.textContent = `Token Usage — ${boardName}`;
+    content.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted)">Loading...</div>';
+    modal.style.display = '';
+    modal.onclick = (e) => { if (e.target === modal) { modal.style.display = 'none'; } };
+
+    // Collect session IDs for this board
+    const teamSessions = (state.liveSessions || []).filter(s => s.board_project === boardName);
+    if (teamSessions.length === 0) {
+        content.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted)">No agents in this team</div>';
+        return;
+    }
+
+    // Fetch proxy cost per session in parallel
+    const results = await Promise.all(teamSessions.map(async (s) => {
+        try {
+            const resp = await fetch(`/api/proxy/session/${encodeURIComponent(s.session_id)}/cost`);
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return { name: s.display_name || s.name, ...data };
+        } catch { return null; }
+    }));
+
+    const agents = results.filter(r => r && r.total_requests > 0);
+
+    // Compute totals
+    let totalIn = 0, totalOut = 0, totalCacheR = 0, totalCacheW = 0, totalCost = 0, totalReqs = 0;
+    for (const a of agents) {
+        totalIn += a.total_input_tokens || 0;
+        totalOut += a.total_output_tokens || 0;
+        totalCacheR += a.total_cache_read_tokens || 0;
+        totalCacheW += a.total_cache_write_tokens || 0;
+        totalCost += a.total_cost_usd || 0;
+        totalReqs += a.total_requests || 0;
+    }
+
+    if (agents.length === 0) {
+        content.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted)">No proxy usage recorded for this team</div>';
+        return;
+    }
+
+    // Render summary + agent table
+    let html = `<div class="info-token-grid" style="margin-bottom:16px">
+        <span class="info-token-label">Input</span><span class="info-token-value">${_formatTokens(totalIn)}</span>
+        <span class="info-token-label">Output</span><span class="info-token-value">${_formatTokens(totalOut)}</span>
+        <span class="info-token-label">Cache Read</span><span class="info-token-value">${_formatTokens(totalCacheR)}</span>
+        <span class="info-token-label">Cache Write</span><span class="info-token-value">${_formatTokens(totalCacheW)}</span>
+        <span class="info-token-label">Requests</span><span class="info-token-value">${totalReqs}</span>
+        <span class="info-token-label">Cost</span><span class="info-token-value">${_formatCost(totalCost)}</span>
+    </div>`;
+
+    html += `<table class="cost-table" style="font-size:12px">
+        <thead><tr>
+            <th>Agent</th>
+            <th style="text-align:right">Input</th>
+            <th style="text-align:right">Output</th>
+            <th style="text-align:right">Cache R</th>
+            <th style="text-align:right">Cache W</th>
+            <th style="text-align:right">Cost</th>
+        </tr></thead><tbody>`;
+
+    for (const a of agents.sort((x, y) => (y.total_cost_usd || 0) - (x.total_cost_usd || 0))) {
+        html += `<tr>
+            <td style="font-weight:500">${escapeHtml(a.name)}</td>
+            <td style="text-align:right">${_formatTokens(a.total_input_tokens || 0)}</td>
+            <td style="text-align:right">${_formatTokens(a.total_output_tokens || 0)}</td>
+            <td style="text-align:right">${_formatTokens(a.total_cache_read_tokens || 0)}</td>
+            <td style="text-align:right">${_formatTokens(a.total_cache_write_tokens || 0)}</td>
+            <td style="text-align:right;font-weight:600;color:var(--accent,#58a6ff)">${_formatCost(a.total_cost_usd || 0)}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    content.innerHTML = html;
 }
 
 export function updateSessionBranch(branch) {

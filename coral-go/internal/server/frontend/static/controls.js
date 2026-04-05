@@ -384,6 +384,16 @@ export async function killSession() {
             } else {
                 const killedSid = state.currentSession.session_id;
                 showToast(`Killed: ${state.currentSession.name}`);
+                // Preserve killed session for history link
+                const killed = state.liveSessions.find(s => s.session_id === killedSid);
+                if (killed) {
+                    killed.done = true;
+                    killed.working = false;
+                    killed.waiting_for_input = false;
+                    killed.stuck = false;
+                    killed.sleeping = false;
+                    state.killedSessions[killedSid] = killed;
+                }
                 stopCaptureRefresh();
                 state.currentSession = null;
                 showView("welcome-screen");

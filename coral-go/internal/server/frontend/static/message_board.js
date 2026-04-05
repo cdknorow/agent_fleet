@@ -346,14 +346,19 @@ async function loadPausedState(project) {
 }
 
 function updatePauseButton() {
-    const btn = document.getElementById('mb-pause-btn');
-    if (!btn) return;
-    if (isPaused) {
-        btn.textContent = 'Resume Reads';
-        btn.classList.add('btn-warning');
-    } else {
-        btn.textContent = 'Pause Reads';
-        btn.classList.remove('btn-warning');
+    const buttons = [
+        document.getElementById('mb-pause-btn'),
+        document.getElementById('board-chat-pause-btn'),
+    ];
+    for (const btn of buttons) {
+        if (!btn) continue;
+        if (isPaused) {
+            btn.textContent = 'Resume Reads';
+            btn.classList.add('btn-warning');
+        } else {
+            btn.textContent = 'Pause Reads';
+            btn.classList.remove('btn-warning');
+        }
     }
 }
 

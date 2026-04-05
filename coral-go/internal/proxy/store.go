@@ -21,6 +21,28 @@ func NewStore(db *sqlx.DB) *Store {
 }
 
 func (s *Store) migrate() {
+	// Ensure live_sessions exists (may already exist from main store) for JOINs.
+	s.db.MustExec(`CREATE TABLE IF NOT EXISTS live_sessions (
+		session_id   TEXT PRIMARY KEY,
+		agent_type   TEXT NOT NULL DEFAULT '',
+		agent_name   TEXT NOT NULL DEFAULT '',
+		working_dir  TEXT NOT NULL DEFAULT '',
+		display_name TEXT,
+		board_name   TEXT,
+		created_at   TEXT NOT NULL DEFAULT ''
+	)`)
+
+	// Ensure session_meta exists (may already exist from main store) for display_name fallback.
+	s.db.MustExec(`CREATE TABLE IF NOT EXISTS session_meta (
+		session_id   TEXT PRIMARY KEY,
+		notes_md     TEXT DEFAULT '',
+		auto_summary TEXT DEFAULT '',
+		is_user_edited INTEGER DEFAULT 0,
+		display_name TEXT,
+		created_at   TEXT NOT NULL DEFAULT '',
+		updated_at   TEXT NOT NULL DEFAULT ''
+	)`)
+
 	schema := `
 	CREATE TABLE IF NOT EXISTS proxy_requests (
 		id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +98,7 @@ func (s *Store) migrate() {
 		"ALTER TABLE proxy_requests ADD COLUMN pricing_output_per_mtok REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE proxy_requests ADD COLUMN pricing_cache_read_per_mtok REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE proxy_requests ADD COLUMN pricing_cache_write_per_mtok REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE proxy_requests ADD COLUMN display_name TEXT",
 	} {
 		s.db.Exec(stmt) // ignore duplicate-column errors
 	}
@@ -87,6 +110,7 @@ type ProxyRequest struct {
 	RequestID                string  `db:"request_id" json:"request_id"`
 	SessionID                string  `db:"session_id" json:"session_id"`
 	AgentName                *string `db:"agent_name" json:"agent_name"`
+	DisplayName              *string `db:"display_name" json:"display_name"`
 	AgentType                *string `db:"agent_type" json:"agent_type"`
 	BoardName                *string `db:"board_name" json:"board_name"`
 	Provider                 string  `db:"provider" json:"provider"`
@@ -123,25 +147,27 @@ func (s *Store) CreateRequest(ctx context.Context, reqID, sessionID string, prov
 		isStream = 1
 	}
 
-	var agentName, agentType, boardName *string
+	var agentName, agentType, boardName, displayName *string
 	var meta struct {
-		AgentName *string `db:"agent_name"`
-		AgentType *string `db:"agent_type"`
-		BoardName *string `db:"board_name"`
+		AgentName   *string `db:"agent_name"`
+		AgentType   *string `db:"agent_type"`
+		BoardName   *string `db:"board_name"`
+		DisplayName *string `db:"display_name"`
 	}
 	if err := s.db.GetContext(ctx, &meta,
-		`SELECT agent_name, agent_type, board_name FROM live_sessions WHERE session_id = ?`,
+		`SELECT agent_name, agent_type, board_name, display_name FROM live_sessions WHERE session_id = ?`,
 		sessionID); err == nil {
 		agentName = meta.AgentName
 		agentType = meta.AgentType
 		boardName = meta.BoardName
+		displayName = meta.DisplayName
 	}
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO proxy_requests
-		 (request_id, session_id, agent_name, agent_type, board_name, provider, model_requested, model_used, is_streaming, started_at, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-		reqID, sessionID, agentName, agentType, boardName, string(provider), model, model, isStream, time.Now().UTC().Format(time.RFC3339))
+		 (request_id, session_id, agent_name, agent_type, board_name, display_name, provider, model_requested, model_used, is_streaming, started_at, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+		reqID, sessionID, agentName, agentType, boardName, displayName, string(provider), model, model, isStream, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -174,19 +200,23 @@ func (s *Store) ListRequests(ctx context.Context, sessionID string, limit, offse
 	where := "1=1"
 	args := []any{}
 	if sessionID != "" {
-		where += " AND session_id = ?"
+		where += " AND pr.session_id = ?"
 		args = append(args, sessionID)
 	}
 
 	var total int
 	countArgs := make([]any, len(args))
 	copy(countArgs, args)
-	err := s.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM proxy_requests WHERE "+where, countArgs...)
+	err := s.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM proxy_requests pr WHERE "+where, countArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	query := "SELECT * FROM proxy_requests WHERE " + where + " ORDER BY started_at DESC LIMIT ? OFFSET ?"
+	query := `SELECT pr.*, COALESCE(pr.display_name, ls.display_name, sm.display_name, pr.agent_name) as display_name
+		FROM proxy_requests pr
+		LEFT JOIN live_sessions ls ON ls.session_id = pr.session_id
+		LEFT JOIN session_meta sm ON sm.session_id = pr.session_id
+		WHERE ` + where + ` ORDER BY pr.started_at DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	var rows []ProxyRequest
 	err = s.db.SelectContext(ctx, &rows, query, args...)
@@ -195,17 +225,23 @@ func (s *Store) ListRequests(ctx context.Context, sessionID string, limit, offse
 
 // Stats returns aggregated cost stats for a time period.
 type StatsResult struct {
-	TotalRequests     int     `json:"total_requests"`
-	TotalCostUSD      float64 `json:"total_cost_usd"`
-	TotalInputTokens  int     `json:"total_input_tokens"`
-	TotalOutputTokens int     `json:"total_output_tokens"`
+	TotalRequests          int     `db:"total_requests" json:"total_requests"`
+	TotalCostUSD           float64 `db:"total_cost_usd" json:"total_cost_usd"`
+	TotalInputTokens       int     `db:"total_input_tokens" json:"total_input_tokens"`
+	TotalOutputTokens      int     `db:"total_output_tokens" json:"total_output_tokens"`
+	TotalCacheReadTokens   int     `db:"total_cache_read_tokens" json:"total_cache_read_tokens"`
+	TotalCacheWriteTokens  int     `db:"total_cache_write_tokens" json:"total_cache_write_tokens"`
 }
 
 // ModelStats holds per-model aggregates.
 type ModelStats struct {
-	Model    string  `db:"model_used" json:"model"`
-	Requests int     `db:"requests" json:"requests"`
-	CostUSD  float64 `db:"cost_usd" json:"cost_usd"`
+	Model            string  `db:"model_used" json:"model"`
+	Requests         int     `db:"requests" json:"requests"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	InputTokens      int     `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int     `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int     `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int     `db:"cache_write_tokens" json:"cache_write_tokens"`
 }
 
 // GetStats returns aggregate stats, optionally filtered.
@@ -220,7 +256,8 @@ func (s *Store) GetStats(ctx context.Context, since string, sessionID string) (S
 	var stats StatsResult
 	err := s.db.GetContext(ctx, &stats,
 		`SELECT COUNT(*) as total_requests, COALESCE(SUM(cost_usd),0) as total_cost_usd,
-		 COALESCE(SUM(input_tokens),0) as total_input_tokens, COALESCE(SUM(output_tokens),0) as total_output_tokens
+		 COALESCE(SUM(input_tokens),0) as total_input_tokens, COALESCE(SUM(output_tokens),0) as total_output_tokens,
+		 COALESCE(SUM(cache_read_tokens),0) as total_cache_read_tokens, COALESCE(SUM(cache_write_tokens),0) as total_cache_write_tokens
 		 FROM proxy_requests WHERE `+where, args...)
 	if err != nil {
 		return stats, nil, err
@@ -230,7 +267,9 @@ func (s *Store) GetStats(ctx context.Context, since string, sessionID string) (S
 	modelArgs := make([]any, len(args))
 	copy(modelArgs, args)
 	err = s.db.SelectContext(ctx, &byModel,
-		`SELECT model_used, COUNT(*) as requests, COALESCE(SUM(cost_usd),0) as cost_usd
+		`SELECT model_used, COUNT(*) as requests, COALESCE(SUM(cost_usd),0) as cost_usd,
+		 COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens,
+		 COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens, COALESCE(SUM(cache_write_tokens),0) as cache_write_tokens
 		 FROM proxy_requests WHERE `+where+` GROUP BY model_used ORDER BY cost_usd DESC`, modelArgs...)
 	return stats, byModel, err
 }
@@ -252,10 +291,16 @@ func (s *Store) GetRequestByID(ctx context.Context, requestID string) (*ProxyReq
 
 // AgentStats holds per-agent (session) aggregates.
 type AgentStats struct {
-	SessionID string  `db:"session_id" json:"session_id"`
-	AgentName *string `db:"agent_name" json:"agent_name"`
-	Requests  int     `db:"requests" json:"requests"`
-	CostUSD   float64 `db:"cost_usd" json:"cost_usd"`
+	SessionID        string  `db:"session_id" json:"session_id"`
+	AgentName        *string `db:"agent_name" json:"agent_name"`
+	DisplayName      *string `db:"display_name" json:"display_name"`
+	IsLive           bool    `db:"is_live" json:"is_live"`
+	Requests         int     `db:"requests" json:"requests"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	InputTokens      int     `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int     `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int     `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int     `db:"cache_write_tokens" json:"cache_write_tokens"`
 }
 
 // TaskRunCost holds proxy cost totals for a scheduled/task run.
@@ -272,9 +317,17 @@ type TaskRunCost struct {
 func (s *Store) GetStatsByAgent(ctx context.Context, since string) ([]AgentStats, error) {
 	var byAgent []AgentStats
 	err := s.db.SelectContext(ctx, &byAgent,
-		`SELECT session_id, agent_name, COUNT(*) as requests, COALESCE(SUM(cost_usd),0) as cost_usd
-		 FROM proxy_requests WHERE started_at >= ?
-		 GROUP BY session_id ORDER BY cost_usd DESC`, since)
+		`SELECT pr.session_id, pr.agent_name,
+		 COALESCE(pr.display_name, ls.display_name, sm.display_name, pr.agent_name) as display_name,
+		 (ls.session_id IS NOT NULL) as is_live,
+		 COUNT(*) as requests, COALESCE(SUM(pr.cost_usd),0) as cost_usd,
+		 COALESCE(SUM(pr.input_tokens),0) as input_tokens, COALESCE(SUM(pr.output_tokens),0) as output_tokens,
+		 COALESCE(SUM(pr.cache_read_tokens),0) as cache_read_tokens, COALESCE(SUM(pr.cache_write_tokens),0) as cache_write_tokens
+		 FROM proxy_requests pr
+		 LEFT JOIN live_sessions ls ON ls.session_id = pr.session_id
+		 LEFT JOIN session_meta sm ON sm.session_id = pr.session_id
+		 WHERE pr.started_at >= ?
+		 GROUP BY pr.session_id ORDER BY cost_usd DESC`, since)
 	if err != nil {
 		return nil, err
 	}

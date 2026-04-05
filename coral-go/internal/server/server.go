@@ -74,6 +74,9 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 	if err != nil {
 		log.Printf("Warning: failed to open board store: %v", err)
 	}
+	if boardStore != nil && db != nil {
+		boardStore.SetSessionsDB(db.DB)
+	}
 
 	// Initialize license manager (skip when license not required)
 	licenseMgr := license.NewManager(cfg.CoralDir())
@@ -522,6 +525,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/board/{project}/tasks/{taskID}/complete", boardHandler.CompleteTaskByID)
 	r.Post("/api/board/{project}/tasks/{taskID}/cancel", boardHandler.CancelTaskByID)
 	r.Post("/api/board/{project}/tasks/{taskID}/reassign", boardHandler.ReassignTask)
+	r.Get("/api/board/{project}/tasks/{taskID}/cost", boardHandler.TaskLiveCost)
 
 	// One-shot tasks
 	tasksHandler := routes.NewTasksHandler(s.db, s.cfg)
@@ -542,6 +546,8 @@ func (s *Server) buildRouter() chi.Router {
 		sub.Get("/health", llmProxy.Health)
 		sub.Post("/{sessionID}/v1/messages", llmProxy.HandleAnthropicMessages)
 		sub.Post("/{sessionID}/v1/chat/completions", llmProxy.HandleOpenAIChatCompletions)
+		sub.Post("/{sessionID}/v1/responses", llmProxy.HandleOpenAIResponses)
+		sub.Post("/{sessionID}/responses", llmProxy.HandleOpenAIResponses)
 	})
 
 	// Proxy dashboard API

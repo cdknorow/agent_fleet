@@ -1011,6 +1011,58 @@
     color: var(--text-primary);
 }
 
+.board-task-cost {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    width: 60px;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.board-task-cost-live {
+    color: var(--accent-color, #4a9eff);
+    font-style: italic;
+}
+
+.board-task-cost-warning {
+    color: var(--error-color, #e74c3c) !important;
+    font-weight: 600;
+}
+
+.task-detail-cost-summary {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 4px 0 10px;
+}
+
+.task-detail-tokens {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 16px;
+}
+
+.task-detail-token-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.task-detail-token-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+}
+
+.task-detail-token-value {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
 /* ── Changed Files Panel ───────────────────────────────────── */
 
 .changed-files-header {

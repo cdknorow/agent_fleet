@@ -239,21 +239,25 @@ func TestUpstreamError(t *testing.T) {
 
 func TestCostCalculation(t *testing.T) {
 	tests := []struct {
+		name     string
 		model    string
 		usage    TokenUsage
 		expected float64
 	}{
 		{
+			name:     "exact match",
 			model:    "claude-sonnet-4-20250514",
 			usage:    TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
 			expected: 3.00 + 15.00, // $3/M input + $15/M output
 		},
 		{
+			name:     "exact match openai",
 			model:    "gpt-4o",
 			usage:    TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
 			expected: 2.50 + 10.00,
 		},
 		{
+			name:  "cache tokens",
 			model: "claude-sonnet-4-20250514",
 			usage: TokenUsage{
 				InputTokens:     1000,
@@ -263,18 +267,77 @@ func TestCostCalculation(t *testing.T) {
 			expected: 1000*3.00/1_000_000 + 500*15.00/1_000_000 + 200*0.30/1_000_000,
 		},
 		{
+			name:     "unknown model",
 			model:    "unknown-model",
 			usage:    TokenUsage{InputTokens: 1000},
 			expected: 0, // unknown model = no pricing
 		},
+		// Alias/short name tests — these are the model IDs agents actually send
+		{
+			name:     "claude-opus-4-6 alias",
+			model:    "claude-opus-4-6",
+			usage:    TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+			expected: 15.00 + 75.00,
+		},
+		{
+			name:     "claude-sonnet-4-6 alias",
+			model:    "claude-sonnet-4-6",
+			usage:    TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+			expected: 3.00 + 15.00,
+		},
+		{
+			name:     "claude-haiku-4-5-20251001 alias",
+			model:    "claude-haiku-4-5-20251001",
+			usage:    TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+			expected: 0.80 + 4.00,
+		},
+		{
+			name:     "claude-opus-4 short prefix",
+			model:    "claude-opus-4",
+			usage:    TokenUsage{InputTokens: 1_000_000},
+			expected: 15.00,
+		},
+		{
+			name:     "claude-sonnet-4-6-20250514 long alias",
+			model:    "claude-sonnet-4-6-20250514",
+			usage:    TokenUsage{InputTokens: 1_000_000},
+			expected: 3.00,
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			cost := CalculateCost(tt.model, tt.usage)
 			assert.InDelta(t, tt.expected, cost, 0.0001)
 		})
 	}
+}
+
+func TestLookupPricing(t *testing.T) {
+	// Verify all common model aliases resolve correctly
+	aliases := map[string]float64{
+		"claude-opus-4-20250514":      15.00, // exact
+		"claude-opus-4-6":             15.00, // short alias
+		"claude-opus-4-6-20250514":    15.00, // long alias
+		"claude-opus-4":               15.00, // family prefix
+		"claude-sonnet-4-20250514":    3.00,  // exact
+		"claude-sonnet-4-6":           3.00,  // short alias
+		"claude-haiku-4-20250514":     0.80,  // exact
+		"claude-haiku-4-5-20251001":   0.80,  // different date alias
+		"gpt-4o":                      2.50,  // exact
+		"gemini-2.5-pro":              1.25,  // exact
+	}
+	for model, expectedInput := range aliases {
+		t.Run(model, func(t *testing.T) {
+			p, ok := lookupPricing(model)
+			assert.True(t, ok, "should find pricing for %s", model)
+			assert.InDelta(t, expectedInput, p.InputPerMTok, 0.001)
+		})
+	}
+
+	// Unknown models should not match
+	_, ok := lookupPricing("totally-unknown")
+	assert.False(t, ok)
 }
 
 func TestAnthropicSSEParsing(t *testing.T) {

@@ -225,6 +225,12 @@
     gap: 6px;
 }
 
+.layout.sidebar-hidden > .sidebar,
+.layout.sidebar-hidden > .sidebar-resize-handle,
+.layout.sidebar-hidden > .tablet-sidebar-backdrop {
+    display: none;
+}
+
 .sidebar-resize-handle {
     width: 1px;
     cursor: col-resize;

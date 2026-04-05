@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cdknorow/coral/internal/naming"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -57,6 +59,12 @@ type Task struct {
 	CreatedAt         string  `db:"created_at" json:"created_at"`
 	ClaimedAt         *string `db:"claimed_at" json:"claimed_at,omitempty"`
 	CompletedAt       *string `db:"completed_at" json:"completed_at,omitempty"`
+	SessionID         *string  `db:"session_id" json:"session_id,omitempty"`
+	CostUSD           *float64 `db:"cost_usd" json:"cost_usd,omitempty"`
+	InputTokens       *int     `db:"input_tokens" json:"input_tokens,omitempty"`
+	OutputTokens      *int     `db:"output_tokens" json:"output_tokens,omitempty"`
+	CacheReadTokens   *int     `db:"cache_read_tokens" json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens  *int     `db:"cache_write_tokens" json:"cache_write_tokens,omitempty"`
 }
 
 // Message represents a board message.
@@ -82,7 +90,14 @@ type ProjectInfo struct {
 
 // Store provides message board operations with its own SQLite database.
 type Store struct {
-	db *sqlx.DB
+	db         *sqlx.DB
+	sessionsDB *sqlx.DB // optional reference to the main sessions DB for cross-DB queries
+}
+
+// SetSessionsDB sets an optional reference to the main sessions database,
+// enabling cross-DB queries for session_id resolution and cost tracking.
+func (s *Store) SetSessionsDB(db *sqlx.DB) {
+	s.sessionsDB = db
 }
 
 // NewStore creates a new board Store with its own database.
@@ -182,6 +197,12 @@ func (s *Store) ensureSchema(ctx context.Context) error {
 		"ALTER TABLE board_subscribers ADD COLUMN session_name TEXT",
 		"ALTER TABLE board_messages ADD COLUMN subscriber_id TEXT",
 		"ALTER TABLE board_groups ADD COLUMN subscriber_id TEXT",
+		"ALTER TABLE board_tasks ADD COLUMN session_id TEXT",
+		"ALTER TABLE board_tasks ADD COLUMN cost_usd REAL",
+		"ALTER TABLE board_tasks ADD COLUMN input_tokens INTEGER",
+		"ALTER TABLE board_tasks ADD COLUMN output_tokens INTEGER",
+		"ALTER TABLE board_tasks ADD COLUMN cache_read_tokens INTEGER",
+		"ALTER TABLE board_tasks ADD COLUMN cache_write_tokens INTEGER",
 	}
 	for _, ddl := range alterColumns {
 		if _, err := s.db.ExecContext(ctx, ddl); err != nil {
@@ -885,7 +906,7 @@ func (s *Store) DeleteProject(ctx context.Context, project string) error {
 func (s *Store) getTaskByID(ctx context.Context, project string, taskID int64) (*Task, error) {
 	var t Task
 	err := s.db.GetContext(ctx, &t,
-		"SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at FROM board_tasks WHERE id = ? AND board_id = ?", taskID, project)
+		"SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens FROM board_tasks WHERE id = ? AND board_id = ?", taskID, project)
 	if err != nil {
 		return nil, err
 	}
@@ -924,7 +945,7 @@ func (s *Store) CreateTask(ctx context.Context, project, title, body, priority, 
 func (s *Store) ListTasks(ctx context.Context, project string) ([]Task, error) {
 	var tasks []Task
 	err := s.db.SelectContext(ctx, &tasks,
-		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at FROM board_tasks WHERE board_id = ?
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens FROM board_tasks WHERE board_id = ?
 		 ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, id ASC`,
 		project)
 	if err != nil {
@@ -972,7 +993,7 @@ func (s *Store) FindIdleSubscriber(ctx context.Context, project string) *Subscri
 func (s *Store) ActiveTaskForSubscriber(ctx context.Context, project, subscriberID string) *Task {
 	var task Task
 	err := s.db.GetContext(ctx, &task,
-		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 		 FROM board_tasks WHERE board_id = ? AND assigned_to = ? AND status = 'in_progress'
 		 ORDER BY claimed_at DESC LIMIT 1`, project, subscriberID)
 	if err != nil {
@@ -988,7 +1009,7 @@ func (s *Store) NextPendingTaskForSubscriber(ctx context.Context, project, subsc
 	var task Task
 	// Check assigned tasks first
 	err := s.db.GetContext(ctx, &task,
-		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 		 FROM board_tasks WHERE board_id = ? AND status = 'pending' AND assigned_to = ?
 		 ORDER BY `+priorityOrder+` LIMIT 1`, project, subscriberID)
 	if err == nil {
@@ -996,7 +1017,7 @@ func (s *Store) NextPendingTaskForSubscriber(ctx context.Context, project, subsc
 	}
 	// Then unassigned
 	err = s.db.GetContext(ctx, &task,
-		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 		 FROM board_tasks WHERE board_id = ? AND status = 'pending' AND (assigned_to IS NULL OR assigned_to = '')
 		 ORDER BY `+priorityOrder+` LIMIT 1`, project, subscriberID)
 	if err == nil {
@@ -1064,7 +1085,80 @@ func (s *Store) ClaimTask(ctx context.Context, project, subscriberID string) (*T
 		return nil, nil // lost race on the task itself
 	}
 
+	// Resolve session_id: board_subscribers (board DB) → live_sessions (sessions DB).
+	// session_name is "{agentType}-{sessionUUID}" (e.g. "claude-514f6f49-...").
+	// Extract the UUID via naming.SessionIDFromName and verify it exists.
+	if s.sessionsDB != nil {
+		var sessionName string
+		err := s.db.GetContext(ctx, &sessionName,
+			`SELECT session_name FROM board_subscribers
+			 WHERE subscriber_id = ? AND project = ? AND is_active = 1 LIMIT 1`,
+			subscriberID, project)
+		if err == nil && sessionName != "" {
+			sessionUUID := naming.SessionIDFromName(sessionName)
+			var exists int
+			err = s.sessionsDB.GetContext(ctx, &exists,
+				`SELECT 1 FROM live_sessions WHERE session_id = ? LIMIT 1`,
+				sessionUUID)
+			if err == nil {
+				s.db.ExecContext(ctx,
+					`UPDATE board_tasks SET session_id = ? WHERE id = ?`,
+					sessionUUID, taskID)
+			}
+		}
+		// If lookup fails, session_id stays NULL — claiming still succeeds.
+	}
+
 	return s.getTaskByID(ctx, project, taskID)
+}
+
+// computeAndStoreTaskCost queries the sessions DB for proxy request costs
+// incurred during the task's lifetime and stores them on the task.
+func (s *Store) computeAndStoreTaskCost(ctx context.Context, taskID int64) {
+	if s.sessionsDB == nil {
+		return
+	}
+	// Fetch the task's session_id and time window.
+	var task struct {
+		SessionID *string `db:"session_id"`
+		ClaimedAt *string `db:"claimed_at"`
+		CompletedAt *string `db:"completed_at"`
+	}
+	if err := s.db.GetContext(ctx, &task,
+		`SELECT session_id, claimed_at, completed_at FROM board_tasks WHERE id = ?`, taskID); err != nil {
+		return
+	}
+	if task.SessionID == nil || task.ClaimedAt == nil || task.CompletedAt == nil {
+		return
+	}
+
+	var costs struct {
+		CostUSD          float64 `db:"cost_usd"`
+		InputTokens      int     `db:"input_tokens"`
+		OutputTokens     int     `db:"output_tokens"`
+		CacheReadTokens  int     `db:"cache_read_tokens"`
+		CacheWriteTokens int     `db:"cache_write_tokens"`
+	}
+	err := s.sessionsDB.GetContext(ctx, &costs,
+		`SELECT COALESCE(SUM(cost_usd), 0) AS cost_usd,
+		        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+		        COALESCE(SUM(output_tokens), 0) AS output_tokens,
+		        COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+		        COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
+		 FROM proxy_requests
+		 WHERE session_id = ? AND started_at >= ? AND started_at <= ?`,
+		*task.SessionID, *task.ClaimedAt, *task.CompletedAt)
+	if err != nil {
+		return
+	}
+
+	s.db.ExecContext(ctx,
+		`UPDATE board_tasks
+		 SET cost_usd = ?, input_tokens = ?, output_tokens = ?,
+		     cache_read_tokens = ?, cache_write_tokens = ?
+		 WHERE id = ?`,
+		costs.CostUSD, costs.InputTokens, costs.OutputTokens,
+		costs.CacheReadTokens, costs.CacheWriteTokens, taskID)
 }
 
 // CompleteTask marks a task as completed.
@@ -1083,6 +1177,8 @@ func (s *Store) CompleteTask(ctx context.Context, project string, taskID int64, 
 		return nil, fmt.Errorf("task #%d cannot be completed (not in progress or not found)", taskID)
 	}
 
+	s.computeAndStoreTaskCost(ctx, taskID)
+
 	return s.getTaskByID(ctx, project, taskID)
 }
 
@@ -1095,7 +1191,7 @@ func (s *Store) ReassignTask(ctx context.Context, project string, taskID int64, 
 	}
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE board_tasks
-		 SET status = 'pending', assigned_to = ?, claimed_at = NULL
+		 SET status = 'pending', assigned_to = ?, claimed_at = NULL, session_id = NULL
 		 WHERE id = ? AND board_id = ? AND status IN ('pending', 'in_progress')`,
 		assignPtr, taskID, project)
 	if err != nil {
@@ -1125,5 +1221,74 @@ func (s *Store) CancelTask(ctx context.Context, project string, taskID int64, su
 		return nil, fmt.Errorf("task #%d cannot be cancelled (already completed or not found)", taskID)
 	}
 
+	s.computeAndStoreTaskCost(ctx, taskID)
+
 	return s.getTaskByID(ctx, project, taskID)
+}
+
+// TaskLiveCost holds real-time cost data for an in-progress task.
+type TaskLiveCost struct {
+	TaskID           int64   `json:"task_id"`
+	SessionID        string  `json:"session_id"`
+	CostUSD          float64 `json:"cost_usd"`
+	InputTokens      int     `json:"input_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+	RequestCount     int     `json:"request_count"`
+}
+
+// GetTaskLiveCost computes the current cost for a task by querying
+// proxy_requests from claimed_at to now. Returns nil if the task has no session_id
+// or the sessions DB is not available.
+func (s *Store) GetTaskLiveCost(ctx context.Context, project string, taskID int64) (*TaskLiveCost, error) {
+	if s.sessionsDB == nil {
+		return nil, nil
+	}
+
+	var task struct {
+		SessionID *string `db:"session_id"`
+		ClaimedAt *string `db:"claimed_at"`
+	}
+	if err := s.db.GetContext(ctx, &task,
+		`SELECT session_id, claimed_at FROM board_tasks WHERE id = ? AND board_id = ?`,
+		taskID, project); err != nil {
+		return nil, fmt.Errorf("task #%d not found", taskID)
+	}
+	if task.SessionID == nil || task.ClaimedAt == nil {
+		return nil, nil
+	}
+
+	var costs struct {
+		CostUSD          float64 `db:"cost_usd"`
+		InputTokens      int     `db:"input_tokens"`
+		OutputTokens     int     `db:"output_tokens"`
+		CacheReadTokens  int     `db:"cache_read_tokens"`
+		CacheWriteTokens int     `db:"cache_write_tokens"`
+		RequestCount     int     `db:"request_count"`
+	}
+	err := s.sessionsDB.GetContext(ctx, &costs,
+		`SELECT COALESCE(SUM(cost_usd), 0) AS cost_usd,
+		        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+		        COALESCE(SUM(output_tokens), 0) AS output_tokens,
+		        COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+		        COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+		        COUNT(*) AS request_count
+		 FROM proxy_requests
+		 WHERE session_id = ? AND started_at >= ?`,
+		*task.SessionID, *task.ClaimedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TaskLiveCost{
+		TaskID:           taskID,
+		SessionID:        *task.SessionID,
+		CostUSD:          costs.CostUSD,
+		InputTokens:      costs.InputTokens,
+		OutputTokens:     costs.OutputTokens,
+		CacheReadTokens:  costs.CacheReadTokens,
+		CacheWriteTokens: costs.CacheWriteTokens,
+		RequestCount:     costs.RequestCount,
+	}, nil
 }

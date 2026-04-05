@@ -382,7 +382,7 @@ func startBackgroundServices(ctx context.Context, db *store.DB, cfg *config.Conf
 
 	// Job scheduler
 	scheduler := background.NewJobScheduler(schedStore, 30*time.Second)
-	launcher := background.NewAgentLauncher(agentRT, sessStore)
+	launcher := background.NewAgentLauncher(agentRT, sessStore, cfg.Port)
 	scheduler.SetLaunchFn(launcher.BuildSchedulerLaunchFn(schedStore))
 	scheduler.SetSessionStore(sessStore)
 	scheduler.SetRuntime(agentRT)

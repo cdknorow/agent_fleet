@@ -122,6 +122,7 @@ const VIEW_IDS = [
     "messageboard-view",
     "workflows-view",
     "connected-apps-view",
+    "cost-dashboard-view",
     "docs-view",
 ];
 
@@ -133,14 +134,23 @@ const VIEW_DISPLAY = {
     "messageboard-view": "flex",
     "workflows-view": "block",
     "connected-apps-view": "block",
+    "cost-dashboard-view": "flex",
     "docs-view": "block",
 };
+
+const FULL_WIDTH_VIEWS = new Set([
+    "cost-dashboard-view",
+    "workflows-view",
+    "connected-apps-view",
+]);
 
 export function showView(activeId) {
     for (const id of VIEW_IDS) {
         const el = document.getElementById(id);
         if (el) el.style.display = id === activeId ? VIEW_DISPLAY[id] : "none";
     }
+    const layout = document.querySelector('.layout');
+    if (layout) layout.classList.toggle('sidebar-hidden', FULL_WIDTH_VIEWS.has(activeId));
 }
 
 export function renderMarkdown(content) {

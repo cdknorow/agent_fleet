@@ -687,6 +687,107 @@
     font-size: 12px;
 }
 
+.session-info-modal {
+    width: min(1120px, calc(100vw - 48px));
+    max-width: 1120px;
+}
+
+.session-info-grid {
+    grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+    gap: 16px 24px;
+    align-items: start;
+}
+
+.session-info-grid dt {
+    padding-top: 8px;
+    line-height: 1.35;
+}
+
+.session-info-grid dd {
+    min-width: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+
+.session-info-grid > dt:first-child,
+.session-info-grid > dt:first-child + dd,
+.session-info-grid > dt:nth-child(3),
+.session-info-grid > dt:nth-child(3) + dd,
+.session-info-grid > dt:nth-child(5),
+.session-info-grid > dt:nth-child(5) + dd {
+    padding-top: 0;
+}
+
+.info-value-emphasis {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.info-value-mono,
+.info-value-path {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.info-command-row {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
+}
+
+.info-code-block {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 10px 12px !important;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary) !important;
+}
+
+.info-text-block {
+    white-space: pre-wrap;
+    line-height: 1.45;
+}
+
+.info-token-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+}
+
+.info-token-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+}
+
+.info-token-label {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+}
+
+.info-token-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 1.1;
+}
+
 .settings-grid {
     grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
     gap: 14px 18px;
@@ -709,6 +810,33 @@
 }
 
 @media (max-width: 760px) {
+    .session-info-modal {
+        width: min(100%, calc(100vw - 20px));
+        max-width: none;
+    }
+
+    .session-info-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .session-info-grid dt {
+        padding-top: 0;
+    }
+
+    .session-info-grid dd {
+        margin-bottom: 6px;
+    }
+
+    .info-command-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    .info-token-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .settings-grid {
         grid-template-columns: 1fr;
         gap: 8px;
@@ -2975,7 +3103,7 @@
 
 /* ── Message Board Layout ──────────────────────────────────── */
 
-.mb-view-header {
+.mb-view-header.mb-view-header {
     display: flex;
     align-items: center;
     padding: 12px 0;

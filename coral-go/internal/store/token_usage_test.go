@@ -200,3 +200,185 @@ func TestTokenUsageStore_DefaultAgentType(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude", got.AgentType)
 }
+
+func TestTokenUsageStore_CacheTokens(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	err := s.RecordUsage(ctx, &TokenUsage{
+		SessionID:        "s1",
+		AgentName:        "a1",
+		InputTokens:      1000,
+		OutputTokens:     500,
+		CacheReadTokens:  300,
+		CacheWriteTokens: 100,
+		TotalTokens:      1900,
+		CostUSD:          0.04,
+	})
+	require.NoError(t, err)
+
+	got, err := s.GetSessionUsage(ctx, "s1")
+	require.NoError(t, err)
+	assert.Equal(t, 300, got.CacheReadTokens)
+	assert.Equal(t, 100, got.CacheWriteTokens)
+	assert.Equal(t, 1900, got.TotalTokens)
+}
+
+func TestTokenUsageStore_GetLatestUsageBySessionIDs(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	// Record multiple snapshots for s1 and one for s2
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", TotalTokens: 100, CostUSD: 0.01,
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", TotalTokens: 500, CostUSD: 0.05,
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2", TotalTokens: 200, CostUSD: 0.02,
+	}))
+
+	result, err := s.GetLatestUsageBySessionIDs(ctx, []string{"s1", "s2", "s3"})
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+
+	// s1 should have the latest snapshot
+	assert.Equal(t, 500, result["s1"].TotalTokens)
+	assert.InDelta(t, 0.05, result["s1"].CostUSD, 0.001)
+
+	// s2 should have its only snapshot
+	assert.Equal(t, 200, result["s2"].TotalTokens)
+
+	// s3 should not be present
+	assert.Nil(t, result["s3"])
+}
+
+func TestTokenUsageStore_GetLatestUsageBySessionIDs_Empty(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	result, err := s.GetLatestUsageBySessionIDs(ctx, []string{})
+	require.NoError(t, err)
+	assert.Len(t, result, 0)
+}
+
+func TestTokenUsageStore_ListUsage_SinceFilter(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s-old", AgentName: "a1", TotalTokens: 100, RecordedAt: "2020-01-01T00:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s-new", AgentName: "a2", TotalTokens: 500, RecordedAt: "2025-06-01T00:00:00Z",
+	}))
+
+	results, err := s.ListUsage(ctx, UsageFilter{Since: "2025-01-01T00:00:00Z"})
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "s-new", results[0].SessionID)
+}
+
+func TestTokenUsageStore_GetUsageSummary_SinceFilter(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s-old", AgentName: "a1", AgentType: "claude",
+		TotalTokens: 100, CostUSD: 0.01, RecordedAt: "2020-01-01T00:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s-new", AgentName: "a2", AgentType: "claude",
+		TotalTokens: 500, CostUSD: 0.05, RecordedAt: "2025-06-01T00:00:00Z",
+	}))
+
+	summaries, err := s.GetUsageSummary(ctx, "2025-01-01T00:00:00Z")
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, int64(500), summaries[0].TotalTokens)
+	assert.Equal(t, 1, summaries[0].NumSessions)
+}
+
+func TestTokenUsageStore_RecordSetsID(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	u := &TokenUsage{SessionID: "s1", AgentName: "a1", TotalTokens: 100}
+	require.NoError(t, s.RecordUsage(ctx, u))
+	assert.Greater(t, u.ID, int64(0))
+}
+
+func TestTokenUsageStore_RecordDefaultsRecordedAt(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	u := &TokenUsage{SessionID: "s1", AgentName: "a1", TotalTokens: 100}
+	require.NoError(t, s.RecordUsage(ctx, u))
+	assert.NotEmpty(t, u.RecordedAt)
+}
+
+func TestTokenUsageStore_GetTeamUsage_CacheTokens(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	teamID := int64(1)
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", TeamID: &teamID,
+		InputTokens: 100, CacheReadTokens: 50, CacheWriteTokens: 20,
+		TotalTokens: 170, CostUSD: 0.01,
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2", TeamID: &teamID,
+		InputTokens: 200, CacheReadTokens: 30, CacheWriteTokens: 10,
+		TotalTokens: 240, CostUSD: 0.02,
+	}))
+
+	summary, err := s.GetTeamUsage(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(80), summary.CacheReadTokens)
+	assert.Equal(t, int64(30), summary.CacheWriteTokens)
+}
+
+func TestTokenUsageStore_GetBoardUsage_NoMatch(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	summary, err := s.GetBoardUsage(ctx, "nonexistent")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), summary.TotalTokens)
+	assert.Equal(t, 0, summary.NumSessions)
+}
+
+func TestTokenUsageStore_ListUsage_MultipleFilters(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	teamID := int64(1)
+	board := "eng"
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", TeamID: &teamID, BoardName: &board, TotalTokens: 100,
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2", TeamID: &teamID, TotalTokens: 200,
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s3", AgentName: "a3", BoardName: &board, TotalTokens: 300,
+	}))
+
+	// Filter by both team AND board
+	results, err := s.ListUsage(ctx, UsageFilter{TeamID: &teamID, BoardName: "eng"})
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "s1", results[0].SessionID)
+}

@@ -197,6 +197,175 @@ func (p *Proxy) HandleOpenAIChatCompletions(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// HandleOpenAIResponses proxies OpenAI Responses API requests.
+// POST /proxy/{sessionID}/v1/responses
+func (p *Proxy) HandleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	cfg, ok := p.providers[ProviderOpenAI]
+
+	usePassthroughAuth := !ok || cfg.APIKey == ""
+	if usePassthroughAuth {
+		if r.Header.Get("Authorization") == "" {
+			http.Error(w, `{"error":"no OpenAI auth provided — set OPENAI_API_KEY or pass Authorization header"}`, http.StatusBadGateway)
+			return
+		}
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = "https://api.openai.com"
+		}
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024))
+	if err != nil {
+		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	var meta struct {
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
+	}
+	json.Unmarshal(body, &meta)
+
+	reqID := uuid.New().String()
+	if err := p.store.CreateRequest(r.Context(), reqID, sessionID, ProviderOpenAI, meta.Model, meta.Stream); err != nil {
+		slog.Error("[proxy] failed to create request record", "error", err, "request_id", reqID)
+	}
+	p.events.PublishStarted(reqID, sessionID, ProviderOpenAI, meta.Model, meta.Stream)
+
+	upstreamURL := strings.TrimRight(cfg.BaseURL, "/") + "/v1/responses"
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), "POST", upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		p.completeWithError(r.Context(), reqID, sessionID, meta.Model, 0, "failed to create upstream request: "+err.Error())
+		http.Error(w, `{"error":"proxy internal error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	upstreamReq.Header.Set("Content-Type", "application/json")
+	if usePassthroughAuth {
+		upstreamReq.Header.Set("Authorization", r.Header.Get("Authorization"))
+	} else {
+		upstreamReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	}
+
+	if meta.Stream {
+		p.handleOpenAIResponsesSSE(w, upstreamReq, reqID, sessionID, meta.Model)
+	} else {
+		p.handleOpenAIResponsesJSON(w, upstreamReq, reqID, sessionID, meta.Model)
+	}
+}
+
+// ── OpenAI Responses API handlers ─────────────────────────────────────
+
+func (p *Proxy) handleOpenAIResponsesJSON(w http.ResponseWriter, req *http.Request, reqID, sessionID, model string) {
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.completeWithError(req.Context(), reqID, sessionID, model, 0, "upstream request failed: "+err.Error())
+		http.Error(w, `{"error":"upstream request failed"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		p.completeWithError(req.Context(), reqID, sessionID, model, resp.StatusCode, "failed to read upstream response")
+		http.Error(w, `{"error":"failed to read upstream response"}`, http.StatusBadGateway)
+		return
+	}
+
+	usage := extractOpenAIResponsesUsage(body)
+	breakdown := CalculateCostBreakdown(model, usage)
+
+	status := "success"
+	errMsg := ""
+	if resp.StatusCode >= 400 {
+		status = "error"
+		errMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+	}
+	p.store.CompleteRequest(req.Context(), reqID, usage, breakdown, resp.StatusCode, status, errMsg)
+	if status == "error" {
+		p.events.PublishError(reqID, sessionID, model, resp.StatusCode, errMsg)
+	} else {
+		p.events.PublishCompleted(reqID, sessionID, model, usage, breakdown.TotalCostUSD, 0, resp.StatusCode)
+	}
+
+	p.setProxyHeaders(w, reqID, sessionID, breakdown.TotalCostUSD)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+func (p *Proxy) handleOpenAIResponsesSSE(w http.ResponseWriter, req *http.Request, reqID, sessionID, model string) {
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.completeWithError(req.Context(), reqID, sessionID, model, 0, "upstream request failed: "+err.Error())
+		http.Error(w, `{"error":"upstream request failed"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		usage := extractOpenAIResponsesUsage(body)
+		breakdown := CalculateCostBreakdown(model, usage)
+		errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		p.store.CompleteRequest(req.Context(), reqID, usage, breakdown, resp.StatusCode, "error", errMsg)
+		p.events.PublishError(reqID, sessionID, model, resp.StatusCode, errMsg)
+		p.setProxyHeaders(w, reqID, sessionID, breakdown.TotalCostUSD)
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		p.completeWithError(req.Context(), reqID, sessionID, model, 0, "streaming not supported")
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	p.setProxyHeaders(w, reqID, sessionID, 0)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	var usage TokenUsage
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "data: ") {
+			data := line[6:]
+			usage = parseOpenAIResponsesSSEChunk(data, usage)
+		}
+
+		fmt.Fprintf(w, "%s\n", line)
+		flusher.Flush()
+	}
+
+	completeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := scanner.Err(); err != nil {
+		p.completeWithError(completeCtx, reqID, sessionID, model, resp.StatusCode, "stream read error: "+err.Error())
+		return
+	}
+
+	breakdown := CalculateCostBreakdown(model, usage)
+	p.store.CompleteRequest(completeCtx, reqID, usage, breakdown, resp.StatusCode, "success", "")
+	p.events.PublishCompleted(reqID, sessionID, model, usage, breakdown.TotalCostUSD, 0, resp.StatusCode)
+
+	if debugProxy() {
+		slog.Info("[proxy] openai responses SSE complete",
+			"request_id", reqID, "model", model,
+			"input_tokens", usage.InputTokens, "output_tokens", usage.OutputTokens,
+			"cost_usd", fmt.Sprintf("%.6f", breakdown.TotalCostUSD))
+	}
+}
+
 // ── Anthropic response handlers ────────────────────────────────────────
 
 func (p *Proxy) handleAnthropicJSON(w http.ResponseWriter, req *http.Request, reqID, sessionID, model string) {
@@ -524,6 +693,57 @@ func extractOpenAIUsage(body []byte) TokenUsage {
 		InputTokens:  resp.Usage.PromptTokens,
 		OutputTokens: resp.Usage.CompletionTokens,
 	}
+}
+
+// extractOpenAIResponsesUsage extracts token usage from a non-streaming OpenAI Responses API response.
+// The Responses API uses input_tokens/output_tokens (not prompt_tokens/completion_tokens).
+func extractOpenAIResponsesUsage(body []byte) TokenUsage {
+	var resp struct {
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			InputTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return TokenUsage{}
+	}
+	return TokenUsage{
+		InputTokens:     resp.Usage.InputTokens,
+		OutputTokens:    resp.Usage.OutputTokens,
+		CacheReadTokens: resp.Usage.InputTokensDetails.CachedTokens,
+	}
+}
+
+// parseOpenAIResponsesSSEChunk extracts token usage from OpenAI Responses API SSE data.
+// Usage appears in the response.completed event.
+func parseOpenAIResponsesSSEChunk(data string, current TokenUsage) TokenUsage {
+	if data == "[DONE]" {
+		return current
+	}
+	var chunk struct {
+		Type     string `json:"type"`
+		Response struct {
+			Usage struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+				InputTokensDetails struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"input_tokens_details"`
+			} `json:"usage"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return current
+	}
+	if chunk.Type == "response.completed" && chunk.Response.Usage.InputTokens > 0 {
+		current.InputTokens = chunk.Response.Usage.InputTokens
+		current.OutputTokens = chunk.Response.Usage.OutputTokens
+		current.CacheReadTokens = chunk.Response.Usage.InputTokensDetails.CachedTokens
+	}
+	return current
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────

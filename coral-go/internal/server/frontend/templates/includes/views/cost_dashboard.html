@@ -1,5 +1,5 @@
 {{ define "includes/views/cost_dashboard.html" }}
-<!-- Cost Dashboard View -->
+<!-- Token Usage Dashboard View -->
 <div id="cost-dashboard-view" class="cost-dashboard-view" style="display:none">
     <div class="cost-header">
         <div class="cost-header-left">
@@ -7,11 +7,10 @@
         </div>
         <div class="cost-header-actions">
             <select id="cost-time-range" class="cost-time-select" onchange="window._costTimeRangeChanged()">
-                <option value="1h">Last hour</option>
-                <option value="24h" selected>Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="all">All time</option>
+                <option value="hour">Last hour</option>
+                <option value="day" selected>Last 24 hours</option>
+                <option value="week">Last 7 days</option>
+                <option value="month">Last 30 days</option>
             </select>
             <button class="btn btn-sm" onclick="window._refreshCostDashboard()">
                 <span class="material-icons" style="font-size:16px">refresh</span> Refresh
@@ -22,14 +21,6 @@
     <!-- Summary Cards -->
     <div class="cost-summary-cards" id="cost-summary-cards">
         <div class="cost-card">
-            <div class="cost-card-label">Total Cost</div>
-            <div class="cost-card-value" id="cost-total-cost">$0.00</div>
-        </div>
-        <div class="cost-card">
-            <div class="cost-card-label">Total Tokens</div>
-            <div class="cost-card-value" id="cost-total-tokens">0</div>
-        </div>
-        <div class="cost-card">
             <div class="cost-card-label">Input Tokens</div>
             <div class="cost-card-value" id="cost-input-tokens">0</div>
         </div>
@@ -38,24 +29,44 @@
             <div class="cost-card-value" id="cost-output-tokens">0</div>
         </div>
         <div class="cost-card">
-            <div class="cost-card-label">Sessions</div>
-            <div class="cost-card-value" id="cost-num-sessions">0</div>
+            <div class="cost-card-label">Cache Read</div>
+            <div class="cost-card-value" id="cost-cache-read">0</div>
+        </div>
+        <div class="cost-card">
+            <div class="cost-card-label">Cache Write</div>
+            <div class="cost-card-value" id="cost-cache-write">0</div>
+        </div>
+        <div class="cost-card">
+            <div class="cost-card-label">Requests</div>
+            <div class="cost-card-value" id="cost-total-requests">0</div>
+        </div>
+        <div class="cost-card">
+            <div class="cost-card-label">Total Cost</div>
+            <div class="cost-card-value cost-card-value-muted" id="cost-total-cost">$0.00</div>
         </div>
     </div>
 
-    <!-- By Agent Type -->
+    <!-- By Model -->
     <div class="cost-section">
-        <h3 class="cost-section-title">By Agent Type</h3>
-        <div id="cost-by-agent-type" class="cost-table-container">
+        <h3 class="cost-section-title">By Model</h3>
+        <div id="cost-by-model" class="cost-table-container">
             <div class="cost-empty">No usage data yet</div>
         </div>
     </div>
 
-    <!-- Per-Session Breakdown -->
+    <!-- By Agent -->
     <div class="cost-section">
-        <h3 class="cost-section-title">Per Session</h3>
-        <div id="cost-per-session" class="cost-table-container">
+        <h3 class="cost-section-title">By Agent</h3>
+        <div id="cost-by-agent" class="cost-table-container">
             <div class="cost-empty">No usage data yet</div>
+        </div>
+    </div>
+
+    <!-- Request Log -->
+    <div class="cost-section">
+        <h3 class="cost-section-title">Request Log</h3>
+        <div id="cost-request-log" class="cost-table-container">
+            <div class="cost-empty">No requests yet</div>
         </div>
     </div>
 </div>

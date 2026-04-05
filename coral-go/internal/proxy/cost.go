@@ -13,8 +13,8 @@ type ModelPricing struct {
 	CacheWritePerMTok float64 // $ per 1M cache-write tokens (Anthropic)
 }
 
-// Pricing maps model names to their pricing. Keys should be checked with
-// lookupPricing() which handles prefix matching for versioned model names.
+// Pricing maps canonical model names to their pricing.
+// Use lookupPricing() for matching — it handles aliases and short names.
 var Pricing = map[string]ModelPricing{
 	// Anthropic
 	"claude-opus-4-20250514":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75},
@@ -31,30 +31,58 @@ var Pricing = map[string]ModelPricing{
 	"gemini-2.5-flash": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
 }
 
-// lookupPricing finds pricing for a model, trying exact match first, then
-// prefix matching. Handles shortened model names like "claude-opus-4" matching
-// "claude-opus-4-20250514" by checking if the model is a prefix of a known key.
+// lookupPricing finds pricing for a model. Matching strategy:
+//  1. Exact match against pricing table
+//  2. Prefix match: model is a prefix of a known key (e.g. "claude-opus-4" matches "claude-opus-4-20250514")
+//  3. Longest common prefix: find the pricing key with the longest shared
+//     dash-delimited prefix. Handles aliases like "claude-opus-4-6" matching
+//     "claude-opus-4-20250514" (both share prefix "claude-opus-4").
 func lookupPricing(model string) (ModelPricing, bool) {
-	// Exact match
+	// 1. Exact match
 	if p, ok := Pricing[model]; ok {
 		return p, true
 	}
-	// Prefix match: the incoming model name is a prefix of a known key.
-	// Pick the longest matching key to avoid ambiguity.
-	var best ModelPricing
-	bestLen := 0
+
+	// 2. Prefix match: the incoming model is a prefix of a known key.
 	for key, p := range Pricing {
 		if strings.HasPrefix(key, model) {
-			if len(key) > bestLen {
-				best = p
-				bestLen = len(key)
-			}
+			return p, true
 		}
 	}
-	if bestLen > 0 {
+
+	// 3. Longest common dash-delimited prefix.
+	// Split both the model and each pricing key on dashes, count how many
+	// leading segments match. The key with the most matching segments wins.
+	// Requires at least 2 matching segments to avoid false positives.
+	modelParts := strings.Split(model, "-")
+	var best ModelPricing
+	bestMatch := 1 // minimum 2 matching segments required
+	for key, p := range Pricing {
+		keyParts := strings.Split(key, "-")
+		match := commonPrefixLen(modelParts, keyParts)
+		if match > bestMatch {
+			best = p
+			bestMatch = match
+		}
+	}
+	if bestMatch > 1 {
 		return best, true
 	}
 	return ModelPricing{}, false
+}
+
+// commonPrefixLen returns the number of matching leading elements between two slices.
+func commonPrefixLen(a, b []string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 // TokenUsage holds token counts from a provider response.

@@ -74,6 +74,11 @@ function _restoreView(view, params) {
                 window.selectHistorySession(params.sessionId);
             }
             break;
+        case 'tokens':
+            if (window.switchNavTab) {
+                window.switchNavTab('tokens');
+            }
+            break;
         default:
             // Unknown view — go to agents
             if (isMobile && window.switchMobileTab) {

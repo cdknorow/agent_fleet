@@ -857,3 +857,28 @@ func (h *BoardHandler) ReassignTask(w http.ResponseWriter, r *http.Request) {
 	}()
 	writeJSON(w, http.StatusOK, task)
 }
+
+// TaskLiveCost returns real-time cost for a task by querying proxy_requests
+// from claimed_at to now. Works for both in-progress and completed tasks.
+// GET /api/board/{project}/tasks/{taskID}/cost
+func (h *BoardHandler) TaskLiveCost(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "taskID"), 10, 64)
+	if err != nil {
+		errBadRequest(w, "invalid task ID")
+		return
+	}
+	cost, err := h.bs.GetTaskLiveCost(r.Context(), project, taskID)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	if cost == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"task_id": taskID,
+			"message": "cost tracking unavailable (no session_id or proxy not configured)",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, cost)
+}

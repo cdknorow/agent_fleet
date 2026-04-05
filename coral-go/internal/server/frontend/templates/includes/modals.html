@@ -442,39 +442,41 @@
 
     <!-- Info Modal -->
     <div id="info-modal" class="modal" role="dialog" aria-modal="true" style="display:none">
-        <div class="modal-content modal-lg">
+        <div class="modal-content modal-content-wide session-info-modal">
             <div class="modal-header">
                 <h3>Session Info</h3>
             </div>
             <div class="modal-body">
-                <dl class="info-grid">
+                <dl class="info-grid session-info-grid">
                     <dt>Agent Name</dt>
-                    <dd id="info-agent-name"></dd>
+                    <dd id="info-agent-name" class="info-value-emphasis"></dd>
                     <dt>Agent Type</dt>
                     <dd id="info-agent-type"></dd>
                     <dt>Tmux Session</dt>
-                    <dd id="info-tmux-session"></dd>
+                    <dd id="info-tmux-session" class="info-value-mono"></dd>
                     <dt>Attach Command</dt>
-                    <dd>
-                        <code id="info-tmux-command"></code>
+                    <dd class="info-command-row">
+                        <code id="info-tmux-command" class="info-code-block"></code>
                         <button class="copy-btn" onclick="copyInfoCommand()" title="Copy to clipboard">Copy</button>
                     </dd>
                     <dt>Working Directory</dt>
-                    <dd id="info-working-dir"></dd>
+                    <dd id="info-working-dir" class="info-value-path"></dd>
                     <dt>Log Path</dt>
-                    <dd id="info-log-path"></dd>
+                    <dd id="info-log-path" class="info-value-path"></dd>
                     <dt>Pane Title</dt>
                     <dd id="info-pane-title"></dd>
                     <dt>Branch</dt>
                     <dd id="info-git-branch"></dd>
                     <dt>Latest Commit</dt>
                     <dd id="info-git-commit"></dd>
+                    <dt id="info-tokens-label" style="display:none">Token Usage</dt>
+                    <dd id="info-tokens" class="info-token-panel" style="display:none"></dd>
                     <dt id="info-prompt-label" style="display:none">Prompt</dt>
-                    <dd id="info-prompt" style="display:none"></dd>
+                    <dd id="info-prompt" class="info-text-block" style="display:none"></dd>
                     <dt id="info-board-label" style="display:none">Message Board</dt>
                     <dd id="info-board" style="display:none"></dd>
                     <dt id="info-subgent-label" style="display:none">Board Server</dt>
-                    <dd id="info-subgent" style="display:none"></dd>
+                    <dd id="info-subgent" class="info-value-path" style="display:none"></dd>
                 </dl>
             </div>
             <div class="modal-actions modal-footer">

@@ -480,6 +480,8 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		if usage, ok := tokenUsageMap[sid]; ok {
 			entry["token_input"] = usage.InputTokens
 			entry["token_output"] = usage.OutputTokens
+			entry["token_cache_read"] = usage.CacheReadTokens
+			entry["token_cache_write"] = usage.CacheWriteTokens
 			entry["token_cost_usd"] = usage.CostUSD
 		}
 
@@ -1625,6 +1627,12 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 
 	userSettings, _ := h.ss.GetSettings(ctx)
 
+	// Resolve proxy URL if proxy is enabled
+	var restartProxyURL string
+	if userSettings["proxy_enabled"] == "true" {
+		restartProxyURL = fmt.Sprintf("http://127.0.0.1:%d/proxy/%s", h.cfg.Port, newSessionID)
+	}
+
 	cmd := agent.WrapWithBundlePath(agentImpl.BuildLaunchCommand(agent.LaunchParams{
 		SessionID:       newSessionID,
 		SessionName:     newSessionName,
@@ -1639,6 +1647,7 @@ func (h *SessionsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 		Capabilities:    storedCaps,
 		Tools:           storedTools,
 		MCPServers:      storedMCPServers,
+		ProxyBaseURL:    restartProxyURL,
 	}))
 	log.Printf("[launch] restart session=%s cmd=%s", target, cmd)
 	h.terminal.SendToTarget(ctx, target, cmd)
@@ -2491,11 +2500,13 @@ func (h *SessionsHandler) RecordTokenUsage(w http.ResponseWriter, r *http.Reques
 
 	name := chi.URLParam(r, "name")
 	var body struct {
-		SessionID    string  `json:"session_id"`
-		InputTokens  float64 `json:"input_tokens"`
-		OutputTokens float64 `json:"output_tokens"`
-		CostUSD      float64 `json:"cost_usd"`
-		NumTurns     float64 `json:"num_turns"`
+		SessionID        string  `json:"session_id"`
+		InputTokens      float64 `json:"input_tokens"`
+		OutputTokens     float64 `json:"output_tokens"`
+		CacheReadTokens  float64 `json:"cache_read_tokens"`
+		CacheWriteTokens float64 `json:"cache_write_tokens"`
+		CostUSD          float64 `json:"cost_usd"`
+		NumTurns         float64 `json:"num_turns"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errBadRequest(w, "invalid JSON")
@@ -2525,18 +2536,22 @@ func (h *SessionsHandler) RecordTokenUsage(w http.ResponseWriter, r *http.Reques
 
 	inputTokens := int(body.InputTokens)
 	outputTokens := int(body.OutputTokens)
+	cacheReadTokens := int(body.CacheReadTokens)
+	cacheWriteTokens := int(body.CacheWriteTokens)
 
 	err := h.tokenStore.RecordUsage(ctx, &store.TokenUsage{
-		SessionID:    body.SessionID,
-		AgentName:    name,
-		AgentType:    agentType,
-		TeamID:       teamID,
-		BoardName:    boardName,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		TotalTokens:  inputTokens + outputTokens,
-		CostUSD:      body.CostUSD,
-		NumTurns:     int(body.NumTurns),
+		SessionID:        body.SessionID,
+		AgentName:        name,
+		AgentType:        agentType,
+		TeamID:           teamID,
+		BoardName:        boardName,
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		CacheReadTokens:  cacheReadTokens,
+		CacheWriteTokens: cacheWriteTokens,
+		TotalTokens:      inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens,
+		CostUSD:          body.CostUSD,
+		NumTurns:         int(body.NumTurns),
 	})
 	if err != nil {
 		errInternalServer(w, err.Error())
@@ -3466,6 +3481,12 @@ func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.Liv
 		role = ls.AgentType
 	}
 
+	// Resolve proxy URL if proxy is enabled
+	var proxyBaseURL string
+	if userSettings["proxy_enabled"] == "true" {
+		proxyBaseURL = fmt.Sprintf("http://127.0.0.1:%d/proxy/%s", h.cfg.Port, ls.SessionID)
+	}
+
 	launchParams := agent.LaunchParams{
 		SessionID:       ls.SessionID,
 		SessionName:     sessionName,
@@ -3482,6 +3503,7 @@ func (h *SessionsHandler) wakeExistingSession(ctx context.Context, ls *store.Liv
 		Tools:           store.UnmarshalFlags(ls.Tools),
 		MCPServers:      store.UnmarshalMCPServers(ls.MCPServers),
 		CLIPath:         cliPath,
+		ProxyBaseURL:    proxyBaseURL,
 	}
 
 	if ls.AgentType != at.Terminal {

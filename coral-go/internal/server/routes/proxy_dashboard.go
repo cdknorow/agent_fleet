@@ -40,12 +40,14 @@ func (h *ProxyDashboardHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"period":              period,
-		"total_requests":      stats.TotalRequests,
-		"total_cost_usd":      stats.TotalCostUSD,
-		"total_input_tokens":  stats.TotalInputTokens,
-		"total_output_tokens": stats.TotalOutputTokens,
-		"by_model":            byModel,
+		"period":                   period,
+		"total_requests":           stats.TotalRequests,
+		"total_cost_usd":           stats.TotalCostUSD,
+		"total_input_tokens":       stats.TotalInputTokens,
+		"total_output_tokens":      stats.TotalOutputTokens,
+		"total_cache_read_tokens":  stats.TotalCacheReadTokens,
+		"total_cache_write_tokens": stats.TotalCacheWriteTokens,
+		"by_model":                 byModel,
 	}
 
 	// Include per-agent breakdown when not filtering by session
@@ -106,12 +108,14 @@ func (h *ProxyDashboardHandler) SessionCost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":          sessionID,
-		"total_requests":      stats.TotalRequests,
-		"total_cost_usd":      stats.TotalCostUSD,
-		"total_input_tokens":  stats.TotalInputTokens,
-		"total_output_tokens": stats.TotalOutputTokens,
-		"by_model":            byModel,
+		"session_id":               sessionID,
+		"total_requests":           stats.TotalRequests,
+		"total_cost_usd":           stats.TotalCostUSD,
+		"total_input_tokens":       stats.TotalInputTokens,
+		"total_output_tokens":      stats.TotalOutputTokens,
+		"total_cache_read_tokens":  stats.TotalCacheReadTokens,
+		"total_cache_write_tokens": stats.TotalCacheWriteTokens,
+		"by_model":                 byModel,
 	})
 }
 

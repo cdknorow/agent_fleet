@@ -8,7 +8,7 @@ import { filterState, deserializeFromUrl, serializeToUrl,
 import { connectCoralWs } from './websocket.js';
 import { sendCommand, sendCommandWithTeam, sendBoardProtocol, resendInputPrompt, sendRawKeys, sendModeToggle, cycleModeToggle, sendQuickCommand, executeMacro, addMacro, deleteMacro, showMacroModal, hideMacroModal, attachTerminal, killSession, restartSession, hideRestartModal, confirmRestart, initImageDrop, removeAttachment, editGoal, refreshGoal, requestGoal } from './controls.js';
 import { selectLiveSession, selectHistorySession, editAndResubmit, renameAgent, setAgentIcon, showEmojiPicker } from './sessions.js';
-import { toggleGroupCollapse, killGroup, killBoard, toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, showPromptModal, hidePromptModal, showAlertModal, hideAlertModal, copyFolderPath, moveGroupUp, moveGroupDown, toggleGroupByTeam, setBoardAccentColor, moveSessionUp, moveSessionDown } from './render.js';
+import { toggleGroupCollapse, killGroup, killBoard, toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents, shareAgentTeam, saveTeamFromSidebar, killSessionDirect, dismissKilledSession, showInfoDirect, attachDirect, restartDirect, showConfirmModal, hideConfirmModal, showPromptModal, hidePromptModal, showAlertModal, hideAlertModal, copyFolderPath, moveGroupUp, moveGroupDown, toggleGroupByTeam, setBoardAccentColor, moveSessionUp, moveSessionDown, showTeamTokenUsage } from './render.js';
 import { syncPaneWidth, refreshCapture } from './capture.js';
 import { showLaunchModal, hideLaunchModal, launchSession, showInfoModal, hideInfoModal, copyInfoCommand, showResumeModal, hideResumeModal, resumeIntoSession, showSettingsModal, hideSettingsModal, applySettings, loadSettings, toggleFlag, showAddAgentToBoard, hideAddAgentBoardModal, launchAgentToBoard, launchTerminalToBoard, exportPersonas, importPersonas, exportTeamTemplates, importTeamTemplates, showDefaultPromptsModal, hideDefaultPromptsModal, resetDefaultPrompt, saveDefaultPrompts, deactivateLicense } from './modals.js';
 import { toggleBrowser, browserNavigateTo, browserNavigateUp } from './browser.js';
@@ -40,7 +40,7 @@ import { initMessageBoard, selectBoardProject, showMessageBoardProjects, postBoa
 import { loadAllFolderTags, showFolderTagDropdown, hideFolderTagDropdown, addFolderTag, removeFolderTag, createAndAddFolderTag } from './folder_tags.js';
 import { initWorkflows, showWorkflowsTab, selectWorkflow, selectWorkflowRun, triggerWorkflow, killWorkflowRun, deleteWorkflow, showWorkflowCreateModal, hideWorkflowCreateModal, editWorkflow, editWorkflowWithAgent, workflowAddStep, workflowStepTypeChanged, saveWorkflow, workflowsBackToList, launchWorkflowAgent } from './workflows.js';
 import { showConnectedApps, showConnectAppModal, hideConnectAppModal, startOAuthFlow, testConnectedApp, disconnectApp } from './connected_apps.js';
-import { showCostDashboard, _refreshCostDashboard, _costTimeRangeChanged } from './cost_dashboard.js';
+import { showCostDashboard, stopCostDashboard, _refreshCostDashboard, _costTimeRangeChanged } from './cost_dashboard.js';
 import { showDocsTab, selectDoc } from './docs.js';
 import { initMobile, syncMobileAgentList } from './mobile.js';
 import { platform } from './platform/detect.js';
@@ -158,6 +158,14 @@ function resetTeam(boardName) {
 
 // ── Top Nav Tab Switching ─────────────────────────────────────────────
 function switchNavTab(tab) {
+    // Clean up any active cost dashboard timer when leaving tokens tab
+    stopCostDashboard();
+
+    // Toggle sidebar visibility — full-width views hide the sidebar
+    const fullWidthTabs = new Set(['tokens', 'workflows', 'connected-apps']);
+    const layout = document.querySelector('.layout');
+    if (layout) layout.classList.toggle('sidebar-hidden', fullWidthTabs.has(tab));
+
     // Update tab button states
     document.querySelectorAll('.top-nav-tab').forEach(btn => btn.classList.remove('active'));
     const activeTab = document.getElementById(`nav-tab-${tab}`);
@@ -185,6 +193,8 @@ function switchNavTab(tab) {
         showWorkflowsTab();
     } else if (tab === 'docs') {
         showDocsTab();
+    } else if (tab === 'tokens') {
+        showCostDashboard();
     } else if (tab === 'history') {
         // Keep current main view, just switch sidebar content
     } else if (tab === 'agents') {
@@ -427,9 +437,9 @@ Object.assign(window, {
     copyFolderPath, killBoard, setBoardAccentColor, resetTeam,
     moveSessionUp, moveSessionDown,
     toggleTeamSleep, toggleAgentSleep, sleepAllAgents, wakeAllAgents,
-    shareAgentTeam, saveTeamFromSidebar,
+    shareAgentTeam, saveTeamFromSidebar, showTeamTokenUsage,
     showConfirmModal, hideConfirmModal, showPromptModal, hidePromptModal, showAlertModal, hideAlertModal,
-    killSessionDirect, showInfoDirect, attachDirect, restartDirect,
+    killSessionDirect, dismissKilledSession, showInfoDirect, attachDirect, restartDirect,
     toggleGroupByTeam,
     // template_browser
     showTemplateBrowser,

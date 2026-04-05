@@ -24,14 +24,16 @@ type AgentLauncher struct {
 	runtime AgentRuntime
 	sessDB  *store.SessionStore
 	logger  *slog.Logger
+	port    int // server port for proxy URL construction
 }
 
 // NewAgentLauncher creates a new AgentLauncher.
-func NewAgentLauncher(runtime AgentRuntime, sessDB *store.SessionStore) *AgentLauncher {
+func NewAgentLauncher(runtime AgentRuntime, sessDB *store.SessionStore, port int) *AgentLauncher {
 	return &AgentLauncher{
 		runtime: runtime,
 		sessDB:  sessDB,
 		logger:  slog.Default().With("service", "agent_launcher"),
+		port:    port,
 	}
 }
 
@@ -83,8 +85,8 @@ func (l *AgentLauncher) LaunchAgent(ctx context.Context, workingDir, agentType, 
 		// Resolve proxy URL if proxy is enabled in settings
 		var proxyBaseURL string
 		if settings, err := l.sessDB.GetSettings(ctx); err == nil && settings["proxy_enabled"] == "true" {
-			if port := settings["proxy_port"]; port != "" {
-				proxyBaseURL = fmt.Sprintf("http://127.0.0.1:%s/proxy/%s", port, sessionID)
+			if l.port > 0 {
+				proxyBaseURL = fmt.Sprintf("http://127.0.0.1:%d/proxy/%s", l.port, sessionID)
 			}
 		}
 

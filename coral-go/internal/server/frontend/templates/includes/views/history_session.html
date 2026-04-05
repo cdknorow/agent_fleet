@@ -30,6 +30,14 @@
                         </div>
                     </div>
                 </div>
+                <!-- Token Usage Summary -->
+                <div id="history-token-usage" class="history-token-usage" style="display:none">
+                    <span class="htu-item"><span class="htu-label">In:</span> <span id="htu-input">—</span></span>
+                    <span class="htu-item"><span class="htu-label">Out:</span> <span id="htu-output">—</span></span>
+                    <span class="htu-item"><span class="htu-label">Cache:</span> <span id="htu-cache">—</span></span>
+                    <span class="htu-item"><span class="htu-label">Requests:</span> <span id="htu-requests">—</span></span>
+                    <span class="htu-item htu-cost"><span class="htu-label">Cost:</span> <span id="htu-cost">—</span></span>
+                </div>
                 <!-- Tab Bar -->
                 <div class="history-tabs" role="tablist" aria-label="Session details">
                     <button class="history-tab-btn active" onclick="switchHistoryTab('notes')">Summary</button>

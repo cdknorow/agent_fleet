@@ -4,7 +4,7 @@ import { state, sessionKey } from './state.js';
 import { showToast, escapeHtml, escapeAttr, dbg, showView } from './utils.js';
 import { loadLiveSessionDetail, loadHistoryMessages } from './api.js';
 import { stopCaptureRefresh, startCaptureRefresh } from './capture.js';
-import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, updateTokenUsage, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
+import { updateSessionStatus, updateSessionSummary, updateSessionBranch, updateWaitingIndicator, updateTokenUsage, updateHistoryTokenUsage, renderHistoryChat, showBoardChatTab, hideBoardChatTab } from './render.js';
 import { renderQuickActions, updateSidebarActive } from './controls.js';
 import { loadSessionNotes, switchHistoryTab } from './notes.js';
 import { loadSessionTags } from './tags.js';
@@ -255,13 +255,14 @@ export async function selectHistorySession(sessionId) {
         renderHistoryChat(data.messages);
     }
 
-    // Load notes, tags, commits, and history tabs in parallel
+    // Load notes, tags, commits, token usage, and history tabs in parallel
     loadSessionNotes(sessionId);
     loadSessionTags(sessionId);
     loadSessionCommits(sessionId);
     loadHistoryEvents(sessionId);
     loadHistoryTasks(sessionId);
     loadHistoryAgentNotes(sessionId);
+    updateHistoryTokenUsage(sessionId);
 }
 
 export function renameAgent(name, agentType, sessionId) {

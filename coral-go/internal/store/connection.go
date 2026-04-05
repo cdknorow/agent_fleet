@@ -96,6 +96,8 @@ var columnMigrations = []struct {
 	{"live_sessions", "worktree_path", "TEXT"},
 	{"live_sessions", "worktree_repo", "TEXT"},
 	{"live_sessions", "team_id", "INTEGER REFERENCES teams(id) ON DELETE SET NULL"},
+	{"token_usage", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"},
+	{"token_usage", "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 const schemaSQL = `

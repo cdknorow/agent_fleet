@@ -810,6 +810,15 @@
         margin-top: 7px;
     }
 
+    #mobile-session-list .agent-avatar {
+        width: 32px;
+        height: 32px;
+    }
+
+    #mobile-session-list .agent-avatar-emoji {
+        font-size: 16px;
+    }
+
     #mobile-session-list .session-name-row {
         align-items: flex-start;
         gap: 8px;

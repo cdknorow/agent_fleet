@@ -67,3 +67,54 @@ func TestProxyTaskRunCostEndpoint(t *testing.T) {
 	assert.Equal(t, float64(1), body["total_requests"])
 	assert.Greater(t, body["total_cost_usd"].(float64), 0.0)
 }
+
+func TestProxyStatsEndpointIncludesCacheBreakdown(t *testing.T) {
+	db := testProxyDashboardDB(t)
+	ps := proxy.NewStore(db)
+	h := NewProxyDashboardHandler(ps, proxy.NewEventHub())
+
+	ctx := t.Context()
+	usage1 := proxy.TokenUsage{InputTokens: 1000, OutputTokens: 250, CacheReadTokens: 100}
+	err := ps.CreateRequest(ctx, "stats-req-1", "session-a", proxy.ProviderAnthropic, "claude-sonnet-4-20250514", false)
+	require.NoError(t, err)
+	err = ps.CompleteRequest(ctx, "stats-req-1", usage1, proxy.CalculateCostBreakdown("claude-sonnet-4-20250514", usage1), 200, "success", "")
+	require.NoError(t, err)
+
+	usage2 := proxy.TokenUsage{InputTokens: 500, OutputTokens: 50, CacheWriteTokens: 25}
+	err = ps.CreateRequest(ctx, "stats-req-2", "session-b", proxy.ProviderOpenAI, "gpt-4o", false)
+	require.NoError(t, err)
+	err = ps.CompleteRequest(ctx, "stats-req-2", usage2, proxy.CalculateCostBreakdown("gpt-4o", usage2), 200, "success", "")
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/proxy/stats?period=day", nil)
+	w := httptest.NewRecorder()
+	h.Stats(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, float64(1500), body["total_input_tokens"])
+	assert.Equal(t, float64(300), body["total_output_tokens"])
+	assert.Equal(t, float64(100), body["total_cache_read_tokens"])
+	assert.Equal(t, float64(25), body["total_cache_write_tokens"])
+
+	byModel, ok := body["by_model"].([]any)
+	require.True(t, ok)
+	require.Len(t, byModel, 2)
+
+	byAgent, ok := body["by_agent"].([]any)
+	require.True(t, ok)
+	require.Len(t, byAgent, 2)
+
+	firstModel := byModel[0].(map[string]any)
+	_, hasInput := firstModel["input_tokens"]
+	_, hasCacheRead := firstModel["cache_read_tokens"]
+	require.True(t, hasInput)
+	require.True(t, hasCacheRead)
+
+	firstAgent := byAgent[0].(map[string]any)
+	_, hasAgentInput := firstAgent["input_tokens"]
+	_, hasAgentCacheWrite := firstAgent["cache_write_tokens"]
+	require.True(t, hasAgentInput)
+	require.True(t, hasAgentCacheWrite)
+}

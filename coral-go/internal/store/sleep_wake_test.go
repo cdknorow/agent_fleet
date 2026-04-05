@@ -67,6 +67,21 @@ func TestSleepTeam_GetSleepingBoardNames(t *testing.T) {
 	assert.Contains(t, names, "test-board")
 }
 
+func TestSleepTeam_MixedStateNotSleeping(t *testing.T) {
+	db := openTestDB(t)
+	ss := NewSessionStore(db)
+	ctx := context.Background()
+
+	registerTeam(t, ss, ctx, "test-board")
+	// Sleep all, then wake one — board should NOT be sleeping
+	ss.SetBoardSleeping(ctx, "test-board", true)
+	ss.SetSessionSleeping(ctx, "sess-lead", false)
+
+	names, err := ss.GetSleepingBoardNames(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, names, "test-board", "board with awake session should not be sleeping")
+}
+
 // ── Wake Tests ──────────────────────────────────────────────
 
 func TestWakeTeam_ClearsSleepingFlag(t *testing.T) {

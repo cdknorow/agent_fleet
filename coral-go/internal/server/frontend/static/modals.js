@@ -2349,6 +2349,37 @@ export async function showInfoModal() {
             boardVal.style.display = "none";
         }
 
+        // Token usage from proxy
+        const tokensLabel = document.getElementById("info-tokens-label");
+        const tokensVal = document.getElementById("info-tokens");
+        if (tokensLabel && tokensVal && sid) {
+            tokensLabel.style.display = "none";
+            tokensVal.style.display = "none";
+            // Fetch async — don't block modal open
+            fetch(`/api/proxy/session/${encodeURIComponent(sid)}/cost`).then(r => r.ok ? r.json() : null).then(data => {
+                if (!data || !data.total_requests) return;
+                const fmt = (n) => n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n);
+                const fmtCost = (c) => c < 0.01 ? '$'+c.toFixed(4) : '$'+c.toFixed(2);
+                const metrics = [
+                    ["Input", fmt(data.total_input_tokens || 0)],
+                    ["Output", fmt(data.total_output_tokens || 0)],
+                    ["Cache Read", fmt(data.total_cache_read_tokens || 0)],
+                    ["Cache Write", fmt(data.total_cache_write_tokens || 0)],
+                    ["Requests", String(data.total_requests || 0)],
+                    ["Cost", fmtCost(data.total_cost_usd || 0)],
+                ];
+                const html = `<div class="info-token-grid">${metrics.map(([label, value]) => `
+                    <div class="info-token-card">
+                        <span class="info-token-label">${label}</span>
+                        <span class="info-token-value">${value}</span>
+                    </div>
+                `).join("")}</div>`;
+                tokensVal.innerHTML = html;
+                tokensLabel.style.display = "";
+                tokensVal.style.display = "";
+            }).catch(() => {});
+        }
+
         document.getElementById("info-modal").style.display = "flex";
     } catch (e) {
         showToast("Failed to load session info", true);

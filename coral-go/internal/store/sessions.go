@@ -971,11 +971,13 @@ func (s *SessionStore) SetSessionSleeping(ctx context.Context, sessionID string,
 	return err
 }
 
-// GetSleepingBoardNames returns distinct board names that have at least one sleeping session.
+// GetSleepingBoardNames returns board names where ALL sessions are sleeping.
+// A board with any awake session is not considered sleeping.
 func (s *SessionStore) GetSleepingBoardNames(ctx context.Context) ([]string, error) {
 	var names []string
 	err := s.db.SelectContext(ctx, &names,
-		"SELECT DISTINCT board_name FROM live_sessions WHERE is_sleeping = 1 AND board_name IS NOT NULL")
+		`SELECT board_name FROM live_sessions WHERE board_name IS NOT NULL
+		 GROUP BY board_name HAVING COUNT(*) = SUM(CASE WHEN is_sleeping = 1 THEN 1 ELSE 0 END)`)
 	if err != nil {
 		return nil, err
 	}

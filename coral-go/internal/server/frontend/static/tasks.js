@@ -5,6 +5,8 @@ import { escapeHtml, escapeAttr, showToast } from './utils.js';
 
 // ── Board task polling ───────────────────────────────────────────────
 let _boardTaskPollTimer = null;
+// Live cost cache: taskID → { cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, request_count }
+let _liveCosts = {};
 
 export function startBoardTaskPoll() {
     stopBoardTaskPoll();
@@ -23,10 +25,34 @@ export function stopBoardTaskPoll() {
     }
 }
 
-function _pollBoardTasksOnce() {
+async function _pollBoardTasksOnce() {
     if (!state.currentSession || state.currentSession.type !== 'live') return;
     const boardProject = state.currentSession.board_project || state.currentSession.name;
-    if (boardProject) loadBoardTasks(boardProject);
+    if (boardProject) {
+        await loadBoardTasks(boardProject);
+        _fetchLiveCosts(boardProject);
+    }
+}
+
+async function _fetchLiveCosts(boardProject) {
+    const tasks = state.currentBoardTasks || [];
+    const inProgress = tasks.filter(t => t.status === 'in_progress' && t.session_id);
+    if (inProgress.length === 0) {
+        _liveCosts = {};
+        return;
+    }
+    const newCosts = {};
+    await Promise.all(inProgress.map(async (t) => {
+        try {
+            const resp = await fetch(`/api/board/${encodeURIComponent(boardProject)}/tasks/${t.id}/cost`);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data) newCosts[t.id] = data;
+            }
+        } catch { /* ignore */ }
+    }));
+    _liveCosts = newCosts;
+    renderBoardTaskList();
 }
 
 export async function loadAgentTasks(agentName, sessionId) {
@@ -252,6 +278,26 @@ window._toggleHideCompleted = _toggleHideCompleted;
 
 const _priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
 
+function _formatCost(usd, precise) {
+    if (usd == null) return '$0.00';
+    if (usd === 0) return '$0.00';
+    if (precise) {
+        // Detail view: up to 4 decimal places, trim trailing zeros (keep at least 2)
+        const s = usd.toFixed(4);
+        return '$' + s.replace(/0{1,2}$/, '');
+    }
+    // Badge: show 2 decimals, but use <$0.01 for sub-cent costs
+    if (usd > 0 && usd < 0.01) return '<$0.01';
+    return '$' + usd.toFixed(2);
+}
+
+function _formatTokenCount(n) {
+    if (n == null) return '0';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return n.toLocaleString();
+}
+
 function _formatTaskTime(ts) {
     if (!ts) return '';
     try {
@@ -278,6 +324,10 @@ export function renderBoardTaskList() {
             cmp = (_priorityOrder[a.priority] ?? 2) - (_priorityOrder[b.priority] ?? 2);
         } else if (_taskSortField === 'assignee') {
             cmp = (a.assigned_to || '').localeCompare(b.assigned_to || '');
+        } else if (_taskSortField === 'cost') {
+            const aCost = a.cost_usd ?? -1;
+            const bCost = b.cost_usd ?? -1;
+            cmp = aCost - bCost;
         }
         return _taskSortAsc ? cmp : -cmp;
     });
@@ -305,6 +355,7 @@ export function renderBoardTaskList() {
             <span class="board-task-priority board-task-sort" onclick="_toggleTaskSort('priority')">Priority${arrow('priority')}</span>
             <span class="board-task-assignee board-task-sort" onclick="_toggleTaskSort('assignee')">Agent${arrow('assignee')}</span>
             <span class="board-task-desc board-task-sort" onclick="_toggleTaskSort('created_at')">Task${arrow('created_at')}</span>
+            <span class="board-task-cost board-task-sort" onclick="_toggleTaskSort('cost')">Cost${arrow('cost')}</span>
             <span class="board-task-time board-task-sort" onclick="_toggleTaskSort('created_at')">Created${arrow('created_at')}</span>
         </div>`;
 
@@ -324,12 +375,24 @@ export function renderBoardTaskList() {
             : t.status === 'skipped'
             ? '<span class="material-icons board-task-status-icon skipped">block</span>'
             : '<span class="material-icons board-task-status-icon pending">radio_button_unchecked</span>';
+        let costText = '';
+        let costClass = 'board-task-cost';
+        if ((t.status === 'completed' || t.status === 'skipped') && t.cost_usd != null) {
+            costText = _formatCost(t.cost_usd, false);
+            if (t.cost_usd >= 1.0) costClass += ' board-task-cost-warning';
+        } else if (t.status === 'in_progress' && _liveCosts[t.id]) {
+            const lc = _liveCosts[t.id];
+            costText = '~' + _formatCost(lc.cost_usd, false);
+            costClass += ' board-task-cost-live';
+            if (lc.cost_usd >= 1.0) costClass += ' board-task-cost-warning';
+        }
         return `
         <div class="board-task-item ${statusClass}" onclick="showTaskDetailModal(${t.id})" style="cursor:pointer">
             ${statusIcon}
             <span class="board-task-priority ${priorityClass}">${escapeHtml(t.priority || 'medium')}</span>
             <span class="board-task-assignee">${escapeHtml(assignee)}</span>
             <span class="board-task-desc"${tooltip}>${title}</span>
+            <span class="${costClass}">${costText}</span>
             <span class="board-task-time">${timeStr}</span>
         </div>`;
     }).join('');
@@ -422,6 +485,64 @@ export function showTaskDetailModal(taskId) {
     }
 
     html += `</div>`;
+
+    // Cost & token breakdown for completed tasks with cost data
+    if (task.cost_usd != null) {
+        const warningClass = task.cost_usd >= 1.0 ? ' board-task-cost-warning' : '';
+        html += `<div class="task-detail-section">
+            <div class="task-detail-label">Cost</div>
+            <div class="task-detail-cost-summary${warningClass}">${_formatCost(task.cost_usd, true)}</div>
+            <div class="task-detail-tokens">
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Input</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(task.input_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Output</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(task.output_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Cache Read</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(task.cache_read_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Cache Write</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(task.cache_write_tokens)}</span>
+                </div>
+            </div>
+        </div>`;
+    }
+    // Live cost for in-progress tasks
+    if (task.status === 'in_progress' && _liveCosts[task.id]) {
+        const lc = _liveCosts[task.id];
+        const warningClass = lc.cost_usd >= 1.0 ? ' board-task-cost-warning' : '';
+        html += `<div class="task-detail-section">
+            <div class="task-detail-label">Running Cost</div>
+            <div class="task-detail-cost-summary board-task-cost-live${warningClass}">~${_formatCost(lc.cost_usd, true)}</div>
+            <div class="task-detail-tokens">
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Input</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(lc.input_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Output</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(lc.output_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Cache Read</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(lc.cache_read_tokens)}</span>
+                </div>
+                <div class="task-detail-token-item">
+                    <span class="task-detail-token-label">Cache Write</span>
+                    <span class="task-detail-token-value">${_formatTokenCount(lc.cache_write_tokens)}</span>
+                </div>
+            </div>
+            <div class="task-detail-token-item" style="margin-top:4px;opacity:0.6">
+                <span class="task-detail-token-label">Requests</span>
+                <span class="task-detail-token-value">${lc.request_count}</span>
+            </div>
+        </div>`;
+    }
     content.innerHTML = html;
     modal.style.display = '';
 

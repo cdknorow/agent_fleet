@@ -6,12 +6,23 @@ package naming
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // SessionName returns the canonical tmux/pty session name for an agent.
 // Format: "{agentType}-{sessionID}", e.g. "claude-dc6d10f4-2f20-...".
 func SessionName(agentType, sessionID string) string {
 	return fmt.Sprintf("%s-%s", agentType, sessionID)
+}
+
+// SessionIDFromName extracts the session UUID from a tmux/pty session name.
+// Inverse of SessionName: "claude-dc6d10f4-2f20-..." → "dc6d10f4-2f20-...".
+// Returns the original string unchanged if no prefix is found.
+func SessionIDFromName(sessionName string) string {
+	if idx := strings.Index(sessionName, "-"); idx >= 0 {
+		return sessionName[idx+1:]
+	}
+	return sessionName
 }
 
 // SubscriberID returns the stable board identity for an agent.

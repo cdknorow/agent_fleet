@@ -16,6 +16,7 @@ export const state = {
     eventFiltersHidden: null,   // Set of hidden filter keys (lazily initialized)
     settings: {},               // cached global user settings from /api/settings
     prevWaitingState: {},       // tracks previous waiting_for_input per session_id for toast notifications
+    killedSessions: {},         // sessionId -> session data for killed agents (preserved for history links)
 };
 
 export function sessionKey(session) {
