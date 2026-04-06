@@ -70,9 +70,6 @@ func TranslateToClaudePermissions(caps *Capabilities) *ClaudePermissions {
 		deny = append(deny, mapCapToClaudeTools(cap)...)
 	}
 
-	// Always allow coral-board CLI for message board communication
-	allow = append(allow, "Bash(coral-board *)")
-
 	if len(allow) == 0 && len(deny) == 0 {
 		return nil
 	}
@@ -111,6 +108,20 @@ func mapCapToClaudeTools(cap string) []string {
 // TranslatePermissions dispatches capability translation to the appropriate
 // agent-specific translator. Returns nil if no translation is needed.
 func TranslatePermissions(agentType string, caps *Capabilities) any {
+	// Ensure every agent can use coral-board for message board communication
+	if caps != nil {
+		hasBoardCap := false
+		for _, c := range caps.Allow {
+			if c == "shell:coral-board *" {
+				hasBoardCap = true
+				break
+			}
+		}
+		if !hasBoardCap {
+			caps.Allow = append(caps.Allow, "shell:coral-board *")
+		}
+	}
+
 	switch agentType {
 	case at.Claude:
 		return TranslateToClaudePermissions(caps)
@@ -253,8 +264,7 @@ var Presets = map[string]*Capabilities{
 		Allow: []string{CapFileRead, CapFileWrite, CapShell, CapGitWrite, CapAgentSpawn},
 	},
 	"qa": {
-		Allow: []string{CapFileRead},
-		Deny:  []string{CapFileWrite, CapShell},
+		Allow: []string{CapFileRead, CapShell},
 	},
 	"frontend_dev": {
 		Allow: []string{CapFileRead, CapFileWrite, "shell:npm *", "shell:npx *", CapWebAccess},

@@ -569,7 +569,7 @@ func TestTranslateToClaudePermissions_FileRead(t *testing.T) {
 		t.Fatal("expected non-nil")
 	}
 	allowStr := strings.Join(result.Allow, ",")
-	for _, tool := range []string{"Read", "Glob", "Grep", "Bash(coral-board *)"} {
+	for _, tool := range []string{"Read", "Glob", "Grep"} {
 		if !strings.Contains(allowStr, tool) {
 			t.Errorf("missing %q in allow list", tool)
 		}
@@ -851,11 +851,15 @@ func TestPresetTranslations(t *testing.T) {
 				if !ok || perms == nil {
 					t.Fatalf("expected *ClaudePermissions, got %T", got)
 				}
-				if !strings.Contains(strings.Join(perms.Allow, ","), "Read") {
+				allowStr := strings.Join(perms.Allow, ",")
+				if !strings.Contains(allowStr, "Read") {
 					t.Fatalf("expected read tools, got %+v", perms.Allow)
 				}
-				if !strings.Contains(strings.Join(perms.Deny, ","), "Bash") {
-					t.Fatalf("expected shell deny, got %+v", perms.Deny)
+				if !strings.Contains(allowStr, "Bash") {
+					t.Fatalf("expected Bash in allow, got %+v", perms.Allow)
+				}
+				if len(perms.Deny) > 0 {
+					t.Fatalf("expected no deny list, got %+v", perms.Deny)
 				}
 			},
 		},
