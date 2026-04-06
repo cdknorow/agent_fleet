@@ -51,3 +51,4 @@ coral-go/internal/server/frontend/static/agent_docs/*
 # Large video files (use GitHub Releases for distribution)
 icons/history.mp4
 icons/main_loop.mp4
+*.pem
