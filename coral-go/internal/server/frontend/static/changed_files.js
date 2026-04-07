@@ -298,6 +298,8 @@ export function initTopBarSearch() {
     const input = document.getElementById('topbar-file-search');
     if (!input || input.dataset.searchBound) return;
     input.dataset.searchBound = '1';
+    // Clear any browser autofill that snuck in
+    input.value = '';
 
     let debounce;
     function doSearch() {

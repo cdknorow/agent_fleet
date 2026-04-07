@@ -524,7 +524,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/board/{project}/groups/{groupID}/members", boardHandler.AddGroupMember)
 	r.Delete("/api/board/{project}/groups/{groupID}/members/{sessionID}", boardHandler.RemoveGroupMember)
 
-	// Board tasks
+	// Board tasks (global)
+	r.Get("/api/board/tasks", boardHandler.ListAllTasks)
+	// Board tasks (per-project)
 	r.Post("/api/board/{project}/tasks", boardHandler.CreateTask)
 	r.Get("/api/board/{project}/tasks", boardHandler.ListTasks)
 	r.Post("/api/board/{project}/tasks/claim", boardHandler.ClaimTask)

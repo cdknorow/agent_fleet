@@ -954,6 +954,21 @@ func (s *Store) ListTasks(ctx context.Context, project string) ([]Task, error) {
 	return tasks, nil
 }
 
+// ListAllTasks returns the most recent tasks across all boards.
+func (s *Store) ListAllTasks(ctx context.Context, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks,
+		`SELECT id, board_id, title, body, status, priority, created_by, assigned_to, completed_by, completion_message, created_at, claimed_at, completed_at, session_id, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens FROM board_tasks
+		 ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
 // HasActiveTaskForAssignee returns true when the assignee already has another
 // in-progress task on the same board. excludeTaskID can be used to ignore the
 // task currently being created or reassigned.

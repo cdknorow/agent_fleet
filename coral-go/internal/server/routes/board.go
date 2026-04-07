@@ -667,6 +667,21 @@ func (h *BoardHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": emptyIfNil(tasks)})
 }
 
+// ListAllTasks returns the most recent tasks across all boards.
+// GET /api/board/tasks?limit=100
+func (h *BoardHandler) ListAllTasks(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
+		limit = l
+	}
+	tasks, err := h.bs.ListAllTasks(r.Context(), limit)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": emptyIfNil(tasks)})
+}
+
 // ActiveTask returns the subscriber's current in-progress task.
 // POST /api/board/{project}/tasks/current
 func (h *BoardHandler) ActiveTask(w http.ResponseWriter, r *http.Request) {

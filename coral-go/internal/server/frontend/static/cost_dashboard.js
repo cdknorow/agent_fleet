@@ -61,9 +61,10 @@ export async function _refreshCostDashboard() {
     const sinceParam = since ? `?since=${encodeURIComponent(since)}` : '';
 
     try {
-        const [summaryResp, reqResp] = await Promise.all([
+        const [summaryResp, reqResp, taskResp] = await Promise.all([
             fetch(`/api/token-usage/summary${sinceParam}`).catch(() => null),
             fetch('/api/proxy/requests?limit=100').catch(() => null),
+            fetch('/api/board/tasks').catch(() => null),
         ]);
 
         if (summaryResp && summaryResp.ok) {
@@ -105,6 +106,11 @@ export async function _refreshCostDashboard() {
         if (reqResp && reqResp.ok) {
             const data = await reqResp.json();
             _renderRequestLog(data.requests || []);
+        }
+
+        if (taskResp && taskResp.ok) {
+            const data = await taskResp.json();
+            _renderTaskTable(data.tasks || []);
         }
     } catch (e) {
         console.error('[cost-dashboard] refresh error:', e);
@@ -291,6 +297,75 @@ function _renderCostSVG(turns) {
         <text class="chart-axis-label" x="${PAD}" y="${PAD + plotH + 16}" text-anchor="start">1</text>
         <text class="chart-axis-label" x="${PAD + plotW}" y="${PAD + plotH + 16}" text-anchor="end">${maxTurn}</text>
     </svg>`;
+}
+
+// Cached tasks for click-to-detail
+let _costTaskCache = [];
+
+function _showCostTaskDetail(taskId) {
+    // Merge into state so showTaskDetailModal can find it
+    const existing = state.currentBoardTasks || [];
+    const task = _costTaskCache.find(t => t.id === taskId);
+    if (task && !existing.find(t => t.id === taskId)) {
+        state.currentBoardTasks = [...existing, task];
+    }
+    window.showTaskDetailModal(taskId);
+}
+window._showCostTaskDetail = _showCostTaskDetail;
+
+function _renderTaskTable(tasks) {
+    const container = document.getElementById('cost-by-task');
+    if (!container) return;
+
+    // Only show tasks with cost data
+    const rows = tasks
+        .filter(t => t.cost_usd > 0)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+    _costTaskCache = rows;
+
+    if (rows.length === 0) {
+        container.innerHTML = '<div class="cost-empty">No task data yet</div>';
+        return;
+    }
+
+    const statusIcon = (status) => {
+        if (status === 'completed') return '<span class="material-icons board-task-status-icon completed" style="font-size:14px">check_circle</span>';
+        if (status === 'in_progress') return '<span class="task-spinner" title="In progress"></span>';
+        if (status === 'skipped') return '<span class="material-icons board-task-status-icon skipped" style="font-size:14px">block</span>';
+        return '<span class="material-icons board-task-status-icon pending" style="font-size:14px">radio_button_unchecked</span>';
+    };
+
+    let html = `<table class="cost-table">
+        <thead><tr>
+            <th style="width:24px"></th>
+            <th>Task</th>
+            <th>Agent</th>
+            <th>Priority</th>
+            <th class="cost-col-right">Input</th>
+            <th class="cost-col-right">Output</th>
+            <th class="cost-col-right">Cache Read</th>
+            <th class="cost-col-right">Cache Write</th>
+            <th class="cost-col-right">Cost</th>
+        </tr></thead><tbody>`;
+
+    for (const t of rows) {
+        const priorityClass = 'board-task-priority-' + (t.priority || 'medium');
+        html += `<tr onclick="_showCostTaskDetail(${t.id})" style="cursor:pointer">
+            <td>${statusIcon(t.status)}</td>
+            <td>${escapeHtml(t.title || '')}</td>
+            <td class="cost-agent-name">${escapeHtml(t.assigned_to || '\u2014')}</td>
+            <td><span class="board-task-priority ${priorityClass}">${escapeHtml(t.priority || 'medium')}</span></td>
+            <td class="cost-col-right">${_formatTokens(t.input_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.output_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.cache_read_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.cache_write_tokens || 0)}</td>
+            <td class="cost-col-right cost-cost-cell">${_formatCost(t.cost_usd || 0)}</td>
+        </tr>`;
+    }
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
 }
 
 function _renderRequestLog(requests) {
