@@ -9,7 +9,7 @@ import { renderQuickActions, updateSidebarActive } from './controls.js';
 import { loadSessionNotes, switchHistoryTab } from './notes.js';
 import { loadSessionTags } from './tags.js';
 import { loadSessionCommits } from './commits.js';
-import { loadAgentTasks, loadBoardTasks } from './tasks.js';
+import { loadAgentTasks, loadBoardTasks, renderTaskList } from './tasks.js';
 import { loadChangedFiles, refreshChangedFiles } from './changed_files.js';
 import { loadAgentNotes } from './agent_notes.js';
 import { loadAgentEvents, switchAgenticTab } from './agentic_state.js';
@@ -142,6 +142,10 @@ export async function selectLiveSession(name, agentType, sessionId) {
 
     // Reset live history and start capture/terminal FIRST (fastest path to visible output)
     resetLiveHistory();
+    // Clear stale task state from previous session before starting refresh
+    state.currentAgentTasks = [];
+    state.currentBoardTasks = [];
+    renderTaskList();
     const mode = getRendererMode(agentType, sessionId);
     dbg('renderer mode:', mode, 'Terminal available:', typeof Terminal !== 'undefined');
     // Always start capture refresh — it polls tasks and events for any mode

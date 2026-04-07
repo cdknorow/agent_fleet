@@ -322,6 +322,8 @@ export function renderBoardTaskList() {
 
     if (allTasks.length === 0) {
         if (section) section.style.display = 'none';
+        const countEl = document.getElementById('task-bar-count');
+        if (countEl) countEl.textContent = '';
         return;
     }
     if (section) section.style.display = '';
