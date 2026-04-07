@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -50,11 +51,13 @@ func (h *TokenUsageHandler) ListUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compute aggregated totals
-	var totalInput, totalOutput, totalTokens int64
+	var totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens int64
 	var totalCost float64
 	for _, r := range records {
 		totalInput += int64(r.InputTokens)
 		totalOutput += int64(r.OutputTokens)
+		totalCacheRead += int64(r.CacheReadTokens)
+		totalCacheWrite += int64(r.CacheWriteTokens)
 		totalTokens += int64(r.TotalTokens)
 		totalCost += r.CostUSD
 	}
@@ -62,11 +65,13 @@ func (h *TokenUsageHandler) ListUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"records": records,
 		"totals": map[string]any{
-			"input_tokens":  totalInput,
-			"output_tokens": totalOutput,
-			"total_tokens":  totalTokens,
-			"cost_usd":      totalCost,
-			"num_sessions":  len(records),
+			"input_tokens":       totalInput,
+			"output_tokens":      totalOutput,
+			"cache_read_tokens":  totalCacheRead,
+			"cache_write_tokens": totalCacheWrite,
+			"total_tokens":       totalTokens,
+			"cost_usd":           totalCost,
+			"num_sessions":       len(records),
 		},
 	})
 }
@@ -89,12 +94,14 @@ func (h *TokenUsageHandler) UsageSummary(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Compute grand totals
-	var totalInput, totalOutput, totalTokens int64
+	var totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens int64
 	var totalCost float64
 	var totalSessions int
 	for _, s := range summaries {
 		totalInput += s.InputTokens
 		totalOutput += s.OutputTokens
+		totalCacheRead += s.CacheReadTokens
+		totalCacheWrite += s.CacheWriteTokens
 		totalTokens += s.TotalTokens
 		totalCost += s.CostUSD
 		totalSessions += s.NumSessions
@@ -104,11 +111,51 @@ func (h *TokenUsageHandler) UsageSummary(w http.ResponseWriter, r *http.Request)
 		"by_agent_type": summaries,
 		"by_agent":      byAgent,
 		"totals": map[string]any{
-			"input_tokens":  totalInput,
-			"output_tokens": totalOutput,
-			"total_tokens":  totalTokens,
-			"cost_usd":      totalCost,
-			"num_sessions":  totalSessions,
+			"input_tokens":       totalInput,
+			"output_tokens":      totalOutput,
+			"cache_read_tokens":  totalCacheRead,
+			"cache_write_tokens": totalCacheWrite,
+			"total_tokens":       totalTokens,
+			"cost_usd":           totalCost,
+			"num_sessions":       totalSessions,
 		},
 	})
+}
+
+// SessionTurns returns per-turn cost data for a session.
+// GET /api/token-usage/session/{sessionID}/turns
+func (h *TokenUsageHandler) SessionTurns(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		errBadRequest(w, "session_id required")
+		return
+	}
+
+	turns, err := h.ts.GetSessionTurns(r.Context(), sessionID)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
+	// Compute cumulative cost
+	type turnWithCumulative struct {
+		Turn           int     `json:"turn"`
+		CostUSD        float64 `json:"cost_usd"`
+		CumulativeCost float64 `json:"cumulative_cost"`
+		Timestamp      string  `json:"timestamp"`
+	}
+
+	result := make([]turnWithCumulative, len(turns))
+	var cumulative float64
+	for i, t := range turns {
+		cumulative += t.CostUSD
+		result[i] = turnWithCumulative{
+			Turn:           i + 1,
+			CostUSD:        t.CostUSD,
+			CumulativeCost: cumulative,
+			Timestamp:      t.RecordedAt,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"turns": result})
 }

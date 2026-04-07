@@ -14,12 +14,12 @@ func TestAgentTasksCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create tasks
-	task1, err := s.CreateAgentTask(ctx, "agent-1", "Fix bug", nil)
+	task1, err := s.CreateAgentTask(ctx, "agent-1", "Fix bug", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Fix bug", task1.Title)
 	assert.Equal(t, 0, task1.SortOrder)
 
-	task2, err := s.CreateAgentTask(ctx, "agent-1", "Add tests", nil)
+	task2, err := s.CreateAgentTask(ctx, "agent-1", "Add tests", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, task2.SortOrder) // auto-increment
 
@@ -56,7 +56,7 @@ func TestAgentTasksWithSession(t *testing.T) {
 	ctx := context.Background()
 
 	sid := "sess-abc"
-	task, err := s.CreateAgentTask(ctx, "agent-1", "Session task", &sid)
+	task, err := s.CreateAgentTask(ctx, "agent-1", "Session task", &sid, nil)
 	require.NoError(t, err)
 
 	// List by session

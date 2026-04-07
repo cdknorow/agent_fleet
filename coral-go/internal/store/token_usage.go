@@ -60,6 +60,12 @@ type AgentUsageSummary struct {
 // avoid double-counting tokens.
 const sourceDedup = `(COALESCE(source,'jsonl') = 'jsonl' OR session_id NOT IN (SELECT DISTINCT session_id FROM token_usage WHERE source = 'jsonl'))`
 
+// TurnCost represents a single turn's cost data for charting.
+type TurnCost struct {
+	CostUSD    float64 `db:"cost_usd" json:"cost_usd"`
+	RecordedAt string  `db:"recorded_at" json:"timestamp"`
+}
+
 // UsageFilter specifies filters for ListUsage.
 type UsageFilter struct {
 	SessionID string
@@ -279,4 +285,14 @@ func (s *TokenUsageStore) GetLatestUsageBySessionIDs(ctx context.Context, sessio
 		result[records[i].SessionID] = &records[i]
 	}
 	return result, nil
+}
+
+// GetSessionTurns returns per-turn cost data for a session, ordered by time.
+func (s *TokenUsageStore) GetSessionTurns(ctx context.Context, sessionID string) ([]TurnCost, error) {
+	var turns []TurnCost
+	err := s.db.SelectContext(ctx, &turns,
+		`SELECT cost_usd, recorded_at FROM token_usage
+		 WHERE session_id = ? AND `+sourceDedup+`
+		 ORDER BY recorded_at ASC`, sessionID)
+	return turns, err
 }

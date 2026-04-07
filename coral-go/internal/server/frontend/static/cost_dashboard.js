@@ -88,21 +88,18 @@ export async function _refreshCostDashboard() {
             })));
 
             // Render per-agent (session) breakdown
-            _renderAgentTable((data.by_agent || []).map(a => {
-                let name = a.agent_name || 'unknown';
-                if (a.board_name) name += ` (${a.board_name})`;
-                return {
-                    session_id: a.session_id,
-                    agent_name: a.agent_name,
-                    display_name: name,
-                    requests: a.requests || 0,
-                    input_tokens: a.input_tokens || 0,
-                    output_tokens: a.output_tokens || 0,
-                    cache_read_tokens: a.cache_read_tokens || 0,
-                    cache_write_tokens: a.cache_write_tokens || 0,
-                    cost_usd: a.cost_usd || 0,
-                };
-            }));
+            _renderAgentTable((data.by_agent || []).map(a => ({
+                session_id: a.session_id,
+                agent_name: a.agent_name,
+                display_name: a.agent_name || 'unknown',
+                board_name: a.board_name || '',
+                requests: a.requests || 0,
+                input_tokens: a.input_tokens || 0,
+                output_tokens: a.output_tokens || 0,
+                cache_read_tokens: a.cache_read_tokens || 0,
+                cache_write_tokens: a.cache_write_tokens || 0,
+                cost_usd: a.cost_usd || 0,
+            })));
         }
 
         if (reqResp && reqResp.ok) {
@@ -171,6 +168,7 @@ function _renderAgentTable(rows) {
     let html = `<table class="cost-table">
         <thead><tr>
             <th>Agent</th>
+            <th>Team</th>
             <th class="cost-col-right">Requests</th>
             <th class="cost-col-right">Input</th>
             <th class="cost-col-right">Output</th>
@@ -191,8 +189,10 @@ function _renderAgentTable(rows) {
         } else {
             nameHtml = escapeHtml(displayName);
         }
-        html += `<tr>
+        const teamHtml = r.board_name ? escapeHtml(r.board_name) : '\u2014';
+        html += `<tr data-session-id="${escapeAttr(r.session_id || '')}">
             <td class="cost-agent-name">${nameHtml}</td>
+            <td class="cost-agent-team">${teamHtml}</td>
             <td class="cost-col-right">${r.requests}</td>
             <td class="cost-col-right">${_formatTokens(r.input_tokens || 0)}</td>
             <td class="cost-col-right">${_formatTokens(r.output_tokens || 0)}</td>
@@ -204,6 +204,93 @@ function _renderAgentTable(rows) {
 
     html += '</tbody></table>';
     container.innerHTML = html;
+
+    // Attach hover chart handlers
+    _attachAgentChartHovers(container);
+}
+
+// ── Turns-vs-Cost Hover Chart ─────────────────────────────────
+
+const _turnsCache = {};
+let _chartTooltip = null;
+
+function _ensureChartTooltip() {
+    if (_chartTooltip) return _chartTooltip;
+    _chartTooltip = document.createElement('div');
+    _chartTooltip.className = 'agent-cost-chart-tooltip';
+    document.body.appendChild(_chartTooltip);
+    return _chartTooltip;
+}
+
+function _attachAgentChartHovers(container) {
+    const rows = container.querySelectorAll('tr[data-session-id]');
+    for (const row of rows) {
+        const sessionId = row.getAttribute('data-session-id');
+        if (!sessionId) continue;
+
+        row.addEventListener('mouseenter', async (e) => {
+            const tooltip = _ensureChartTooltip();
+
+            // Fetch turns data (cached)
+            if (!_turnsCache[sessionId]) {
+                try {
+                    const resp = await fetch(`/api/token-usage/session/${encodeURIComponent(sessionId)}/turns`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        _turnsCache[sessionId] = data.turns || [];
+                    } else {
+                        _turnsCache[sessionId] = [];
+                    }
+                } catch { _turnsCache[sessionId] = []; }
+            }
+
+            const turns = _turnsCache[sessionId];
+            if (turns.length < 2) { tooltip.style.display = 'none'; return; }
+
+            tooltip.innerHTML = `<div class="chart-title">Cumulative Cost over ${turns.length} turns</div>` + _renderCostSVG(turns);
+
+            // Position near cursor
+            const x = Math.min(e.clientX + 16, window.innerWidth - 340);
+            const y = Math.min(e.clientY - 100, window.innerHeight - 220);
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = Math.max(8, y) + 'px';
+            tooltip.style.display = 'block';
+        });
+
+        row.addEventListener('mouseleave', () => {
+            const tooltip = _ensureChartTooltip();
+            tooltip.style.display = 'none';
+        });
+    }
+}
+
+function _renderCostSVG(turns) {
+    const W = 300, H = 160, PAD = 32;
+    const plotW = W - PAD * 2, plotH = H - PAD * 2;
+
+    const maxCost = turns[turns.length - 1].cumulative_cost || 1;
+    const maxTurn = turns.length;
+
+    // Build polyline points
+    const points = turns.map((t, i) => {
+        const x = PAD + (i / (maxTurn - 1)) * plotW;
+        const y = PAD + plotH - (t.cumulative_cost / maxCost) * plotH;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    // Area fill points (close path at bottom)
+    const areaPoints = [...points, `${(PAD + plotW).toFixed(1)},${(PAD + plotH).toFixed(1)}`, `${PAD.toFixed(1)},${(PAD + plotH).toFixed(1)}`];
+
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+        <line class="chart-grid" x1="${PAD}" y1="${PAD}" x2="${PAD}" y2="${PAD + plotH}" />
+        <line class="chart-grid" x1="${PAD}" y1="${PAD + plotH}" x2="${PAD + plotW}" y2="${PAD + plotH}" />
+        <polygon class="chart-area" points="${areaPoints.join(' ')}" />
+        <polyline class="chart-line" points="${points.join(' ')}" />
+        <text class="chart-axis-label" x="${PAD - 4}" y="${PAD + 4}" text-anchor="end">${_formatCost(maxCost)}</text>
+        <text class="chart-axis-label" x="${PAD - 4}" y="${PAD + plotH + 4}" text-anchor="end">$0</text>
+        <text class="chart-axis-label" x="${PAD}" y="${PAD + plotH + 16}" text-anchor="start">1</text>
+        <text class="chart-axis-label" x="${PAD + plotW}" y="${PAD + plotH + 16}" text-anchor="end">${maxTurn}</text>
+    </svg>`;
 }
 
 function _renderRequestLog(requests) {

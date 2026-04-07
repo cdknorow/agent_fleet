@@ -2335,7 +2335,17 @@ func (h *SessionsHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
-	task, err := h.ts.CreateAgentTask(r.Context(), name, body.Title, strPtr(body.SessionID))
+
+	// Resolve display_name from live session
+	var displayName *string
+	var dn string
+	err := h.db.GetContext(r.Context(), &dn,
+		"SELECT display_name FROM live_sessions WHERE agent_name = ? AND status = 'active' AND display_name IS NOT NULL LIMIT 1", name)
+	if err == nil && dn != "" {
+		displayName = &dn
+	}
+
+	task, err := h.ts.CreateAgentTask(r.Context(), name, body.Title, strPtr(body.SessionID), displayName)
 	if err != nil {
 		errInternalServer(w, err.Error())
 		return

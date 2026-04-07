@@ -104,6 +104,14 @@ var columnMigrations = []struct {
 	{"token_usage", "session_start_at", "TEXT"},
 	{"token_usage", "last_activity_at", "TEXT"},
 	{"token_usage", "source", "TEXT NOT NULL DEFAULT 'jsonl'"},
+	{"agent_tasks", "started_at", "TEXT"},
+	{"agent_tasks", "completed_at", "TEXT"},
+	{"agent_tasks", "cost_usd", "REAL NOT NULL DEFAULT 0"},
+	{"agent_tasks", "input_tokens", "INTEGER NOT NULL DEFAULT 0"},
+	{"agent_tasks", "output_tokens", "INTEGER NOT NULL DEFAULT 0"},
+	{"agent_tasks", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"},
+	{"agent_tasks", "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"},
+	{"agent_tasks", "display_name", "TEXT"},
 }
 
 const schemaSQL = `

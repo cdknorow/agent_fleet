@@ -380,6 +380,7 @@ func (s *Server) buildRouter() chi.Router {
 	tokenHandler := routes.NewTokenUsageHandler(s.db)
 	r.Get("/api/token-usage", tokenHandler.ListUsage)
 	r.Get("/api/token-usage/summary", tokenHandler.UsageSummary)
+	r.Get("/api/token-usage/session/{sessionID}/turns", tokenHandler.SessionTurns)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)

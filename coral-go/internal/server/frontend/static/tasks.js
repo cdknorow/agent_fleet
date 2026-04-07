@@ -163,38 +163,9 @@ export function editAgentTaskTitle(taskId, spanEl) {
 }
 
 export function renderTaskList() {
-    const list = document.getElementById('task-bar-list');
-    const countEl = document.getElementById('task-bar-count');
-    if (!list) return;
-
-    const tasks = state.currentAgentTasks || [];
-    const doneCount = tasks.filter(t => t.completed === 1).length;
-
-    if (countEl) {
-        countEl.textContent = tasks.length > 0 ? `${doneCount}/${tasks.length}` : '';
-    }
-
-    if (tasks.length === 0) {
-        list.innerHTML = '<div class="task-empty">No tasks yet</div>';
-        return;
-    }
-
-    // completed: 0=pending, 1=done, 2=in_progress
-    list.innerHTML = tasks.map(t => {
-        const statusClass = t.completed === 1 ? 'completed' : t.completed === 2 ? 'in-progress' : '';
-        const icon = t.completed === 2
-            ? '<span class="task-spinner" title="In progress"></span>'
-            : `<input type="checkbox" class="task-checkbox" ${t.completed === 1 ? 'checked' : ''}
-                onchange="toggleAgentTask(${t.id}, this.checked)">`;
-        return `
-        <div class="task-item ${statusClass}" data-task-id="${t.id}" draggable="true">
-            ${icon}
-            <span class="task-title" ondblclick="editAgentTaskTitle(${t.id}, this)">${escapeHtml(t.title)}</span>
-            <button class="task-delete-btn" onclick="deleteAgentTask(${t.id})" title="Delete task">&times;</button>
-        </div>`;
-    }).join('');
-
-    initTaskDragReorder();
+    // Agent tasks are now rendered in the unified board task table.
+    // Trigger a re-render of the unified table to include updated agent tasks.
+    renderBoardTaskList();
 }
 
 function initTaskDragReorder() {
@@ -255,7 +226,7 @@ export async function loadBoardTasks(boardName) {
 // Current sort and filter state for task list
 let _taskSortField = 'created_at';
 let _taskSortAsc = false; // default newest first
-let _hideCompleted = true; // hide done tasks by default
+let _hideCompleted = localStorage.getItem('coral-hide-completed') === 'true'; // off by default, persisted
 
 function _toggleTaskSort(field) {
     if (_taskSortField === field) {
@@ -269,6 +240,7 @@ function _toggleTaskSort(field) {
 
 function _toggleHideCompleted() {
     _hideCompleted = !_hideCompleted;
+    localStorage.setItem('coral-hide-completed', _hideCompleted);
     renderBoardTaskList();
 }
 
@@ -311,7 +283,20 @@ export function renderBoardTaskList() {
     const container = document.getElementById('board-task-list');
     if (!container) return;
 
-    const allTasks = state.currentBoardTasks || [];
+    // Merge board tasks and agent tasks into a unified list
+    const boardTasks = (state.currentBoardTasks || []).map(t => ({ ...t, _source: 'board' }));
+    const agentDisplayName = state.currentSession ? (state.currentSession.display_name || state.currentSession.name) : '';
+    const agentTasks = (state.currentAgentTasks || []).map(t => ({
+        ...t,
+        _source: 'agent',
+        // Normalize agent task fields to match board task shape
+        status: t.completed === 1 ? 'completed' : t.completed === 2 ? 'in_progress' : 'pending',
+        priority: null,
+        assigned_to: t.display_name || t.agent_name || agentDisplayName || null,
+        created_at: t.created_at,
+    }));
+
+    const allTasks = [...boardTasks, ...agentTasks];
     const completedCount = allTasks.filter(t => t.status === 'completed' || t.status === 'skipped').length;
     const tasks = allTasks.filter(t => {
         if (_hideCompleted && (t.status === 'completed' || t.status === 'skipped')) return false;
@@ -328,6 +313,8 @@ export function renderBoardTaskList() {
             const aCost = a.cost_usd ?? -1;
             const bCost = b.cost_usd ?? -1;
             cmp = aCost - bCost;
+        } else if (_taskSortField === 'type') {
+            cmp = (a._source || '').localeCompare(b._source || '');
         }
         return _taskSortAsc ? cmp : -cmp;
     });
@@ -349,10 +336,15 @@ export function renderBoardTaskList() {
             : '';
     }
 
+    // Update section header to "Tasks" instead of "Board Tasks"
+    const headerLabel = section ? section.querySelector('.board-tasks-header > span:first-child') : null;
+    if (headerLabel) headerLabel.textContent = 'Tasks';
+
     const header = `
         <div class="board-task-item board-task-header">
             <span class="board-task-status-col"></span>
             <span class="board-task-priority board-task-sort" onclick="_toggleTaskSort('priority')">Priority${arrow('priority')}</span>
+            <span class="board-task-type board-task-sort" onclick="_toggleTaskSort('type')">Type${arrow('type')}</span>
             <span class="board-task-assignee board-task-sort" onclick="_toggleTaskSort('assignee')">Agent${arrow('assignee')}</span>
             <span class="board-task-desc board-task-sort" onclick="_toggleTaskSort('created_at')">Task${arrow('created_at')}</span>
             <span class="board-task-cost board-task-sort" onclick="_toggleTaskSort('cost')">Cost${arrow('cost')}</span>
@@ -360,10 +352,11 @@ export function renderBoardTaskList() {
         </div>`;
 
     const rows = tasks.map(t => {
+        const isAgent = t._source === 'agent';
         const statusClass = t.status === 'completed' ? 'completed'
             : t.status === 'in_progress' ? 'in-progress'
             : t.status === 'skipped' ? 'completed' : '';
-        const priorityClass = 'board-task-priority-' + (t.priority || 'medium');
+        const priorityClass = t.priority ? 'board-task-priority-' + t.priority : 'board-task-priority-none';
         const assignee = t.assigned_to || '\u2014';
         const title = escapeHtml(t.title || t.description || '');
         const tooltip = t.body ? ` title="${escapeAttr(t.body)}"` : '';
@@ -377,7 +370,10 @@ export function renderBoardTaskList() {
             : '<span class="material-icons board-task-status-icon pending">radio_button_unchecked</span>';
         let costText = '';
         let costClass = 'board-task-cost';
-        if ((t.status === 'completed' || t.status === 'skipped') && t.cost_usd != null) {
+        if (isAgent && t.cost_usd > 0) {
+            costText = _formatCost(t.cost_usd, false);
+            if (t.cost_usd >= 1.0) costClass += ' board-task-cost-warning';
+        } else if ((t.status === 'completed' || t.status === 'skipped') && t.cost_usd != null) {
             costText = _formatCost(t.cost_usd, false);
             if (t.cost_usd >= 1.0) costClass += ' board-task-cost-warning';
         } else if (t.status === 'in_progress' && _liveCosts[t.id]) {
@@ -386,10 +382,12 @@ export function renderBoardTaskList() {
             costClass += ' board-task-cost-live';
             if (lc.cost_usd >= 1.0) costClass += ' board-task-cost-warning';
         }
+        const clickHandler = isAgent ? '' : ` onclick="showTaskDetailModal(${t.id})" style="cursor:pointer"`;
         return `
-        <div class="board-task-item ${statusClass}" onclick="showTaskDetailModal(${t.id})" style="cursor:pointer">
+        <div class="board-task-item ${statusClass}"${clickHandler}>
             ${statusIcon}
-            <span class="board-task-priority ${priorityClass}">${escapeHtml(t.priority || 'medium')}</span>
+            <span class="board-task-priority ${priorityClass}">${t.priority ? escapeHtml(t.priority) : '\u2014'}</span>
+            <span class="board-task-type">${isAgent ? 'agent' : 'board'}</span>
             <span class="board-task-assignee">${escapeHtml(assignee)}</span>
             <span class="board-task-desc"${tooltip}>${title}</span>
             <span class="${costClass}">${costText}</span>
@@ -398,6 +396,13 @@ export function renderBoardTaskList() {
     }).join('');
 
     container.innerHTML = header + rows;
+
+    // Update task count badge
+    const countEl = document.getElementById('task-bar-count');
+    if (countEl) {
+        const doneCount = allTasks.filter(t => t.status === 'completed' || t.status === 'skipped').length;
+        countEl.textContent = allTasks.length > 0 ? `${doneCount}/${allTasks.length}` : '';
+    }
 }
 
 /* ── Task Detail Modal ─────────────────────────────────── */

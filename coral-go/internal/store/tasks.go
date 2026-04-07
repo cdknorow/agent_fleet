@@ -13,14 +13,22 @@ import (
 
 // AgentTask represents a checklist item for an agent.
 type AgentTask struct {
-	ID        int64   `db:"id" json:"id"`
-	AgentName string  `db:"agent_name" json:"agent_name"`
-	SessionID *string `db:"session_id" json:"session_id,omitempty"`
-	Title     string  `db:"title" json:"title"`
-	Completed int     `db:"completed" json:"completed"`
-	SortOrder int     `db:"sort_order" json:"sort_order"`
-	CreatedAt string  `db:"created_at" json:"created_at"`
-	UpdatedAt string  `db:"updated_at" json:"updated_at"`
+	ID               int64   `db:"id" json:"id"`
+	AgentName        string  `db:"agent_name" json:"agent_name"`
+	SessionID        *string `db:"session_id" json:"session_id,omitempty"`
+	Title            string  `db:"title" json:"title"`
+	Completed        int     `db:"completed" json:"completed"`
+	SortOrder        int     `db:"sort_order" json:"sort_order"`
+	CreatedAt        string  `db:"created_at" json:"created_at"`
+	UpdatedAt        string  `db:"updated_at" json:"updated_at"`
+	StartedAt        *string `db:"started_at" json:"started_at,omitempty"`
+	CompletedAt      *string `db:"completed_at" json:"completed_at,omitempty"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	InputTokens      int     `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int     `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int     `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int     `db:"cache_write_tokens" json:"cache_write_tokens"`
+	DisplayName      *string `db:"display_name" json:"display_name,omitempty"`
 }
 
 // AgentNote represents a note for an agent.
@@ -69,14 +77,15 @@ func (s *TaskStore) ListAgentTasks(ctx context.Context, agentName string, sessio
 	args := append([]interface{}{agentName}, filterArgs...)
 	var tasks []AgentTask
 	err := s.db.SelectContext(ctx, &tasks,
-		`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
+		`SELECT id, agent_name, session_id, title, completed, sort_order, created_at, updated_at,
+		        started_at, completed_at, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, display_name
 		 FROM agent_tasks WHERE agent_name = ?`+filter+` ORDER BY sort_order`,
 		args...)
 	return tasks, err
 }
 
 // CreateAgentTask creates a new task with auto-incrementing sort order.
-func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string, sessionID *string) (*AgentTask, error) {
+func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string, sessionID *string, displayName *string) (*AgentTask, error) {
 	now := nowUTC()
 
 	// Get next sort order
@@ -90,9 +99,9 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 	}
 
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_tasks (agent_name, session_id, title, sort_order, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		agentName, sessionID, title, nextOrder, now, now)
+		`INSERT INTO agent_tasks (agent_name, session_id, title, sort_order, display_name, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		agentName, sessionID, title, nextOrder, displayName, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -102,12 +111,15 @@ func (s *TaskStore) CreateAgentTask(ctx context.Context, agentName, title string
 	}
 	return &AgentTask{
 		ID: id, AgentName: agentName, Title: title,
-		Completed: 0, SortOrder: nextOrder,
+		Completed: 0, SortOrder: nextOrder, DisplayName: displayName,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
 
 // UpdateAgentTask updates task fields (title, completed, sort_order).
+// When completed transitions to 2 (in_progress), started_at is set.
+// When completed transitions to 1 (done), completed_at is set and cost is computed
+// from token_usage records between started_at and completed_at.
 func (s *TaskStore) UpdateAgentTask(ctx context.Context, taskID int64, title *string, completed *int, sortOrder *int) error {
 	now := nowUTC()
 	sets := []string{"updated_at = ?"}
@@ -119,6 +131,17 @@ func (s *TaskStore) UpdateAgentTask(ctx context.Context, taskID int64, title *st
 	if completed != nil {
 		sets = append(sets, "completed = ?")
 		args = append(args, *completed)
+		if *completed == 2 {
+			// Transitioning to in_progress — record start time
+			sets = append(sets, "started_at = ?")
+			args = append(args, now)
+		} else if *completed == 1 {
+			// Transitioning to done — record completion time, set started_at if not already set
+			sets = append(sets, "completed_at = ?")
+			args = append(args, now)
+			sets = append(sets, "started_at = COALESCE(started_at, ?)")
+			args = append(args, now)
+		}
 	}
 	if sortOrder != nil {
 		sets = append(sets, "sort_order = ?")
@@ -128,19 +151,96 @@ func (s *TaskStore) UpdateAgentTask(ctx context.Context, taskID int64, title *st
 	_, err := s.db.ExecContext(ctx,
 		fmt.Sprintf("UPDATE agent_tasks SET %s WHERE id = ?", strings.Join(sets, ", ")),
 		args...)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Compute cost from token_usage if task just completed
+	if completed != nil && *completed == 1 {
+		s.computeAgentTaskCost(ctx, taskID, now)
+	}
+	return nil
+}
+
+// computeAgentTaskCost sums token_usage records for the task's session
+// between started_at and completed_at, and updates the task's cost fields.
+func (s *TaskStore) computeAgentTaskCost(ctx context.Context, taskID int64, completedAt string) {
+	// Fetch the task to get session_id and started_at
+	var task struct {
+		SessionID *string `db:"session_id"`
+		StartedAt *string `db:"started_at"`
+	}
+	err := s.db.GetContext(ctx, &task,
+		"SELECT session_id, started_at FROM agent_tasks WHERE id = ?", taskID)
+	if err != nil || task.SessionID == nil || task.StartedAt == nil {
+		return
+	}
+
+	// Sum token_usage between started_at and completed_at for this session.
+	// Use datetime() to normalize timezone suffixes (+00:00 vs Z).
+	var usage struct {
+		InputTokens      int     `db:"input_tokens"`
+		OutputTokens     int     `db:"output_tokens"`
+		CacheReadTokens  int     `db:"cache_read_tokens"`
+		CacheWriteTokens int     `db:"cache_write_tokens"`
+		CostUSD          float64 `db:"cost_usd"`
+	}
+	err = s.db.GetContext(ctx, &usage,
+		`SELECT COALESCE(SUM(input_tokens), 0) as input_tokens,
+		        COALESCE(SUM(output_tokens), 0) as output_tokens,
+		        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+		        COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
+		        COALESCE(SUM(cost_usd), 0) as cost_usd
+		 FROM token_usage
+		 WHERE session_id = ? AND datetime(recorded_at) >= datetime(?) AND datetime(recorded_at) <= datetime(?)`,
+		*task.SessionID, *task.StartedAt, completedAt)
+	if err != nil {
+		log.Printf("[store] compute agent task cost query failed for task %d: %v", taskID, err)
+		return
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE agent_tasks SET cost_usd = ?, input_tokens = ?, output_tokens = ?,
+		        cache_read_tokens = ?, cache_write_tokens = ?
+		 WHERE id = ?`,
+		usage.CostUSD, usage.InputTokens, usage.OutputTokens,
+		usage.CacheReadTokens, usage.CacheWriteTokens, taskID); err != nil {
+		log.Printf("[store] failed to update agent task cost for task %d: %v", taskID, err)
+	}
 }
 
 // CompleteAgentTaskByTitle marks a task as completed by title match.
 func (s *TaskStore) CompleteAgentTaskByTitle(ctx context.Context, agentName, title string, sessionID *string) error {
 	now := nowUTC()
 	filter, filterArgs := sessionFilter(sessionID)
-	args := append([]interface{}{now, agentName, title}, filterArgs...)
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE agent_tasks SET completed = 1, updated_at = ?
+
+	// Find the task ID first so we can compute cost after completion
+	var taskID int64
+	getArgs := append([]interface{}{agentName, title}, filterArgs...)
+	err := s.db.GetContext(ctx, &taskID,
+		`SELECT id FROM agent_tasks WHERE agent_name = ? AND title = ?`+filter+` AND completed = 0 LIMIT 1`,
+		getArgs...)
+	if err != nil {
+		// Task not found or already completed — still attempt the update
+		args := append([]interface{}{now, now, now, agentName, title}, filterArgs...)
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE agent_tasks SET completed = 1, completed_at = ?, started_at = COALESCE(started_at, ?), updated_at = ?
+			 WHERE agent_name = ? AND title = ?`+filter+` AND completed = 0`,
+			args...)
+		return err
+	}
+
+	args := append([]interface{}{now, now, now, agentName, title}, filterArgs...)
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE agent_tasks SET completed = 1, completed_at = ?, started_at = COALESCE(started_at, ?), updated_at = ?
 		 WHERE agent_name = ? AND title = ?`+filter+` AND completed = 0`,
 		args...)
-	return err
+	if err != nil {
+		return err
+	}
+
+	s.computeAgentTaskCost(ctx, taskID, now)
+	return nil
 }
 
 // DeleteAgentTask deletes a task by ID.
@@ -413,7 +513,8 @@ func (s *TaskStore) GetFileEdits(ctx context.Context, sessionID, workingDir stri
 func (s *TaskStore) ListTasksBySession(ctx context.Context, sessionID string) ([]AgentTask, error) {
 	var tasks []AgentTask
 	err := s.db.SelectContext(ctx, &tasks,
-		`SELECT id, agent_name, title, completed, sort_order, created_at, updated_at
+		`SELECT id, agent_name, session_id, title, completed, sort_order, created_at, updated_at,
+		        started_at, completed_at, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, display_name
 		 FROM agent_tasks WHERE session_id = ? ORDER BY sort_order`, sessionID)
 	return tasks, err
 }

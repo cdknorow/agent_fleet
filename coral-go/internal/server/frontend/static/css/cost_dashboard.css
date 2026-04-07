@@ -252,3 +252,39 @@
     background: rgba(136, 136, 136, 0.12);
     color: var(--text-muted);
 }
+
+.agent-cost-chart-tooltip {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+.agent-cost-chart-tooltip .chart-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.agent-cost-chart-tooltip svg {
+    display: block;
+}
+.agent-cost-chart-tooltip .chart-axis-label {
+    font-size: 10px;
+    fill: var(--text-muted);
+}
+.agent-cost-chart-tooltip .chart-line {
+    fill: none;
+    stroke: #58a6ff;
+    stroke-width: 1.5;
+}
+.agent-cost-chart-tooltip .chart-area {
+    fill: rgba(88, 166, 255, 0.1);
+}
+.agent-cost-chart-tooltip .chart-grid {
+    stroke: var(--border-light);
+    stroke-width: 0.5;
+}
