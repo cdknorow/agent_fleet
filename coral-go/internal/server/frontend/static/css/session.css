@@ -259,7 +259,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 500;
 }
 
@@ -547,7 +547,7 @@
 }
 
 .board-card-agents .session-group-item {
-    padding: 14px 10px 14px 12px !important;
+    padding: 8px 10px 8px 12px !important;
     min-height: 0;
 }
 

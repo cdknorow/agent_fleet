@@ -382,3 +382,108 @@ func TestTokenUsageStore_ListUsage_MultipleFilters(t *testing.T) {
 	assert.Len(t, results, 1)
 	assert.Equal(t, "s1", results[0].SessionID)
 }
+
+func TestTokenUsageStore_GetLatestTurnContext_BasicCase(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	// Turn 1: small context
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID:       "s1",
+		AgentName:       "a1",
+		InputTokens:     5,
+		CacheReadTokens: 50000,
+		CacheWriteTokens: 2000,
+		RecordedAt:      "2026-01-01T00:00:00Z",
+	}))
+	// Turn 2: larger context (latest)
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID:       "s1",
+		AgentName:       "a1",
+		InputTokens:     1,
+		CacheReadTokens: 190000,
+		CacheWriteTokens: 500,
+		RecordedAt:      "2026-01-01T00:01:00Z",
+	}))
+
+	result, err := s.GetLatestTurnContextBySessionIDs(ctx, []string{"s1"})
+	require.NoError(t, err)
+	assert.Len(t, result, 1)
+	// Should return latest turn's total: 1 + 190000 + 500 = 190501
+	assert.Equal(t, 190501, result["s1"])
+}
+
+func TestTokenUsageStore_GetLatestTurnContext_MultipleSessions(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	// Session 1: two turns
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1",
+		InputTokens: 10, CacheReadTokens: 100000, CacheWriteTokens: 5000,
+		RecordedAt: "2026-01-01T00:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1",
+		InputTokens: 2, CacheReadTokens: 120000, CacheWriteTokens: 800,
+		RecordedAt: "2026-01-01T00:01:00Z",
+	}))
+
+	// Session 2: one turn
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2",
+		InputTokens: 3, CacheReadTokens: 40000, CacheWriteTokens: 200,
+		RecordedAt: "2026-01-01T00:00:30Z",
+	}))
+
+	result, err := s.GetLatestTurnContextBySessionIDs(ctx, []string{"s1", "s2", "s3"})
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+
+	// s1 latest: 2 + 120000 + 800 = 120802
+	assert.Equal(t, 120802, result["s1"])
+	// s2: 3 + 40000 + 200 = 40203
+	assert.Equal(t, 40203, result["s2"])
+	// s3 not present
+	_, exists := result["s3"]
+	assert.False(t, exists)
+}
+
+func TestTokenUsageStore_GetLatestTurnContext_Empty(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	result, err := s.GetLatestTurnContextBySessionIDs(ctx, []string{})
+	require.NoError(t, err)
+	assert.Len(t, result, 0)
+}
+
+func TestTokenUsageStore_GetLatestTurnContext_NoData(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	result, err := s.GetLatestTurnContextBySessionIDs(ctx, []string{"nonexistent"})
+	require.NoError(t, err)
+	assert.Len(t, result, 0)
+}
+
+func TestTokenUsageStore_GetLatestTurnContext_ZeroCacheTokens(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	// No caching — all tokens are fresh input
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1",
+		InputTokens: 150000, CacheReadTokens: 0, CacheWriteTokens: 0,
+		RecordedAt: "2026-01-01T00:00:00Z",
+	}))
+
+	result, err := s.GetLatestTurnContextBySessionIDs(ctx, []string{"s1"})
+	require.NoError(t, err)
+	assert.Equal(t, 150000, result["s1"])
+}

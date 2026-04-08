@@ -353,10 +353,10 @@ function updatePauseButton() {
     for (const btn of buttons) {
         if (!btn) continue;
         if (isPaused) {
-            btn.textContent = 'Resume Reads';
+            btn.textContent = 'Resume Board';
             btn.classList.add('mb-action-danger');
         } else {
-            btn.textContent = 'Pause Reads';
+            btn.textContent = 'Pause Board';
             btn.classList.remove('mb-action-danger');
         }
     }
