@@ -123,6 +123,8 @@ const VIEW_IDS = [
     "workflows-view",
     "connected-apps-view",
     "cost-dashboard-view",
+    "timeline-view",
+    "kanban-view",
     "docs-view",
 ];
 
@@ -135,11 +137,15 @@ const VIEW_DISPLAY = {
     "workflows-view": "block",
     "connected-apps-view": "block",
     "cost-dashboard-view": "flex",
+    "timeline-view": "flex",
+    "kanban-view": "flex",
     "docs-view": "block",
 };
 
 const FULL_WIDTH_VIEWS = new Set([
     "cost-dashboard-view",
+    "timeline-view",
+    "kanban-view",
     "workflows-view",
     "connected-apps-view",
 ]);
@@ -157,6 +163,17 @@ export function renderMarkdown(content) {
     if (!content) return '';
     if (typeof marked !== 'undefined') {
         try {
+            if (typeof hljs !== 'undefined' && !marked._hljsConfigured) {
+                marked.setOptions({
+                    highlight: (code, lang) => {
+                        if (lang && hljs.getLanguage(lang)) {
+                            return hljs.highlight(code, { language: lang }).value;
+                        }
+                        return hljs.highlightAuto(code).value;
+                    },
+                });
+                marked._hljsConfigured = true;
+            }
             const html = marked.parse(content);
             return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
         } catch { /* fall through */ }

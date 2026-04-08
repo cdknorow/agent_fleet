@@ -487,3 +487,107 @@ func TestTokenUsageStore_GetLatestTurnContext_ZeroCacheTokens(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 150000, result["s1"])
 }
+
+func TestTokenUsageStore_GetUsageTimeSeries(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	// Insert records at different times
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1",
+		InputTokens: 100, OutputTokens: 50, CostUSD: 0.01,
+		RecordedAt: "2026-01-01T10:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1",
+		InputTokens: 200, OutputTokens: 100, CostUSD: 0.02,
+		RecordedAt: "2026-01-01T11:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2",
+		InputTokens: 300, OutputTokens: 150, CostUSD: 0.03,
+		RecordedAt: "2026-01-01T11:30:00Z",
+	}))
+
+	buckets, err := s.GetUsageTimeSeries(ctx, "", "1h")
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(buckets), 2)
+
+	// First bucket should have the 10:00 record
+	assert.Equal(t, 0.01, buckets[0].CostUSD)
+	// Second bucket should combine 11:00 and 11:30 records
+	assert.InDelta(t, 0.05, buckets[1].CostUSD, 0.001)
+}
+
+func TestTokenUsageStore_GetUsageTimeSeries_Empty(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	buckets, err := s.GetUsageTimeSeries(ctx, "", "1h")
+	require.NoError(t, err)
+	assert.Len(t, buckets, 0)
+}
+
+func TestTokenUsageStore_GetUsageSummaryByBoard(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	board1 := "team-alpha"
+	board2 := "team-beta"
+
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", BoardName: &board1,
+		InputTokens: 100, OutputTokens: 50, CostUSD: 0.10,
+		RecordedAt: "2026-01-01T10:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2", BoardName: &board1,
+		InputTokens: 200, OutputTokens: 100, CostUSD: 0.20,
+		RecordedAt: "2026-01-01T10:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s3", AgentName: "a3", BoardName: &board2,
+		InputTokens: 50, OutputTokens: 25, CostUSD: 0.05,
+		RecordedAt: "2026-01-01T10:00:00Z",
+	}))
+
+	teams, err := s.GetUsageSummaryByBoard(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, teams, 2)
+
+	// Sorted by cost DESC, so team-alpha first
+	assert.Equal(t, "team-alpha", teams[0].BoardName)
+	assert.InDelta(t, 0.30, teams[0].CostUSD, 0.001)
+	assert.Equal(t, 2, teams[0].NumAgents)
+
+	assert.Equal(t, "team-beta", teams[1].BoardName)
+	assert.InDelta(t, 0.05, teams[1].CostUSD, 0.001)
+	assert.Equal(t, 1, teams[1].NumAgents)
+}
+
+func TestTokenUsageStore_GetUsageSummaryByBoard_WithSince(t *testing.T) {
+	db := openTestDB(t)
+	s := NewTokenUsageStore(db)
+	ctx := context.Background()
+
+	board := "team-x"
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s1", AgentName: "a1", BoardName: &board,
+		InputTokens: 100, CostUSD: 0.10,
+		RecordedAt: "2026-01-01T08:00:00Z",
+	}))
+	require.NoError(t, s.RecordUsage(ctx, &TokenUsage{
+		SessionID: "s2", AgentName: "a2", BoardName: &board,
+		InputTokens: 200, CostUSD: 0.20,
+		RecordedAt: "2026-01-01T12:00:00Z",
+	}))
+
+	// Only records after 10:00
+	teams, err := s.GetUsageSummaryByBoard(ctx, "2026-01-01T10:00:00Z")
+	require.NoError(t, err)
+	assert.Len(t, teams, 1)
+	assert.InDelta(t, 0.20, teams[0].CostUSD, 0.001)
+}

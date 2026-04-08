@@ -90,6 +90,25 @@ func (s *GitStore) UpsertGitSnapshot(ctx context.Context, snap *GitSnapshot) err
 	return err
 }
 
+// GetRecentGitSnapshots returns recent snapshots across all agents, optionally filtered by time.
+func (s *GitStore) GetRecentGitSnapshots(ctx context.Context, since string, limit int) ([]GitSnapshot, error) {
+	var snaps []GitSnapshot
+	var err error
+	if since != "" {
+		err = s.db.SelectContext(ctx, &snaps,
+			`SELECT `+gitSnapshotCols+`
+			 FROM git_snapshots WHERE recorded_at >= ?
+			 ORDER BY recorded_at DESC LIMIT ?`,
+			since, limit)
+	} else {
+		err = s.db.SelectContext(ctx, &snaps,
+			`SELECT `+gitSnapshotCols+`
+			 FROM git_snapshots ORDER BY recorded_at DESC LIMIT ?`,
+			limit)
+	}
+	return snaps, err
+}
+
 // GetGitSnapshots returns recent snapshots for an agent.
 func (s *GitStore) GetGitSnapshots(ctx context.Context, agentName string, limit int) ([]GitSnapshot, error) {
 	var snaps []GitSnapshot

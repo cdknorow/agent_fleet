@@ -159,3 +159,64 @@ func (h *TokenUsageHandler) SessionTurns(w http.ResponseWriter, r *http.Request)
 
 	writeJSON(w, http.StatusOK, map[string]any{"turns": result})
 }
+
+// UsageTimeSeries returns bucketed time-series cost data.
+// GET /api/token-usage/timeseries?since=...&interval=5m|1h|1d
+func (h *TokenUsageHandler) UsageTimeSeries(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	since := q.Get("since")
+	interval := q.Get("interval")
+	if interval == "" {
+		interval = "1h"
+	}
+
+	buckets, err := h.ts.GetUsageTimeSeries(r.Context(), since, interval)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
+	// Compute cumulative cost
+	type bucketWithCumulative struct {
+		Bucket           string  `json:"bucket"`
+		CostUSD          float64 `json:"cost_usd"`
+		CumulativeCost   float64 `json:"cumulative_cost"`
+		InputTokens      int64   `json:"input_tokens"`
+		OutputTokens     int64   `json:"output_tokens"`
+		CacheReadTokens  int64   `json:"cache_read_tokens"`
+		CacheWriteTokens int64   `json:"cache_write_tokens"`
+		NumRequests      int     `json:"num_requests"`
+	}
+
+	result := make([]bucketWithCumulative, len(buckets))
+	var cumulative float64
+	for i, b := range buckets {
+		cumulative += b.CostUSD
+		result[i] = bucketWithCumulative{
+			Bucket:           b.Bucket,
+			CostUSD:          b.CostUSD,
+			CumulativeCost:   cumulative,
+			InputTokens:      b.InputTokens,
+			OutputTokens:     b.OutputTokens,
+			CacheReadTokens:  b.CacheReadTokens,
+			CacheWriteTokens: b.CacheWriteTokens,
+			NumRequests:      b.NumRequests,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"buckets": result, "interval": interval})
+}
+
+// UsageSummaryByBoard returns per-board/team usage breakdown.
+// GET /api/token-usage/by-team?since=...
+func (h *TokenUsageHandler) UsageSummaryByBoard(w http.ResponseWriter, r *http.Request) {
+	since := r.URL.Query().Get("since")
+
+	teams, err := h.ts.GetUsageSummaryByBoard(r.Context(), since)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"teams": teams})
+}

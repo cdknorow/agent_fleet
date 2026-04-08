@@ -1292,6 +1292,12 @@ const AGENT_PRESETS = [
         capabilities: { allow: ['file_read', 'shell:coral-board *', 'agent_spawn', 'web_access'] },
     },
     {
+        name: "Terminal",
+        prompt: "",
+        agent_type: "terminal",
+        capabilities: { allow: ['shell'] },
+    },
+    {
         name: "Frontend Dev",
         prompt: "You are a frontend developer. Build UI components, style pages, and ensure a great user experience. Coordinate with the team via the message board.",
         capabilities: { allow: ['file_read', 'file_write', 'shell:npm *', 'shell:npx *', 'web_access', 'shell:coral-board *'] },
@@ -1524,6 +1530,7 @@ function renderAgentConfigForm(containerId, opts = {}) {
                     <option value="claude"${agentTypeVal === 'claude' || !agentTypeVal ? ' selected' : ''}>Claude</option>
                     <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
                     <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
+                    <option value="terminal"${agentTypeVal === 'terminal' ? ' selected' : ''}>Terminal</option>
                 </select>
             </label>
             <label>Model <span style="color:var(--text-muted);font-weight:normal">(optional)</span>:
@@ -1655,7 +1662,7 @@ function _applyACFPresetFor(containerId, name) {
 window._applyACFPresetFor = _applyACFPresetFor;
 
 // Default team: first 3 presets
-const DEFAULT_TEAM_PRESETS = AGENT_PRESETS.slice(0, 3);
+const DEFAULT_TEAM_PRESETS = AGENT_PRESETS.slice(0, 4);
 
 async function _initTeamForm() {
     // Hide generated-team banner on normal opens
@@ -1715,7 +1722,7 @@ async function _initTeamForm() {
     // Add three default agents (skip if wizard is populating)
     if (!_skipDefaultTeamAgents) {
         for (const preset of DEFAULT_TEAM_PRESETS) {
-            _addTeamAgent(preset.name, preset.prompt);
+            _addTeamAgent(preset.name, preset.prompt, preset.capabilities, preset.agent_type, preset.model);
         }
     }
     _skipDefaultTeamAgents = false;

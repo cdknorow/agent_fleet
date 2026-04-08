@@ -71,6 +71,7 @@ type LiveSession struct {
 	WorktreeRepo  *string `db:"worktree_repo" json:"worktree_repo,omitempty"`
 	TeamID        *int64  `db:"team_id" json:"team_id,omitempty"`
 	CreatedAt     string  `db:"created_at" json:"created_at"`
+	StoppedAt     *string `db:"stopped_at" json:"stopped_at,omitempty"`
 }
 
 // UserSetting is a key-value pair.
@@ -801,7 +802,8 @@ func (s *SessionStore) RegisterLiveSession(ctx context.Context, ls *LiveSession)
 // UnregisterLiveSession marks a live session as inactive (preserves the record for history).
 func (s *SessionStore) UnregisterLiveSession(ctx context.Context, sessionID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE live_sessions SET status = 'inactive' WHERE session_id = ?", sessionID)
+		"UPDATE live_sessions SET status = 'inactive', stopped_at = ? WHERE session_id = ?",
+		nowUTC(), sessionID)
 	return err
 }
 
@@ -810,7 +812,7 @@ func (s *SessionStore) GetAllLiveSessions(ctx context.Context) ([]LiveSession, e
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, context_window, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, context_window, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at, stopped_at
 		 FROM live_sessions WHERE status = 'active' ORDER BY created_at`)
 	return sessions, err
 }
@@ -828,7 +830,7 @@ func (s *SessionStore) GetBoardSessions(ctx context.Context, boardName string) (
 	var sessions []LiveSession
 	err := s.db.SelectContext(ctx, &sessions,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, capabilities, model, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at, stopped_at
 		 FROM live_sessions WHERE board_name = ? AND status = 'active' ORDER BY created_at`, boardName)
 	return sessions, err
 }
@@ -907,7 +909,7 @@ func (s *SessionStore) GetLiveSession(ctx context.Context, sessionID string) (*L
 	var ls LiveSession
 	err := s.db.GetContext(ctx, &ls,
 		`SELECT session_id, agent_type, agent_name, working_dir, display_name,
-		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, context_window, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at
+		 resume_from_id, flags, is_job, prompt, board_name, board_server, backend, icon, is_sleeping, board_type, git_diff_mode, capabilities, model, context_window, tools, mcp_servers, pid, worktree_path, worktree_repo, team_id, created_at, stopped_at
 		 FROM live_sessions WHERE session_id = ?`, sessionID)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -969,7 +971,7 @@ func (s *SessionStore) ReplaceLiveSession(ctx context.Context, oldSessionID stri
 			}
 		}
 
-		if _, err := tx.ExecContext(ctx, "UPDATE live_sessions SET status = 'inactive' WHERE session_id = ?", oldSessionID); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE live_sessions SET status = 'inactive', stopped_at = ? WHERE session_id = ?", nowUTC(), oldSessionID); err != nil {
 			return err
 		}
 
@@ -1098,8 +1100,9 @@ func (s *SessionStore) GetSleepingBoardNames(ctx context.Context) ([]string, err
 // version with the same display_name and board_name already exists.
 // This cleans up duplicates from old wake code that created new sessions.
 func (s *SessionStore) CleanupOrphanedSleeping(ctx context.Context) (int, error) {
+	now := nowUTC()
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE live_sessions SET status = 'inactive' WHERE is_sleeping = 1 AND status = 'active'
+		UPDATE live_sessions SET status = 'inactive', stopped_at = ? WHERE is_sleeping = 1 AND status = 'active'
 		AND session_id IN (
 			SELECT sleeping.session_id FROM live_sessions sleeping
 			INNER JOIN live_sessions awake
@@ -1110,12 +1113,68 @@ func (s *SessionStore) CleanupOrphanedSleeping(ctx context.Context) (int, error)
 			AND sleeping.session_id != awake.session_id
 			AND sleeping.status = 'active'
 			AND awake.status = 'active'
-		)`)
+		)`, now)
 	if err != nil {
 		return 0, err
 	}
 	n, _ := result.RowsAffected()
 	return int(n), nil
+}
+
+// GetSessionDuration returns the duration of a session in seconds.
+// For active sessions, duration is calculated from created_at to now.
+// For stopped sessions, duration is calculated from created_at to stopped_at.
+func (s *SessionStore) GetSessionDuration(ctx context.Context, sessionID string) (float64, error) {
+	var result struct {
+		CreatedAt string  `db:"created_at"`
+		StoppedAt *string `db:"stopped_at"`
+		Status    string  `db:"status"`
+	}
+	err := s.db.GetContext(ctx, &result,
+		"SELECT created_at, stopped_at, status FROM live_sessions WHERE session_id = ?", sessionID)
+	if err != nil {
+		return 0, err
+	}
+
+	start, err := time.Parse(time.RFC3339Nano, result.CreatedAt)
+	if err != nil {
+		start, err = time.Parse("2006-01-02T15:04:05Z", result.CreatedAt)
+		if err != nil {
+			return 0, fmt.Errorf("parse created_at: %w", err)
+		}
+	}
+
+	var end time.Time
+	if result.StoppedAt != nil && *result.StoppedAt != "" {
+		end, err = time.Parse(time.RFC3339Nano, *result.StoppedAt)
+		if err != nil {
+			end, err = time.Parse("2006-01-02T15:04:05Z", *result.StoppedAt)
+			if err != nil {
+				return 0, fmt.Errorf("parse stopped_at: %w", err)
+			}
+		}
+	} else {
+		end = time.Now().UTC()
+	}
+
+	return end.Sub(start).Seconds(), nil
+}
+
+// GetRecentStoppedSessions returns recently stopped sessions for timeline display.
+func (s *SessionStore) GetRecentStoppedSessions(ctx context.Context, since string, limit int) ([]LiveSession, error) {
+	var sessions []LiveSession
+	query := `SELECT session_id, agent_type, agent_name, working_dir, display_name,
+		 board_name, icon, created_at, stopped_at
+		 FROM live_sessions WHERE status = 'inactive' AND stopped_at IS NOT NULL`
+	args := []interface{}{}
+	if since != "" {
+		query += " AND stopped_at >= ?"
+		args = append(args, since)
+	}
+	query += " ORDER BY stopped_at DESC LIMIT ?"
+	args = append(args, limit)
+	err := s.db.SelectContext(ctx, &sessions, query, args...)
+	return sessions, err
 }
 
 // ── Live Session Flags Helper ──────────────────────────────────────────

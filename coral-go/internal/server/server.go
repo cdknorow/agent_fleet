@@ -382,6 +382,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/token-usage", tokenHandler.ListUsage)
 	r.Get("/api/token-usage/summary", tokenHandler.UsageSummary)
 	r.Get("/api/token-usage/session/{sessionID}/turns", tokenHandler.SessionTurns)
+	r.Get("/api/token-usage/timeseries", tokenHandler.UsageTimeSeries)
+	r.Get("/api/token-usage/by-team", tokenHandler.UsageSummaryByBoard)
 
 	// Tags
 	r.Get("/api/tags", sysHandler.ListTags)

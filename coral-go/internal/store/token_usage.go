@@ -53,6 +53,10 @@ type AgentUsageSummary struct {
 	TotalTokens      int64   `db:"total_tokens" json:"total_tokens"`
 	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
 	NumRecords       int     `db:"num_records" json:"requests"`
+	FirstSeen        string  `db:"first_seen" json:"first_seen"`
+	LastSeen         string  `db:"last_seen" json:"last_seen"`
+	LaunchedAt       *string `db:"launched_at" json:"launched_at,omitempty"`
+	StoppedAt        *string `db:"stopped_at" json:"stopped_at,omitempty"`
 }
 
 // sourceDedup is a SQL filter that prefers JSONL records over proxy records
@@ -200,21 +204,27 @@ func (s *TokenUsageStore) GetUsageSummary(ctx context.Context, since string) ([]
 // GetUsageSummaryByAgent returns per-agent (session) usage aggregates since a given time.
 func (s *TokenUsageStore) GetUsageSummaryByAgent(ctx context.Context, since string) ([]AgentUsageSummary, error) {
 	var summaries []AgentUsageSummary
-	query := `SELECT session_id, agent_name, agent_type, board_name,
-	          COALESCE(SUM(input_tokens), 0) as input_tokens,
-	          COALESCE(SUM(output_tokens), 0) as output_tokens,
-	          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-	          COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
-	          COALESCE(SUM(total_tokens), 0) as total_tokens,
-	          COALESCE(SUM(cost_usd), 0) as cost_usd,
-	          COUNT(*) as num_records
-	   FROM token_usage WHERE ` + sourceDedup + ` AND 1=1`
+	query := `SELECT t.session_id, t.agent_name, t.agent_type, t.board_name,
+	          COALESCE(SUM(t.input_tokens), 0) as input_tokens,
+	          COALESCE(SUM(t.output_tokens), 0) as output_tokens,
+	          COALESCE(SUM(t.cache_read_tokens), 0) as cache_read_tokens,
+	          COALESCE(SUM(t.cache_write_tokens), 0) as cache_write_tokens,
+	          COALESCE(SUM(t.total_tokens), 0) as total_tokens,
+	          COALESCE(SUM(t.cost_usd), 0) as cost_usd,
+	          COUNT(*) as num_records,
+	          MIN(t.recorded_at) as first_seen,
+	          MAX(t.recorded_at) as last_seen,
+	          ls.created_at as launched_at,
+	          ls.stopped_at as stopped_at
+	   FROM token_usage t
+	   LEFT JOIN live_sessions ls ON ls.session_id = t.session_id
+	   WHERE (COALESCE(t.source,'jsonl') = 'jsonl' OR t.session_id NOT IN (SELECT DISTINCT session_id FROM token_usage WHERE source = 'jsonl')) AND 1=1`
 	var args []interface{}
 	if since != "" {
-		query += " AND recorded_at >= ?"
+		query += " AND t.recorded_at >= ?"
 		args = append(args, since)
 	}
-	query += ` GROUP BY session_id ORDER BY cost_usd DESC`
+	query += ` GROUP BY t.session_id ORDER BY cost_usd DESC`
 	err := s.db.SelectContext(ctx, &summaries, query, args...)
 	return summaries, err
 }
@@ -336,4 +346,87 @@ func (s *TokenUsageStore) GetSessionTurns(ctx context.Context, sessionID string)
 		 WHERE session_id = ? AND `+sourceDedup+`
 		 ORDER BY recorded_at ASC`, sessionID)
 	return turns, err
+}
+
+// TimeSeriesBucket represents a single time bucket of aggregated cost.
+type TimeSeriesBucket struct {
+	Bucket           string  `db:"bucket" json:"bucket"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	InputTokens      int64   `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int64   `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int64   `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int64   `db:"cache_write_tokens" json:"cache_write_tokens"`
+	NumRequests      int     `db:"num_requests" json:"num_requests"`
+}
+
+// GetUsageTimeSeries returns cost data bucketed by time interval.
+// The interval parameter controls bucket size: "5m", "1h", "1d".
+func (s *TokenUsageStore) GetUsageTimeSeries(ctx context.Context, since string, interval string) ([]TimeSeriesBucket, error) {
+	// Map interval to SQLite strftime format
+	var bucketExpr string
+	switch interval {
+	case "5m":
+		// Round to 5-minute intervals
+		bucketExpr = `strftime('%Y-%m-%dT%H:', recorded_at) || printf('%02d', (CAST(strftime('%M', recorded_at) AS INTEGER) / 5) * 5) || ':00Z'`
+	case "1h":
+		bucketExpr = `strftime('%Y-%m-%dT%H:00:00Z', recorded_at)`
+	case "1d":
+		bucketExpr = `strftime('%Y-%m-%dT00:00:00Z', recorded_at)`
+	default:
+		bucketExpr = `strftime('%Y-%m-%dT%H:00:00Z', recorded_at)`
+	}
+
+	query := `SELECT ` + bucketExpr + ` as bucket,
+	          COALESCE(SUM(cost_usd), 0) as cost_usd,
+	          COALESCE(SUM(input_tokens), 0) as input_tokens,
+	          COALESCE(SUM(output_tokens), 0) as output_tokens,
+	          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+	          COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
+	          COUNT(*) as num_requests
+	   FROM token_usage WHERE ` + sourceDedup + ` AND 1=1`
+
+	var args []interface{}
+	if since != "" {
+		query += " AND recorded_at >= ?"
+		args = append(args, since)
+	}
+	query += ` GROUP BY bucket ORDER BY bucket ASC`
+
+	var buckets []TimeSeriesBucket
+	err := s.db.SelectContext(ctx, &buckets, query, args...)
+	return buckets, err
+}
+
+// BoardUsageSummary represents aggregated token usage for a board/team.
+type BoardUsageSummary struct {
+	BoardName        string  `db:"board_name" json:"board_name"`
+	InputTokens      int64   `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int64   `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int64   `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int64   `db:"cache_write_tokens" json:"cache_write_tokens"`
+	TotalTokens      int64   `db:"total_tokens" json:"total_tokens"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	NumAgents        int     `db:"num_agents" json:"num_agents"`
+}
+
+// GetUsageSummaryByBoard returns per-board (team) usage aggregates since a given time.
+func (s *TokenUsageStore) GetUsageSummaryByBoard(ctx context.Context, since string) ([]BoardUsageSummary, error) {
+	query := `SELECT COALESCE(board_name, '') as board_name,
+	          COALESCE(SUM(input_tokens), 0) as input_tokens,
+	          COALESCE(SUM(output_tokens), 0) as output_tokens,
+	          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+	          COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
+	          COALESCE(SUM(total_tokens), 0) as total_tokens,
+	          COALESCE(SUM(cost_usd), 0) as cost_usd,
+	          COUNT(DISTINCT session_id) as num_agents
+	   FROM token_usage WHERE ` + sourceDedup + ` AND 1=1`
+	var args []interface{}
+	if since != "" {
+		query += " AND recorded_at >= ?"
+		args = append(args, since)
+	}
+	query += ` GROUP BY COALESCE(board_name, '') ORDER BY cost_usd DESC`
+	var summaries []BoardUsageSummary
+	err := s.db.SelectContext(ctx, &summaries, query, args...)
+	return summaries, err
 }

@@ -30,12 +30,267 @@ function _formatDate(isoStr) {
     } catch { return isoStr; }
 }
 
+function _formatTime(isoStr) {
+    if (!isoStr) return '\u2014';
+    try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+            + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return isoStr; }
+}
+
+function _formatDuration(startStr, endStr) {
+    if (!startStr) return '\u2014';
+    try {
+        const start = new Date(startStr);
+        const end = endStr ? new Date(endStr) : new Date();
+        const diffMs = end - start;
+        if (diffMs < 0) return '\u2014';
+        const secs = Math.floor(diffMs / 1000);
+        if (secs < 60) return secs + 's';
+        const mins = Math.floor(secs / 60);
+        const remSecs = secs % 60;
+        if (mins < 60) return mins + 'm ' + remSecs + 's';
+        const hrs = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return hrs + 'h ' + remMins + 'm';
+    } catch { return '\u2014'; }
+}
+
 function _findSession(sessionId) {
     if (!sessionId || !state.liveSessions) return null;
     return state.liveSessions.find(s => s.session_id === sessionId) || null;
 }
 
 let _costRefreshTimer = null;
+
+// ── Sort & Filter State ─────────────────────────────────────
+
+const _sortState = {
+    model:   { field: 'cost_usd', asc: false },
+    agent:   { field: 'cost_usd', asc: false },
+    team:    { field: 'cost_usd', asc: false },
+    task:    { field: 'cost_usd', asc: false },
+    request: { field: 'started_at', asc: false },
+};
+
+// Per-column dropdown filters: { "table:field": Set of selected values }
+// Empty set = show all (no filter active)
+const _colFilters = {};
+
+// Raw data caches — populated on fetch, re-rendered on sort/filter
+const _rawData = {
+    model: [], agent: [], team: [], task: [], request: [],
+};
+
+// Currently open dropdown (only one at a time)
+let _openDropdown = null;
+
+function _toggleSort(table, field) {
+    const s = _sortState[table];
+    if (s.field === field) {
+        s.asc = !s.asc;
+    } else {
+        s.field = field;
+        s.asc = false;
+    }
+    _rerender(table);
+}
+
+function _rerender(table) {
+    switch (table) {
+        case 'model':   _renderModelTable(_rawData.model); break;
+        case 'agent':   _renderAgentTable(_rawData.agent); break;
+        case 'team':    _renderTeamTable(_rawData.team); break;
+        case 'task':    _renderTaskTable(_rawData.task); break;
+        case 'request': _renderRequestLog(_rawData.request); break;
+    }
+}
+
+function _sortArrow(table, field) {
+    const s = _sortState[table];
+    if (s.field !== field) return '';
+    return s.asc ? ' \u25B2' : ' \u25BC';
+}
+
+function _sortRows(rows, table, fieldAccessor) {
+    const s = _sortState[table];
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+        const va = fieldAccessor(a, s.field);
+        const vb = fieldAccessor(b, s.field);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (typeof va === 'string') {
+            const cmp = va.localeCompare(vb);
+            return s.asc ? cmp : -cmp;
+        }
+        return s.asc ? va - vb : vb - va;
+    });
+    return sorted;
+}
+
+// Apply all active column filters for a table
+function _applyColFilters(rows, table, fieldExtractors) {
+    let result = rows;
+    for (const [field, extractor] of Object.entries(fieldExtractors)) {
+        const key = `${table}:${field}`;
+        const selected = _colFilters[key];
+        if (selected && selected.size > 0) {
+            result = result.filter(r => selected.has(extractor(r)));
+        }
+    }
+    return result;
+}
+
+function _hasActiveFilter(table, field) {
+    const key = `${table}:${field}`;
+    const s = _colFilters[key];
+    return s && s.size > 0;
+}
+
+// Sort header with optional filter icon
+function _sortHeader(table, field, label, extraClass, filterable, valueExtractor) {
+    const cls = extraClass ? `${extraClass} cost-th-sort` : 'cost-th-sort';
+    const arrow = _sortArrow(table, field);
+    let filterIcon = '';
+    if (filterable) {
+        const active = _hasActiveFilter(table, field) ? ' cost-filter-active' : '';
+        filterIcon = `<span class="cost-col-filter${active}" onclick="event.stopPropagation(); _costOpenFilter('${table}','${field}', this)" title="Filter"><span class="material-icons" style="font-size:13px">filter_list</span></span>`;
+    }
+    return `<th class="${cls}" onclick="_costToggleSort('${table}','${field}')">${label}${arrow}${filterIcon}</th>`;
+}
+
+// Open/close the column filter dropdown
+function _openFilter(table, field, anchorEl) {
+    _closeDropdown();
+
+    const key = `${table}:${field}`;
+    const data = _rawData[table] || [];
+    const extractor = _getFilterExtractor(table, field);
+
+    // Collect unique values
+    const uniqueVals = [...new Set(data.map(r => extractor(r)))].filter(v => v).sort();
+    if (uniqueVals.length === 0) return;
+
+    const selected = _colFilters[key] || new Set();
+
+    // Create dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'cost-filter-dropdown';
+    dropdown.onclick = (e) => e.stopPropagation();
+
+    // Search input
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'cost-filter-search';
+    search.placeholder = 'Search...';
+    search.autocomplete = 'off';
+    dropdown.appendChild(search);
+
+    // Actions row
+    const actions = document.createElement('div');
+    actions.className = 'cost-filter-actions';
+    actions.innerHTML = `<button class="cost-filter-action-btn" data-action="all">Select All</button><button class="cost-filter-action-btn" data-action="none">Clear</button>`;
+    dropdown.appendChild(actions);
+
+    // Items container
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'cost-filter-items';
+    dropdown.appendChild(itemsContainer);
+
+    function renderItems(query) {
+        const q = (query || '').toLowerCase();
+        const filtered = q ? uniqueVals.filter(v => v.toLowerCase().includes(q)) : uniqueVals;
+        itemsContainer.innerHTML = filtered.map(val => {
+            const checked = selected.size === 0 || selected.has(val) ? 'checked' : '';
+            return `<label class="cost-filter-item"><input type="checkbox" ${checked} data-val="${escapeHtml(val)}"><span>${escapeHtml(val)}</span></label>`;
+        }).join('');
+    }
+
+    renderItems('');
+
+    search.addEventListener('input', () => renderItems(search.value));
+
+    // Handle checkbox changes
+    itemsContainer.addEventListener('change', (e) => {
+        const cb = e.target;
+        if (!cb.dataset.val) return;
+        if (cb.checked) {
+            // If all are now checked, clear filter (show all)
+            const allChecked = itemsContainer.querySelectorAll('input[type=checkbox]');
+            const checkedCount = [...allChecked].filter(c => c.checked).length;
+            if (checkedCount === uniqueVals.length) {
+                _colFilters[key] = new Set();
+            } else {
+                if (!_colFilters[key]) _colFilters[key] = new Set();
+                _colFilters[key].add(cb.dataset.val);
+            }
+        } else {
+            // If unchecking and no filter exists yet, create one with all except this
+            if (!_colFilters[key] || _colFilters[key].size === 0) {
+                _colFilters[key] = new Set(uniqueVals.filter(v => v !== cb.dataset.val));
+            } else {
+                _colFilters[key].delete(cb.dataset.val);
+            }
+        }
+        _rerender(table);
+    });
+
+    // Select All / Clear
+    actions.addEventListener('click', (e) => {
+        const action = e.target.dataset.action;
+        if (action === 'all') {
+            _colFilters[key] = new Set();
+            renderItems(search.value);
+            _rerender(table);
+        } else if (action === 'none') {
+            _colFilters[key] = new Set(['__none__']); // impossible value to match nothing
+            itemsContainer.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+            _rerender(table);
+        }
+    });
+
+    // Position relative to anchor
+    const rect = anchorEl.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.top = (rect.bottom + 4) + 'px';
+    dropdown.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+    document.body.appendChild(dropdown);
+
+    _openDropdown = dropdown;
+
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', _closeDropdown, { once: true });
+    }, 0);
+}
+
+function _closeDropdown() {
+    if (_openDropdown) {
+        _openDropdown.remove();
+        _openDropdown = null;
+    }
+}
+
+function _getFilterExtractor(table, field) {
+    const extractors = {
+        'model:model': r => r.model || '',
+        'agent:agent_name': r => r.display_name || r.agent_name || '',
+        'agent:board_name': r => r.board_name || '',
+        'team:board_name': r => r.board_name || '(no team)',
+        'task:assigned_to': r => r.assigned_to || '',
+        'task:priority': r => r.priority || 'medium',
+        'request:model_used': r => r.model_used || '',
+        'request:status': r => r.status || '',
+    };
+    return extractors[`${table}:${field}`] || (() => '');
+}
+
+// Expose to window for onclick handlers
+window._costToggleSort = _toggleSort;
+window._costOpenFilter = _openFilter;
 
 export async function showCostDashboard() {
     showView('cost-dashboard-view');
@@ -60,11 +315,23 @@ export async function _refreshCostDashboard() {
     const since = hoursAgo > 0 ? new Date(Date.now() - hoursAgo * 3600000).toISOString() : '';
     const sinceParam = since ? `?since=${encodeURIComponent(since)}` : '';
 
+    // Choose time-series interval based on period
+    const intervalMap = { 'hour': '5m', 'day': '1h', 'week': '1h', 'month': '1d', 'all': '1d' };
+    const interval = intervalMap[period] || '1h';
+    const tsParams = since
+        ? `?since=${encodeURIComponent(since)}&interval=${interval}`
+        : `?interval=${interval}`;
+
+    // Flash live indicator
+    _flashLiveIndicator();
+
     try {
-        const [summaryResp, reqResp, taskResp] = await Promise.all([
+        const [summaryResp, reqResp, taskResp, tsResp, teamResp] = await Promise.all([
             fetch(`/api/token-usage/summary${sinceParam}`).catch(() => null),
             fetch('/api/proxy/requests?limit=100').catch(() => null),
             fetch('/api/board/tasks').catch(() => null),
+            fetch(`/api/token-usage/timeseries${tsParams}`).catch(() => null),
+            fetch(`/api/token-usage/by-team${sinceParam}`).catch(() => null),
         ]);
 
         if (summaryResp && summaryResp.ok) {
@@ -100,7 +367,26 @@ export async function _refreshCostDashboard() {
                 cache_read_tokens: a.cache_read_tokens || 0,
                 cache_write_tokens: a.cache_write_tokens || 0,
                 cost_usd: a.cost_usd || 0,
+                first_seen: a.first_seen || '',
+                last_seen: a.last_seen || '',
+                launched_at: a.launched_at || '',
+                stopped_at: a.stopped_at || '',
             })));
+        }
+
+        // Render time-series chart and sparklines
+        if (tsResp && tsResp.ok) {
+            const data = await tsResp.json();
+            const buckets = data.buckets || [];
+            _renderSpendChart(buckets);
+            _renderSparklines(buckets);
+            _renderBurnRate(buckets, hoursAgo);
+        }
+
+        // Render team breakdown
+        if (teamResp && teamResp.ok) {
+            const data = await teamResp.json();
+            _renderTeamTable(data.teams || []);
         }
 
         if (reqResp && reqResp.ok) {
@@ -127,26 +413,33 @@ function _setText(id, text) {
 }
 
 function _renderModelTable(rows) {
+    _rawData.model = rows;
     const container = document.getElementById('cost-by-model');
     if (!container) return;
 
-    if (rows.length === 0) {
+    const filtered = _applyColFilters(rows, 'model', { model: r => r.model || '' });
+    const sorted = _sortRows(filtered, 'model', (r, f) => {
+        if (f === 'model') return r.model || '';
+        return r[f] || 0;
+    });
+
+    if (sorted.length === 0) {
         container.innerHTML = '<div class="cost-empty">No usage data yet</div>';
         return;
     }
 
     let html = `<table class="cost-table">
         <thead><tr>
-            <th>Model</th>
-            <th class="cost-col-right">Requests</th>
-            <th class="cost-col-right">Input</th>
-            <th class="cost-col-right">Output</th>
-            <th class="cost-col-right">Cache Read</th>
-            <th class="cost-col-right">Cache Write</th>
-            <th class="cost-col-right">Cost</th>
+            ${_sortHeader('model', 'model', 'Model', '', true)}
+            ${_sortHeader('model', 'requests', 'Requests', 'cost-col-right')}
+            ${_sortHeader('model', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('model', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('model', 'cache_read_tokens', 'Cache Read', 'cost-col-right')}
+            ${_sortHeader('model', 'cache_write_tokens', 'Cache Write', 'cost-col-right')}
+            ${_sortHeader('model', 'cost_usd', 'Cost', 'cost-col-right')}
         </tr></thead><tbody>`;
 
-    for (const r of rows) {
+    for (const r of sorted) {
         html += `<tr>
             <td class="cost-model-name">${escapeHtml(r.model)}</td>
             <td class="cost-col-right">${r.requests}</td>
@@ -163,27 +456,41 @@ function _renderModelTable(rows) {
 }
 
 function _renderAgentTable(rows) {
+    _rawData.agent = rows;
     const container = document.getElementById('cost-by-agent');
     if (!container) return;
 
-    if (rows.length === 0) {
+    const filtered = _applyColFilters(rows, 'agent', {
+        agent_name: r => r.display_name || r.agent_name || '',
+        board_name: r => r.board_name || '',
+    });
+    const sorted = _sortRows(filtered, 'agent', (r, f) => {
+        if (f === 'agent_name') return r.display_name || r.agent_name || '';
+        if (f === 'board_name') return r.board_name || '';
+        if (f === 'first_seen') return r.first_seen || '';
+        return r[f] || 0;
+    });
+
+    if (sorted.length === 0) {
         container.innerHTML = '<div class="cost-empty">No usage data yet</div>';
         return;
     }
 
     let html = `<table class="cost-table">
         <thead><tr>
-            <th>Agent</th>
-            <th>Team</th>
-            <th class="cost-col-right">Requests</th>
-            <th class="cost-col-right">Input</th>
-            <th class="cost-col-right">Output</th>
-            <th class="cost-col-right">Cache Read</th>
-            <th class="cost-col-right">Cache Write</th>
-            <th class="cost-col-right">Cost</th>
+            ${_sortHeader('agent', 'agent_name', 'Agent', '', true)}
+            ${_sortHeader('agent', 'board_name', 'Team', '', true)}
+            ${_sortHeader('agent', 'first_seen', 'Launched', '')}
+            ${_sortHeader('agent', 'duration', 'Duration', 'cost-col-right')}
+            ${_sortHeader('agent', 'requests', 'Requests', 'cost-col-right')}
+            ${_sortHeader('agent', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('agent', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('agent', 'cache_read_tokens', 'Cache Read', 'cost-col-right')}
+            ${_sortHeader('agent', 'cache_write_tokens', 'Cache Write', 'cost-col-right')}
+            ${_sortHeader('agent', 'cost_usd', 'Cost', 'cost-col-right')}
         </tr></thead><tbody>`;
 
-    for (const r of rows) {
+    for (const r of sorted) {
         const session = _findSession(r.session_id);
         const displayName = r.display_name || (session && session.display_name) || r.agent_name || r.session_id || '\u2014';
         let nameHtml;
@@ -196,9 +503,15 @@ function _renderAgentTable(rows) {
             nameHtml = escapeHtml(displayName);
         }
         const teamHtml = r.board_name ? escapeHtml(r.board_name) : '\u2014';
+        const launchTime = r.launched_at || r.first_seen;
+        const endTime = r.stopped_at || r.last_seen;
+        const launchedHtml = _formatTime(launchTime);
+        const durationHtml = _formatDuration(launchTime, endTime);
         html += `<tr data-session-id="${escapeAttr(r.session_id || '')}">
             <td class="cost-agent-name">${nameHtml}</td>
             <td class="cost-agent-team">${teamHtml}</td>
+            <td>${launchedHtml}</td>
+            <td class="cost-col-right">${durationHtml}</td>
             <td class="cost-col-right">${r.requests}</td>
             <td class="cost-col-right">${_formatTokens(r.input_tokens || 0)}</td>
             <td class="cost-col-right">${_formatTokens(r.output_tokens || 0)}</td>
@@ -318,13 +631,25 @@ function _renderTaskTable(tasks) {
     if (!container) return;
 
     // Only show tasks with cost data
-    const rows = tasks
-        .filter(t => t.cost_usd > 0)
-        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const costTasks = tasks.filter(t => t.cost_usd > 0);
+    _rawData.task = costTasks;
 
-    _costTaskCache = rows;
+    const filtered = _applyColFilters(costTasks, 'task', {
+        assigned_to: t => t.assigned_to || '',
+        priority: t => t.priority || 'medium',
+    });
+    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = _sortRows(filtered, 'task', (t, f) => {
+        if (f === 'title') return t.title || '';
+        if (f === 'assigned_to') return t.assigned_to || '';
+        if (f === 'priority') return priorityOrder[t.priority] ?? 2;
+        if (f === 'claimed_at') return t.claimed_at || '';
+        return t[f] || 0;
+    });
 
-    if (rows.length === 0) {
+    _costTaskCache = sorted;
+
+    if (sorted.length === 0) {
         container.innerHTML = '<div class="cost-empty">No task data yet</div>';
         return;
     }
@@ -339,23 +664,29 @@ function _renderTaskTable(tasks) {
     let html = `<table class="cost-table">
         <thead><tr>
             <th style="width:24px"></th>
-            <th>Task</th>
-            <th>Agent</th>
-            <th>Priority</th>
-            <th class="cost-col-right">Input</th>
-            <th class="cost-col-right">Output</th>
-            <th class="cost-col-right">Cache Read</th>
-            <th class="cost-col-right">Cache Write</th>
-            <th class="cost-col-right">Cost</th>
+            ${_sortHeader('task', 'title', 'Task', '')}
+            ${_sortHeader('task', 'assigned_to', 'Agent', '', true)}
+            ${_sortHeader('task', 'priority', 'Priority', '', true)}
+            ${_sortHeader('task', 'claimed_at', 'Start Time', '')}
+            ${_sortHeader('task', 'duration', 'Duration', 'cost-col-right')}
+            ${_sortHeader('task', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('task', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('task', 'cache_read_tokens', 'Cache Read', 'cost-col-right')}
+            ${_sortHeader('task', 'cache_write_tokens', 'Cache Write', 'cost-col-right')}
+            ${_sortHeader('task', 'cost_usd', 'Cost', 'cost-col-right')}
         </tr></thead><tbody>`;
 
-    for (const t of rows) {
+    for (const t of sorted) {
         const priorityClass = 'board-task-priority-' + (t.priority || 'medium');
+        const startTime = t.claimed_at ? _formatTime(t.claimed_at) : '\u2014';
+        const duration = _formatDuration(t.claimed_at, t.completed_at);
         html += `<tr onclick="_showCostTaskDetail(${t.id})" style="cursor:pointer">
             <td>${statusIcon(t.status)}</td>
             <td>${escapeHtml(t.title || '')}</td>
             <td class="cost-agent-name">${escapeHtml(t.assigned_to || '\u2014')}</td>
             <td><span class="board-task-priority ${priorityClass}">${escapeHtml(t.priority || 'medium')}</span></td>
+            <td>${startTime}</td>
+            <td class="cost-col-right">${duration}</td>
             <td class="cost-col-right">${_formatTokens(t.input_tokens || 0)}</td>
             <td class="cost-col-right">${_formatTokens(t.output_tokens || 0)}</td>
             <td class="cost-col-right">${_formatTokens(t.cache_read_tokens || 0)}</td>
@@ -369,29 +700,42 @@ function _renderTaskTable(tasks) {
 }
 
 function _renderRequestLog(requests) {
+    _rawData.request = requests;
     const container = document.getElementById('cost-request-log');
     if (!container) return;
 
-    if (requests.length === 0) {
+    const filtered = _applyColFilters(requests, 'request', {
+        model_used: r => r.model_used || '',
+        status: r => r.status || '',
+    });
+    const sorted = _sortRows(filtered, 'request', (r, f) => {
+        if (f === 'model_used') return r.model_used || '';
+        if (f === 'agent_name') return r.agent_name || '';
+        if (f === 'status') return r.status || '';
+        if (f === 'started_at') return r.started_at || '';
+        return r[f] || 0;
+    });
+
+    if (sorted.length === 0) {
         container.innerHTML = '<div class="cost-empty">No requests yet</div>';
         return;
     }
 
     let html = `<table class="cost-table">
         <thead><tr>
-            <th>Model</th>
-            <th>Agent</th>
-            <th class="cost-col-right">Input</th>
-            <th class="cost-col-right">Output</th>
-            <th class="cost-col-right">Cache R</th>
-            <th class="cost-col-right">Cache W</th>
-            <th class="cost-col-right">Cost</th>
-            <th class="cost-col-right">Latency</th>
-            <th>Status</th>
-            <th>Time</th>
+            ${_sortHeader('request', 'model_used', 'Model', '', true)}
+            ${_sortHeader('request', 'agent_name', 'Agent', '')}
+            ${_sortHeader('request', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('request', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('request', 'cache_read_tokens', 'Cache R', 'cost-col-right')}
+            ${_sortHeader('request', 'cache_write_tokens', 'Cache W', 'cost-col-right')}
+            ${_sortHeader('request', 'cost_usd', 'Cost', 'cost-col-right')}
+            ${_sortHeader('request', 'latency_ms', 'Latency', 'cost-col-right')}
+            ${_sortHeader('request', 'status', 'Status', '', true)}
+            ${_sortHeader('request', 'started_at', 'Time', '')}
         </tr></thead><tbody>`;
 
-    for (const r of requests) {
+    for (const r of sorted) {
         const session = _findSession(r.session_id);
         const agentName = r.display_name || (session && session.display_name) || r.agent_name || '\u2014';
         const statusClass = r.status === 'completed' ? 'cost-status-ok'
@@ -408,6 +752,210 @@ function _renderRequestLog(requests) {
             <td class="cost-col-right">${_formatLatency(r.latency_ms)}</td>
             <td><span class="cost-status ${statusClass}">${escapeHtml(r.status)}</span></td>
             <td class="cost-date">${_formatDate(r.started_at)}</td>
+        </tr>`;
+    }
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// ── Live Indicator ───────────────────────────────────────────
+
+function _flashLiveIndicator() {
+    const el = document.getElementById('cost-live-indicator');
+    if (!el) return;
+    el.classList.add('cost-live-flash');
+    setTimeout(() => el.classList.remove('cost-live-flash'), 1000);
+}
+
+// ── Cumulative Spend Chart ───────────────────────────────────
+
+function _renderSpendChart(buckets) {
+    const container = document.getElementById('cost-spend-chart');
+    if (!container) return;
+
+    if (buckets.length < 2) {
+        container.innerHTML = '<div class="cost-empty">Not enough data for chart</div>';
+        return;
+    }
+
+    const W = container.clientWidth || 600;
+    const H = 180;
+    const PAD = { top: 24, right: 16, bottom: 32, left: 56 };
+    const plotW = W - PAD.left - PAD.right;
+    const plotH = H - PAD.top - PAD.bottom;
+
+    const maxCost = buckets[buckets.length - 1].cumulative_cost || 1;
+    const n = buckets.length;
+
+    // Build polyline for cumulative cost
+    const points = buckets.map((b, i) => {
+        const x = PAD.left + (i / (n - 1)) * plotW;
+        const y = PAD.top + plotH - (b.cumulative_cost / maxCost) * plotH;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    // Area fill
+    const areaPoints = [
+        `${PAD.left.toFixed(1)},${(PAD.top + plotH).toFixed(1)}`,
+        ...points,
+        `${(PAD.left + plotW).toFixed(1)},${(PAD.top + plotH).toFixed(1)}`
+    ];
+
+    // Bar chart for per-bucket cost
+    const maxBucketCost = Math.max(...buckets.map(b => b.cost_usd)) || 1;
+    const barW = Math.max(1, (plotW / n) - 1);
+    let bars = '';
+    for (let i = 0; i < n; i++) {
+        const x = PAD.left + (i / n) * plotW;
+        const barH = (buckets[i].cost_usd / maxBucketCost) * plotH * 0.4;
+        const y = PAD.top + plotH - barH;
+        bars += `<rect class="spend-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="1"/>`;
+    }
+
+    // Y-axis labels
+    const midCost = maxCost / 2;
+
+    // X-axis labels (first, middle, last)
+    const formatBucketLabel = (b) => {
+        try {
+            const d = new Date(b);
+            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        } catch { return ''; }
+    };
+
+    const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spend-chart-svg">
+        <!-- Grid lines -->
+        <line class="spend-grid" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left + plotW}" y2="${PAD.top}" />
+        <line class="spend-grid" x1="${PAD.left}" y1="${PAD.top + plotH / 2}" x2="${PAD.left + plotW}" y2="${PAD.top + plotH / 2}" stroke-dasharray="4,4" />
+        <line class="spend-grid" x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${PAD.left + plotW}" y2="${PAD.top + plotH}" />
+        <!-- Bars -->
+        ${bars}
+        <!-- Area + Line -->
+        <polygon class="spend-area" points="${areaPoints.join(' ')}" />
+        <polyline class="spend-line" points="${points.join(' ')}" />
+        <!-- Dot on last point -->
+        <circle class="spend-dot" cx="${points[points.length - 1].split(',')[0]}" cy="${points[points.length - 1].split(',')[1]}" r="3" />
+        <!-- Y labels -->
+        <text class="spend-label" x="${PAD.left - 8}" y="${PAD.top + 4}" text-anchor="end">${_formatCost(maxCost)}</text>
+        <text class="spend-label" x="${PAD.left - 8}" y="${PAD.top + plotH / 2 + 4}" text-anchor="end">${_formatCost(midCost)}</text>
+        <text class="spend-label" x="${PAD.left - 8}" y="${PAD.top + plotH + 4}" text-anchor="end">$0</text>
+        <!-- X labels -->
+        <text class="spend-label" x="${PAD.left}" y="${H - 4}" text-anchor="start">${formatBucketLabel(buckets[0].bucket)}</text>
+        <text class="spend-label" x="${PAD.left + plotW / 2}" y="${H - 4}" text-anchor="middle">${formatBucketLabel(buckets[Math.floor(n / 2)].bucket)}</text>
+        <text class="spend-label" x="${PAD.left + plotW}" y="${H - 4}" text-anchor="end">${formatBucketLabel(buckets[n - 1].bucket)}</text>
+    </svg>`;
+
+    container.innerHTML = svg;
+}
+
+// ── Sparklines in Summary Cards ──────────────────────────────
+
+function _renderMiniSparkline(containerId, values, color) {
+    const container = document.getElementById(containerId);
+    if (!container || values.length < 2) {
+        if (container) container.innerHTML = '';
+        return;
+    }
+
+    const W = 80, H = 24;
+    const max = Math.max(...values) || 1;
+    const n = values.length;
+
+    const points = values.map((v, i) => {
+        const x = (i / (n - 1)) * W;
+        const y = H - (v / max) * (H - 2) - 1;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    container.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+        <polyline fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="${points.join(' ')}" />
+    </svg>`;
+}
+
+function _renderSparklines(buckets) {
+    if (buckets.length < 2) return;
+
+    _renderMiniSparkline('cost-spark-input', buckets.map(b => b.input_tokens), '#58a6ff');
+    _renderMiniSparkline('cost-spark-output', buckets.map(b => b.output_tokens), '#3fb950');
+    _renderMiniSparkline('cost-spark-cache-read', buckets.map(b => b.cache_read_tokens), '#d29922');
+    _renderMiniSparkline('cost-spark-cache-write', buckets.map(b => b.cache_write_tokens), '#bc8cff');
+    _renderMiniSparkline('cost-spark-requests', buckets.map(b => b.num_requests), '#8b949e');
+    _renderMiniSparkline('cost-spark-cost', buckets.map(b => b.cumulative_cost), '#58a6ff');
+}
+
+// ── Burn Rate ────────────────────────────────────────────────
+
+function _renderBurnRate(buckets, periodHours) {
+    const el = document.getElementById('cost-burn-rate');
+    if (!el || buckets.length === 0) return;
+
+    const totalCost = buckets[buckets.length - 1].cumulative_cost || 0;
+
+    if (totalCost === 0 || periodHours === 0) {
+        el.textContent = '$0.00/hr';
+        return;
+    }
+
+    // Calculate actual time span from data
+    const firstTime = new Date(buckets[0].bucket).getTime();
+    const lastTime = new Date(buckets[buckets.length - 1].bucket).getTime();
+    const spanHours = Math.max((lastTime - firstTime) / 3600000, 1);
+
+    const rate = totalCost / spanHours;
+    el.textContent = _formatCost(rate) + '/hr';
+}
+
+// ── Team Table ───────────────────────────────────────────────
+
+function _renderTeamTable(teams) {
+    _rawData.team = teams;
+    const container = document.getElementById('cost-by-team');
+    if (!container) return;
+
+    const filtered = _applyColFilters(teams, 'team', { board_name: t => t.board_name || '(no team)' });
+    const sorted = _sortRows(filtered, 'team', (t, f) => {
+        if (f === 'board_name') return t.board_name || '';
+        return t[f] || 0;
+    });
+
+    if (sorted.length === 0) {
+        container.innerHTML = '<div class="cost-empty">No team data yet</div>';
+        return;
+    }
+
+    let html = `<table class="cost-table">
+        <thead><tr>
+            ${_sortHeader('team', 'board_name', 'Team', '', true)}
+            ${_sortHeader('team', 'num_agents', 'Agents', 'cost-col-right')}
+            ${_sortHeader('team', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('team', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('team', 'cache_read_tokens', 'Cache Read', 'cost-col-right')}
+            ${_sortHeader('team', 'cache_write_tokens', 'Cache Write', 'cost-col-right')}
+            ${_sortHeader('team', 'cost_usd', 'Cost', 'cost-col-right')}
+            <th class="cost-col-right" style="width:100px">Share</th>
+        </tr></thead><tbody>`;
+
+    const totalCost = teams.reduce((s, t) => s + (t.cost_usd || 0), 0) || 1;
+
+    for (const t of sorted) {
+        const name = t.board_name || '(no team)';
+        const pct = ((t.cost_usd / totalCost) * 100).toFixed(1);
+        const barWidth = Math.max(2, (t.cost_usd / totalCost) * 100);
+        html += `<tr>
+            <td class="cost-agent-name">${escapeHtml(name)}</td>
+            <td class="cost-col-right">${t.num_agents || 0}</td>
+            <td class="cost-col-right">${_formatTokens(t.input_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.output_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.cache_read_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(t.cache_write_tokens || 0)}</td>
+            <td class="cost-col-right cost-cost-cell">${_formatCost(t.cost_usd || 0)}</td>
+            <td class="cost-col-right">
+                <div class="cost-share-bar-wrapper">
+                    <div class="cost-share-bar" style="width:${barWidth}%"></div>
+                    <span class="cost-share-label">${pct}%</span>
+                </div>
+            </td>
         </tr>`;
     }
 
