@@ -58,7 +58,7 @@
 .session-list li.active {
     background: var(--bg-tertiary);
     color: var(--text-primary);
-    border-left: 2px solid var(--accent);
+    border-left: 2px solid transparent;
 }
 
 .session-list li.empty-state {
@@ -118,7 +118,7 @@
     align-items: center;
     justify-content: center;
     position: relative;
-    margin-top: 1px;
+    margin-top: 0;
 }
 
 .agent-avatar-emoji {
@@ -127,7 +127,7 @@
 }
 
 .agent-avatar-initials {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.3px;
@@ -137,8 +137,8 @@
     position: absolute;
     bottom: -1px;
     right: -1px;
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     border: 1.5px solid var(--bg-primary, #0a0e14);
 }
@@ -259,6 +259,49 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.session-token-line {
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.7;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-context-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.context-bar-track {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+    min-width: 40px;
+    max-width: 80px;
+}
+
+.context-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.context-bar-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0.8;
+    white-space: nowrap;
 }
 
 .session-info {
@@ -352,27 +395,27 @@
 /* ── Board Card Groups ─────────────────────────────────────── */
 
 .session-board-card {
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    border-radius: 8px;
+    border: none;
+    border-left: none;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.02) !important;
-    margin: 6px 10px 6px 14px !important;
+    margin: 4px 8px 4px 10px !important;
     padding: 0 !important;
     display: block !important;
     cursor: default !important;
 }
 
 .session-board-card:hover {
-    background: rgba(255, 255, 255, 0.02) !important;
+    background: rgba(255, 255, 255, 0.035) !important;
     box-shadow: none !important;
 }
 
 .board-card-header {
-    padding: 10px 16px 10px 10px !important;
+    padding: 8px 10px 6px 10px !important;
     margin: 0;
-    border-radius: 7px 7px 0 0;
+    border-radius: 3px 3px 0 0;
     font-size: 11px;
-    min-height: 46px;
+    min-height: 0;
     box-sizing: border-box;
 }
 
@@ -385,7 +428,8 @@
     display: flex;
     align-items: center;
     gap: 3px;
-    margin-top: 1px;
+    margin-top: 2px;
+    opacity: 0.7;
 }
 
 .board-card-dir {
@@ -414,6 +458,49 @@
 
 .board-card-branch svg {
     opacity: 0.8;
+}
+
+.board-card-branch-line {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--accent-primary, #58a6ff);
+    opacity: 0.85;
+}
+
+.board-card-branch-line svg {
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.board-card-branch-line .branch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.branch-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    line-height: 1;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+
+.branch-copy-btn:hover {
+    opacity: 1;
+    color: var(--text-primary);
+    background: var(--bg-hover);
 }
 
 .agent-dir-chip {
@@ -454,13 +541,14 @@
 
 .board-card-agents {
     list-style: none;
-    padding: 4px 0 4px 8px;
+    padding: 0 0 4px 4px;
     margin: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .board-card-agents .session-group-item {
-    padding-left: 10px !important;
-    padding-right: 6px !important;
+    padding: 14px 10px 14px 12px !important;
+    min-height: 0;
 }
 
 .board-card-collapsed {
@@ -634,19 +722,19 @@
 }
 
 .session-group-item {
-    padding: 10px 12px 10px 33px !important;
+    padding: 14px 12px 14px 33px !important;
     cursor: grab;
     min-height: 0;
     border-left: 2px solid transparent;
 }
 
 .session-group-header + .session-group-item {
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 .session-group-item.active {
-    border-left-color: var(--accent);
-    background: var(--bg-hover);
+    border-left-color: transparent;
+    background: rgba(255, 255, 255, 0.04);
 }
 
 /* ── Agent Status Text ────────────────────────────────────── */
@@ -1022,8 +1110,8 @@
 /* Board card styles */
 
 .session-board-card.session-board-card-toplevel {
-    border-left-width: 4px !important;
-    margin: 6px 8px 6px 0 !important;
+    border-left: none !important;
+    margin: 4px 8px 4px 0 !important;
 }
 
 .session-board-card.team-sleeping .group-header-text,
@@ -1046,7 +1134,7 @@
 }
 
 .session-board-card-toplevel .board-card-header .group-name-line {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
 }
 

@@ -287,6 +287,47 @@ func (s *TokenUsageStore) GetLatestUsageBySessionIDs(ctx context.Context, sessio
 	return result, nil
 }
 
+// GetLatestTurnContextBySessionIDs returns the latest single turn's total context
+// usage per session (input_tokens + cache_read_tokens + cache_write_tokens).
+// This represents the current context window fill level since each API call
+// sends the full conversation as input (split across fresh, cached, and new-cache tokens).
+func (s *TokenUsageStore) GetLatestTurnContextBySessionIDs(ctx context.Context, sessionIDs []string) (map[string]int, error) {
+	if len(sessionIDs) == 0 {
+		return map[string]int{}, nil
+	}
+
+	// Use qualified sourceDedup for the outer WHERE to avoid ambiguous column name
+	qualifiedDedup := `(COALESCE(t.source,'jsonl') = 'jsonl' OR t.session_id NOT IN (SELECT DISTINCT session_id FROM token_usage WHERE source = 'jsonl'))`
+	query, args, err := sqlx.In(
+		`SELECT t.session_id, (t.input_tokens + t.cache_read_tokens + t.cache_write_tokens) as context_tokens
+		 FROM token_usage t
+		 INNER JOIN (
+		     SELECT session_id, MAX(recorded_at) as max_at
+		     FROM token_usage
+		     WHERE session_id IN (?) AND `+sourceDedup+`
+		     GROUP BY session_id
+		 ) latest ON t.session_id = latest.session_id AND t.recorded_at = latest.max_at
+		 WHERE t.session_id IN (?) AND `+qualifiedDedup, sessionIDs, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		SessionID     string `db:"session_id"`
+		ContextTokens int    `db:"context_tokens"`
+	}
+	var rows []row
+	if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]int, len(rows))
+	for _, r := range rows {
+		result[r.SessionID] = r.ContextTokens
+	}
+	return result, nil
+}
+
 // GetSessionTurns returns per-turn cost data for a session, ordered by time.
 func (s *TokenUsageStore) GetSessionTurns(ctx context.Context, sessionID string) ([]TurnCost, error) {
 	var turns []TurnCost

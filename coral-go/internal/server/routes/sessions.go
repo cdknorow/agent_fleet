@@ -30,6 +30,7 @@ import (
 	"github.com/cdknorow/coral/internal/httputil"
 	"github.com/cdknorow/coral/internal/jsonl"
 	"github.com/cdknorow/coral/internal/license"
+	"github.com/cdknorow/coral/internal/proxy"
 	"github.com/cdknorow/coral/internal/pulse"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
@@ -286,11 +287,16 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		latestEvents = map[string][2]string{}
 	}
 	var tokenUsageMap map[string]*store.TokenUsage
+	var latestTurnCtx map[string]int
 	if h.tokenStore != nil && len(sessionIDs) > 0 {
 		tokenUsageMap, _ = h.tokenStore.GetLatestUsageBySessionIDs(ctx, sessionIDs)
+		latestTurnCtx, _ = h.tokenStore.GetLatestTurnContextBySessionIDs(ctx, sessionIDs)
 	}
 	if tokenUsageMap == nil {
 		tokenUsageMap = map[string]*store.TokenUsage{}
+	}
+	if latestTurnCtx == nil {
+		latestTurnCtx = map[string]int{}
 	}
 
 	var latestGoals map[string]string
@@ -330,22 +336,24 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	liveBoardNames := make(map[string][2]string) // session_id -> [board_name, display_name]
 	liveSleeping := make(map[string]bool)         // session_id -> is_sleeping
 	type liveExtra struct {
-		Prompt       *string
-		Model        *string
-		Capabilities *string
+		Prompt        *string
+		Model         *string
+		Capabilities  *string
+		ContextWindow int
 	}
 	liveExtras := make(map[string]liveExtra) // session_id -> extra fields
 	{
 		var rows []struct {
-			SessionID    string  `db:"session_id"`
-			BoardName    *string `db:"board_name"`
-			DisplayName  *string `db:"display_name"`
-			IsSleeping   int     `db:"is_sleeping"`
-			Prompt       *string `db:"prompt"`
-			Model        *string `db:"model"`
-			Capabilities *string `db:"capabilities"`
+			SessionID     string  `db:"session_id"`
+			BoardName     *string `db:"board_name"`
+			DisplayName   *string `db:"display_name"`
+			IsSleeping    int     `db:"is_sleeping"`
+			Prompt        *string `db:"prompt"`
+			Model         *string `db:"model"`
+			Capabilities  *string `db:"capabilities"`
+			ContextWindow int     `db:"context_window"`
 		}
-		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name, is_sleeping, prompt, model, capabilities FROM live_sessions WHERE status = 'active'"); err == nil {
+		if err := h.db.SelectContext(ctx, &rows, "SELECT session_id, board_name, display_name, is_sleeping, prompt, model, capabilities, context_window FROM live_sessions WHERE status = 'active'"); err == nil {
 			for _, r := range rows {
 				if r.BoardName != nil {
 					bn := *r.BoardName
@@ -357,7 +365,7 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 					liveSleeping[r.SessionID] = true
 				}
 				liveExtras[r.SessionID] = liveExtra{
-					Prompt: r.Prompt, Model: r.Model, Capabilities: r.Capabilities,
+					Prompt: r.Prompt, Model: r.Model, Capabilities: r.Capabilities, ContextWindow: r.ContextWindow,
 				}
 			}
 		}
@@ -483,6 +491,18 @@ func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			entry["token_cache_read"] = usage.CacheReadTokens
 			entry["token_cache_write"] = usage.CacheWriteTokens
 			entry["token_cost_usd"] = usage.CostUSD
+		}
+
+		// Context window usage: latest turn's input_tokens / context_window
+		if extra, ok := liveExtras[sid]; ok && extra.ContextWindow > 0 {
+			entry["context_window"] = extra.ContextWindow
+			if turnCtx, ok := latestTurnCtx[sid]; ok && turnCtx > 0 {
+				pct := int(float64(turnCtx) / float64(extra.ContextWindow) * 100)
+				if pct > 100 {
+					pct = 100
+				}
+				entry["context_pct"] = pct
+			}
 		}
 
 		// Track status/summary for event deduplication
@@ -2832,8 +2852,9 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 		Backend:      strPtr(backend),
 		BoardType:    strPtr(boardType),
 		Capabilities: store.MarshalCapabilities(capabilities),
-		Model:        strPtr(model),
-		Tools:        store.MarshalCapabilities(tools),
+		Model:         strPtr(model),
+		ContextWindow: proxy.LookupContextWindow(model),
+		Tools:         store.MarshalCapabilities(tools),
 		MCPServers:   store.MarshalCapabilities(mcpServers),
 		PID:          shellPID,
 	})

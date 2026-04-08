@@ -5,38 +5,39 @@ import (
 	"strings"
 )
 
-// ModelPricing holds per-million-token pricing for a model.
+// ModelPricing holds per-million-token pricing and context window for a model.
 type ModelPricing struct {
 	InputPerMTok      float64 // $ per 1M input tokens
 	OutputPerMTok     float64 // $ per 1M output tokens
 	CacheReadPerMTok  float64 // $ per 1M cache-read tokens (Anthropic)
 	CacheWritePerMTok float64 // $ per 1M cache-write tokens (Anthropic)
+	ContextWindow     int     // max context window in tokens (0 = unknown)
 }
 
 // Pricing maps canonical model names to their pricing.
 // Use lookupPricing() for matching — it handles aliases and short names.
 var Pricing = map[string]ModelPricing{
 	// Anthropic
-	"claude-opus-4-20250514":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75},
-	"claude-sonnet-4-20250514": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75},
-	"claude-haiku-4-20250514":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00},
+	"claude-opus-4-20250514":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
+	"claude-sonnet-4-20250514": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
+	"claude-haiku-4-20250514":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
 
 	// Bedrock (on-demand pricing matches direct API; model IDs use anthropic. prefix)
-	"anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75},
-	"anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75},
-	"anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00},
-	"us.anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75},
-	"us.anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75},
-	"us.anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00},
+	"anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
+	"anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
+	"anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
+	"us.anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
+	"us.anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
+	"us.anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
 
 	// OpenAI
-	"gpt-4o":      {InputPerMTok: 2.50, OutputPerMTok: 10.00},
-	"gpt-4o-mini": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
-	"o3":          {InputPerMTok: 2.00, OutputPerMTok: 8.00},
+	"gpt-4o":      {InputPerMTok: 2.50, OutputPerMTok: 10.00, ContextWindow: 128_000},
+	"gpt-4o-mini": {InputPerMTok: 0.15, OutputPerMTok: 0.60, ContextWindow: 128_000},
+	"o3":          {InputPerMTok: 2.00, OutputPerMTok: 8.00, ContextWindow: 200_000},
 
 	// Google
-	"gemini-2.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 10.00},
-	"gemini-2.5-flash": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	"gemini-2.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 10.00, ContextWindow: 1_000_000},
+	"gemini-2.5-flash": {InputPerMTok: 0.15, OutputPerMTok: 0.60, ContextWindow: 1_000_000},
 }
 
 // lookupPricing finds pricing for a model. Matching strategy:
@@ -161,4 +162,12 @@ func CalculateCostBreakdown(model string, usage TokenUsage) CostBreakdown {
 // CalculateCost computes the dollar cost for a request.
 func CalculateCost(model string, usage TokenUsage) float64 {
 	return CalculateCostBreakdown(model, usage).TotalCostUSD
+}
+
+// LookupContextWindow returns the context window size for a model (0 if unknown).
+func LookupContextWindow(model string) int {
+	if p, ok := lookupPricing(model); ok {
+		return p.ContextWindow
+	}
+	return 0
 }
