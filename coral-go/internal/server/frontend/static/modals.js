@@ -2747,6 +2747,10 @@ export async function showSettingsModal() {
     const proxyCodexCheck = document.getElementById("settings-proxy-enabled-codex");
     if (proxyCodexCheck) proxyCodexCheck.checked = !!s.proxy_enabled_codex;
 
+    // Terminal Font Size
+    const fontSizeSelect = document.getElementById("settings-terminal-font-size");
+    if (fontSizeSelect) fontSizeSelect.value = s.terminal_font_size || "13";
+
     // Terminal Scrollback
     const scrollbackSelect = document.getElementById("settings-terminal-scrollback");
     if (scrollbackSelect) scrollbackSelect.value = s.terminal_scrollback || "20000";
@@ -2898,6 +2902,7 @@ export async function applySettings() {
     const cliPathGemini = document.getElementById("settings-cli-path-gemini")?.value.trim() || "";
     const fitPaneWidth = document.getElementById("settings-fit-pane-width")?.checked || false;
     const notifyNeedsInput = document.getElementById("settings-notify-needs-input")?.checked || false;
+    const terminalFontSize = document.getElementById("settings-terminal-font-size")?.value || "13";
     const terminalScrollback = document.getElementById("settings-terminal-scrollback")?.value || "20000";
     const checkUpdates = document.getElementById("settings-check-updates")?.checked ?? true;
     localStorage.setItem("coral-update-check-enabled", checkUpdates ? "true" : "false");
@@ -2925,6 +2930,7 @@ export async function applySettings() {
         default_working_dir: workingDir,
         fit_pane_width: fitPaneWidth,
         notify_needs_input: notifyNeedsInput,
+        terminal_font_size: terminalFontSize,
         terminal_scrollback: terminalScrollback,
         show_scrollbars: showScrollbars,
         cli_path_claude: cliPathClaude,
@@ -2971,10 +2977,13 @@ export async function applySettings() {
             syncPaneWidth();
         }
 
-        // Apply scrollback to existing terminal
+        // Apply font size and scrollback to existing terminal
         const term = getTerminal();
         if (term) {
+            term.options.fontSize = parseInt(terminalFontSize, 10) || 13;
             term.options.scrollback = parseInt(terminalScrollback, 10) || 20000;
+            const { fitTerminal } = await import('./xterm_renderer.js');
+            fitTerminal();
         }
 
         // Apply scrollbar visibility

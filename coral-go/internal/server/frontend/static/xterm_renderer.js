@@ -172,12 +172,13 @@ export function createTerminal(containerEl) {
     }
 
     const scrollback = parseInt((state.settings || {}).terminal_scrollback, 10) || 20000;
+    const fontSize = parseInt((state.settings || {}).terminal_font_size, 10) || 13;
     terminal = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
         disableStdin: false,
         scrollback: scrollback,
-        fontSize: 13,
+        fontSize: fontSize,
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         theme: _getXtermTheme(),
     });
