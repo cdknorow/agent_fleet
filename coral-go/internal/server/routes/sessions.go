@@ -3210,6 +3210,36 @@ func (h *SessionsHandler) SetIcon(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "icon": icon})
 }
 
+// POST /api/sessions/live/{name}/context-window
+// Updates the context window (and optionally model) for a live session.
+// Called by the coral-hook-session-start hook when a SessionStart event fires.
+func (h *SessionsHandler) UpdateContextWindow(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SessionID string `json:"session_id"`
+		Model     string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		errBadRequest(w, "invalid JSON")
+		return
+	}
+	if body.SessionID == "" || body.Model == "" {
+		errBadRequest(w, "session_id and model are required")
+		return
+	}
+
+	contextWindow := proxy.LookupContextWindow(body.Model)
+	if contextWindow == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "context_window": 0, "skipped": true})
+		return
+	}
+
+	if err := h.ss.UpdateContextWindow(r.Context(), body.SessionID, contextWindow, body.Model); err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "context_window": contextWindow, "model": body.Model})
+}
+
 // ── Team Sleep/Wake ──────────────────────────────────────────────────────
 
 // SleepStatus returns whether a team board is sleeping.

@@ -23,10 +23,51 @@ func TestLookupPricing_PrefixMatch(t *testing.T) {
 }
 
 func TestLookupPricing_AliasMatch(t *testing.T) {
-	// "claude-opus-4-6" shares prefix "claude-opus-4" with "claude-opus-4-20250514"
+	// "claude-opus-4-6" should match "claude-opus-4-6-20260407" (1M context)
 	p, ok := lookupPricing("claude-opus-4-6")
 	assert.True(t, ok)
-	assert.Equal(t, Pricing["claude-opus-4-20250514"].InputPerMTok, p.InputPerMTok)
+	assert.Equal(t, 1_000_000, p.ContextWindow, "claude-opus-4-6 should resolve to 1M context window")
+	assert.Equal(t, Pricing["claude-opus-4-6-20260407"].InputPerMTok, p.InputPerMTok)
+}
+
+func TestLookupPricing_Claude46Models(t *testing.T) {
+	// All Claude 4.6 short aliases should resolve to 1M context
+	tests := []struct {
+		alias string
+		key   string
+	}{
+		{"claude-opus-4-6", "claude-opus-4-6-20260407"},
+		{"claude-sonnet-4-6", "claude-sonnet-4-6-20260407"},
+		{"claude-haiku-4-5", "claude-haiku-4-5-20251001"},
+	}
+	for _, tt := range tests {
+		p, ok := lookupPricing(tt.alias)
+		assert.True(t, ok, "expected match for %s", tt.alias)
+		assert.Equal(t, 1_000_000, p.ContextWindow, "%s should have 1M context", tt.alias)
+		assert.Equal(t, Pricing[tt.key], p, "%s should match %s", tt.alias, tt.key)
+	}
+}
+
+func TestLookupPricing_PrefixMatchShortestKey(t *testing.T) {
+	// "claude-sonnet-4" is a prefix of both "claude-sonnet-4-20250514" (200K)
+	// and "claude-sonnet-4-6-20260407" (1M). Should consistently pick the
+	// shortest key (200K) to avoid non-deterministic behavior.
+	for i := 0; i < 100; i++ {
+		p, ok := lookupPricing("claude-sonnet-4")
+		assert.True(t, ok)
+		assert.Equal(t, 200_000, p.ContextWindow, "iteration %d: claude-sonnet-4 should consistently resolve to 200K", i)
+	}
+}
+
+func TestLookupPricing_BracketSuffix(t *testing.T) {
+	// Model strings with bracket suffixes like "[1m]" should be stripped
+	p, ok := lookupPricing("claude-opus-4-6[1m]")
+	assert.True(t, ok)
+	assert.Equal(t, 1_000_000, p.ContextWindow)
+
+	p, ok = lookupPricing("claude-opus-4-6-20260407[1m]")
+	assert.True(t, ok)
+	assert.Equal(t, 1_000_000, p.ContextWindow)
 }
 
 func TestLookupPricing_UnknownModel(t *testing.T) {

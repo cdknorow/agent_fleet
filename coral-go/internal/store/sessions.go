@@ -1011,6 +1011,20 @@ func (s *SessionStore) SetIcon(ctx context.Context, sessionID string, icon *stri
 	return err
 }
 
+// UpdateContextWindow updates the context window and optionally the model for a live session.
+func (s *SessionStore) UpdateContextWindow(ctx context.Context, sessionID string, contextWindow int, model string) error {
+	if model != "" {
+		_, err := s.db.ExecContext(ctx,
+			"UPDATE live_sessions SET context_window = ?, model = ? WHERE session_id = ?",
+			contextWindow, model, sessionID)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE live_sessions SET context_window = ? WHERE session_id = ?",
+		contextWindow, sessionID)
+	return err
+}
+
 // GetIcons returns {session_id: icon} for sessions that have an icon set.
 func (s *SessionStore) GetIcons(ctx context.Context, sessionIDs []string) (map[string]string, error) {
 	if len(sessionIDs) == 0 {

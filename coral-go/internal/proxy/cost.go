@@ -17,18 +17,31 @@ type ModelPricing struct {
 // Pricing maps canonical model names to their pricing.
 // Use lookupPricing() for matching — it handles aliases and short names.
 var Pricing = map[string]ModelPricing{
-	// Anthropic
+	// Anthropic — Claude 4
 	"claude-opus-4-20250514":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
 	"claude-sonnet-4-20250514": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
 	"claude-haiku-4-20250514":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
 
-	// Bedrock (on-demand pricing matches direct API; model IDs use anthropic. prefix)
+	// Anthropic — Claude 4.5/4.6 (1M context)
+	"claude-opus-4-6-20260407":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 1_000_000},
+	"claude-sonnet-4-6-20260407": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 1_000_000},
+	"claude-haiku-4-5-20251001":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 1_000_000},
+
+	// Bedrock — Claude 4 (on-demand pricing matches direct API; model IDs use anthropic. prefix)
 	"anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
 	"anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
 	"anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
 	"us.anthropic.claude-opus-4-20250514-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 200_000},
 	"us.anthropic.claude-sonnet-4-20250514-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 200_000},
 	"us.anthropic.claude-haiku-4-20250514-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 200_000},
+
+	// Bedrock — Claude 4.5/4.6 (1M context)
+	"anthropic.claude-opus-4-6-20260407-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 1_000_000},
+	"anthropic.claude-sonnet-4-6-20260407-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 1_000_000},
+	"anthropic.claude-haiku-4-5-20251001-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 1_000_000},
+	"us.anthropic.claude-opus-4-6-20260407-v1:0":   {InputPerMTok: 15.00, OutputPerMTok: 75.00, CacheReadPerMTok: 1.50, CacheWritePerMTok: 18.75, ContextWindow: 1_000_000},
+	"us.anthropic.claude-sonnet-4-6-20260407-v1:0": {InputPerMTok: 3.00, OutputPerMTok: 15.00, CacheReadPerMTok: 0.30, CacheWritePerMTok: 3.75, ContextWindow: 1_000_000},
+	"us.anthropic.claude-haiku-4-5-20251001-v1:0":  {InputPerMTok: 0.80, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1.00, ContextWindow: 1_000_000},
 
 	// OpenAI
 	"gpt-4o":      {InputPerMTok: 2.50, OutputPerMTok: 10.00, ContextWindow: 128_000},
@@ -47,16 +60,31 @@ var Pricing = map[string]ModelPricing{
 //     dash-delimited prefix. Handles aliases like "claude-opus-4-6" matching
 //     "claude-opus-4-20250514" (both share prefix "claude-opus-4").
 func lookupPricing(model string) (ModelPricing, bool) {
+	// Strip bracket suffixes like "[1m]" from model names (e.g. "claude-opus-4-6[1m]")
+	if idx := strings.IndexByte(model, '['); idx >= 0 {
+		model = model[:idx]
+	}
+
 	// 1. Exact match
 	if p, ok := Pricing[model]; ok {
 		return p, true
 	}
 
 	// 2. Prefix match: the incoming model is a prefix of a known key.
+	// Prefer the shortest matching key to avoid ambiguity (e.g. "claude-sonnet-4"
+	// should match "claude-sonnet-4-20250514" not "claude-sonnet-4-6-20260407").
+	var bestPrefix ModelPricing
+	bestPrefixLen := 0
 	for key, p := range Pricing {
 		if strings.HasPrefix(key, model) {
-			return p, true
+			if bestPrefixLen == 0 || len(key) < bestPrefixLen {
+				bestPrefix = p
+				bestPrefixLen = len(key)
+			}
 		}
+	}
+	if bestPrefixLen > 0 {
+		return bestPrefix, true
 	}
 
 	// 3. Longest common dash-delimited prefix.

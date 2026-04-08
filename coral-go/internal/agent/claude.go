@@ -332,6 +332,14 @@ var coralHooks = map[string][]map[string]interface{}{
 			{"type": "command", "command": "coral-hook-agentic-state"},
 		}},
 	},
+	"SessionStart": {
+		{"hooks": []map[string]interface{}{
+			{"type": "command", "command": "coral-hook-agentic-state"},
+		}},
+		{"hooks": []map[string]interface{}{
+			{"type": "command", "command": "coral-hook-session-start"},
+		}},
+	},
 }
 
 func buildMergedSettings(workingDir string, agentHooks map[string]interface{}) map[string]interface{} {
