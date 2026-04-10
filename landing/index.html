@@ -152,6 +152,30 @@ section { padding: 100px 24px; }
     margin-top: 16px; font-size: 13px; color: var(--text-muted);
 }
 
+/* ── Hero Video ───────────────────────────────────── */
+.hero-video-section {
+    padding: 0 24px 60px;
+}
+.hero-video-section .container {
+    max-width: 900px;
+}
+.hero-video-embed {
+    position: relative;
+    padding-bottom: 62.5%;
+    height: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+}
+.hero-video-embed iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
 /* ── Features ─────────────────────────────────────── */
 .features { background: var(--bg-surface); }
 
@@ -797,6 +821,7 @@ footer {
             <a href="#compare">Compare</a>
             <a href="#pricing">Pricing</a>
             <a href="#download">Download</a>
+            <a href="tutorials.html">Tutorials</a>
             <a href="blog/">Blog</a>
             <a href="https://cdknorow.github.io/coral/">Docs</a>
             <a href="https://github.com/cdknorow/coral">GitHub</a>
@@ -826,55 +851,11 @@ footer {
     </div>
 </section>
 
-<!-- Screenshots -->
-<section class="screenshot-section">
-    <div class="screenshot-slider">
-        <div class="screenshot-track" id="screenshotTrack">
-            <div class="screenshot-slide">
-                <img src="coral-home.png" alt="Coral dashboard home — team templates and agent sidebar">
-                <p class="screenshot-caption">Your command center — launch pre-built teams, create AI-generated teams, or build your own from scratch</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-create-team-ai.png" alt="Coral AI team creation wizard with mission and composition inputs">
-                <p class="screenshot-caption">Describe your mission and team composition in plain English — Coral generates the full agent configuration</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-launch-agent-team.png" alt="Coral launch agent team review screen with editable agent roles">
-                <p class="screenshot-caption">Review every agent before launch — edit roles, prompts, and permissions to get the team exactly right</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-model-select.png" alt="Coral agent model selection interface with Claude, Gemini, and Codex options">
-                <p class="screenshot-caption">Mix and match AI models — assign Claude, Gemini, or Codex to each role based on their strengths</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-add-agent-to-team.png" alt="Coral sidebar team management with add agent and team actions">
-                <p class="screenshot-caption">Manage running teams from the sidebar — add agents, save templates, share configs, or reset the whole team</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-ai-generated-team.png" alt="Coral live AI-generated team collaborating across terminals and message boards">
-                <p class="screenshot-caption">Watch your team work in real time — terminals, message boards, and live coordination between agents</p>
-            </div>
-            <div class="screenshot-slide">
-                <img src="coral-orchestrator-delegating-tasks.png" alt="Coral orchestrator assigning work to specialist agents">
-                <p class="screenshot-caption">The orchestrator breaks down work and delegates to specialists — just like a real engineering team</p>
-            </div>
-        </div>
-        <div class="screenshot-nav">
-            <button class="screenshot-btn" id="screenshotPrev" aria-label="Previous screenshot">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <div class="screenshot-dots" id="screenshotDots">
-                <button class="screenshot-dot active" data-index="0" aria-label="Slide 1"></button>
-                <button class="screenshot-dot" data-index="1" aria-label="Slide 2"></button>
-                <button class="screenshot-dot" data-index="2" aria-label="Slide 3"></button>
-                <button class="screenshot-dot" data-index="3" aria-label="Slide 4"></button>
-                <button class="screenshot-dot" data-index="4" aria-label="Slide 5"></button>
-                <button class="screenshot-dot" data-index="5" aria-label="Slide 6"></button>
-                <button class="screenshot-dot" data-index="6" aria-label="Slide 7"></button>
-            </div>
-            <button class="screenshot-btn" id="screenshotNext" aria-label="Next screenshot">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
+<!-- Hero Video -->
+<section class="hero-video-section">
+    <div class="container">
+        <div class="hero-video-embed">
+            <iframe src="https://www.loom.com/embed/0b2509ba0c5c4dca907707241ef7330d" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe>
         </div>
     </div>
 </section>
@@ -1153,6 +1134,59 @@ footer {
             </tbody>
         </table>
         <p class="comparison-note">Coral's edge is operational: it coordinates independent agent processes with their own terminals, filesystems, and tools, then gives you one place to monitor and direct the team.</p>
+    </div>
+</section>
+
+<!-- Screenshots -->
+<section class="screenshot-section">
+    <div class="screenshot-slider">
+        <div class="screenshot-track" id="screenshotTrack">
+            <div class="screenshot-slide">
+                <img src="coral-home.png" alt="Coral dashboard home — team templates and agent sidebar">
+                <p class="screenshot-caption">Your command center — launch pre-built teams, create AI-generated teams, or build your own from scratch</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-create-team-ai.png" alt="Coral AI team creation wizard with mission and composition inputs">
+                <p class="screenshot-caption">Describe your mission and team composition in plain English — Coral generates the full agent configuration</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-launch-agent-team.png" alt="Coral launch agent team review screen with editable agent roles">
+                <p class="screenshot-caption">Review every agent before launch — edit roles, prompts, and permissions to get the team exactly right</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-model-select.png" alt="Coral agent model selection interface with Claude, Gemini, and Codex options">
+                <p class="screenshot-caption">Mix and match AI models — assign Claude, Gemini, or Codex to each role based on their strengths</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-add-agent-to-team.png" alt="Coral sidebar team management with add agent and team actions">
+                <p class="screenshot-caption">Manage running teams from the sidebar — add agents, save templates, share configs, or reset the whole team</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-ai-generated-team.png" alt="Coral live AI-generated team collaborating across terminals and message boards">
+                <p class="screenshot-caption">Watch your team work in real time — terminals, message boards, and live coordination between agents</p>
+            </div>
+            <div class="screenshot-slide">
+                <img src="coral-orchestrator-delegating-tasks.png" alt="Coral orchestrator assigning work to specialist agents">
+                <p class="screenshot-caption">The orchestrator breaks down work and delegates to specialists — just like a real engineering team</p>
+            </div>
+        </div>
+        <div class="screenshot-nav">
+            <button class="screenshot-btn" id="screenshotPrev" aria-label="Previous screenshot">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="screenshot-dots" id="screenshotDots">
+                <button class="screenshot-dot active" data-index="0" aria-label="Slide 1"></button>
+                <button class="screenshot-dot" data-index="1" aria-label="Slide 2"></button>
+                <button class="screenshot-dot" data-index="2" aria-label="Slide 3"></button>
+                <button class="screenshot-dot" data-index="3" aria-label="Slide 4"></button>
+                <button class="screenshot-dot" data-index="4" aria-label="Slide 5"></button>
+                <button class="screenshot-dot" data-index="5" aria-label="Slide 6"></button>
+                <button class="screenshot-dot" data-index="6" aria-label="Slide 7"></button>
+            </div>
+            <button class="screenshot-btn" id="screenshotNext" aria-label="Next screenshot">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+        </div>
     </div>
 </section>
 
