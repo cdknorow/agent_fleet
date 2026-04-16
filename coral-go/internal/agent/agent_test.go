@@ -922,7 +922,7 @@ func TestPresetTranslations(t *testing.T) {
 				if !ok || perms == nil {
 					t.Fatalf("expected *CodexPermissions, got %T", got)
 				}
-				if perms.SandboxMode != "read-only" || perms.ApprovalPolicy != "untrusted" || !perms.Search {
+				if !perms.BypassSandbox || !perms.Search {
 					t.Fatalf("unexpected codex perms: %+v", perms)
 				}
 			},
