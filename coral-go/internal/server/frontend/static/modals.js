@@ -2572,70 +2572,118 @@ export function copyInfoCommand() {
 
 // ── Resume Modal ───────────────────────────────────────────────────────────
 
-export function showResumeModal() {
-    const list = document.getElementById("resume-session-list");
-    list.innerHTML = "";
-
-    if (!state.liveSessions || state.liveSessions.length === 0) {
-        list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px 0">No live agents available</p>';
-        document.getElementById("resume-modal").style.display = "flex";
-        return;
-    }
-
-    for (const agent of state.liveSessions) {
-        const item = document.createElement("div");
-        item.className = "resume-session-item";
-        const typeBadge = (agent.agent_type || "claude").toLowerCase();
-        const goal = agent.summary ? escapeHtml(agent.summary) : '<span style="color:var(--text-muted)">No goal set</span>';
-        item.innerHTML = `
-            <div class="resume-item-header">
-                <span class="resume-item-name">${escapeHtml(agent.name)}</span>
-                <span class="badge ${typeBadge}">${typeBadge}</span>
-            </div>
-            <div class="resume-item-goal">${goal}</div>
-        `;
-        item.addEventListener("click", () => resumeIntoSession(agent.name, agent.agent_type, agent.session_id));
-        list.appendChild(item);
-    }
-
-    document.getElementById("resume-modal").style.display = "flex";
-}
-
-export function hideResumeModal() {
-    document.getElementById("resume-modal").style.display = "none";
-}
-
-export async function resumeIntoSession(agentName, agentType, currentSessionId) {
+export async function showResumeModal() {
     if (!state.currentSession || state.currentSession.type !== "history") {
         showToast("No history session selected", true);
         return;
     }
 
     const sessionId = state.currentSession.name;
-    const displayType = (agentType || "claude").toLowerCase();
+    const historyEntry = state.historySessionsList.find(s => s.session_id === sessionId);
+    let agentType = (historyEntry && historyEntry.source_type) || "claude";
 
-    window.showConfirmModal('Resume Session', `This will kill the current session in "${agentName}" and resume session ${sessionId.substring(0, 8)}... in its place. Continue?`, async () => {
-        hideResumeModal();
-        try {
-            const resp = await fetch(`/api/sessions/live/${encodeURIComponent(agentName)}/resume`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ session_id: sessionId, agent_type: agentType, current_session_id: currentSessionId }),
-            });
-            const result = await resp.json();
-            if (result.error) {
-                showToast(result.error, true);
-            } else {
-                showToast(`Resumed session in ${agentName}`);
-                if (window.selectLiveSession) {
-                    window.selectLiveSession(agentName, displayType, sessionId);
-                }
-            }
-        } catch (e) {
-            showToast("Failed to resume session", true);
-            console.error("resumeIntoSession error:", e);
+    const dirInput = document.getElementById("resume-dir");
+    const boardRow = document.getElementById("resume-board-row");
+    const boardNameEl = document.getElementById("resume-board-name");
+
+    // Fetch resume metadata (working dir, board, display name) from the server
+    let resumeDir = "";
+    let boardName = "";
+    let displayName = "";
+    try {
+        const resp = await fetch(`/api/sessions/history/${encodeURIComponent(sessionId)}/resume-info`);
+        if (resp.ok) {
+            const info = await resp.json();
+            if (info.working_dir) resumeDir = info.working_dir;
+            if (info.board_name) boardName = info.board_name;
+            if (info.agent_type) agentType = info.agent_type;
+            if (info.display_name) displayName = info.display_name;
         }
-    });
+    } catch (_) { /* best-effort */ }
+
+    // Pre-fill working directory: saved working dir > settings default > coral root
+    const defaultDir = resumeDir || state.settings?.default_working_dir || dirInput.dataset.coralRoot || "";
+    dirInput.value = defaultDir;
+
+    // Show board reconnect option if the session was on a board
+    if (boardName) {
+        boardNameEl.textContent = boardName;
+        boardRow.style.display = "";
+        document.getElementById("resume-board-check").checked = true;
+    } else {
+        boardRow.style.display = "none";
+    }
+
+    // Store agent type and display name for the launch function
+    const modal = document.getElementById("resume-modal");
+    modal.dataset.agentType = agentType;
+    modal.dataset.displayName = displayName || historyEntry?.display_name || "";
+    modal.style.display = "flex";
+}
+
+export function hideResumeModal() {
+    document.getElementById("resume-modal").style.display = "none";
+    // Hide browser if open
+    const browser = document.getElementById("resume-dir-browser");
+    if (browser) browser.style.display = "none";
+}
+
+export async function resumeLaunchNew() {
+    if (!state.currentSession || state.currentSession.type !== "history") {
+        showToast("No history session selected", true);
+        return;
+    }
+
+    const sessionId = state.currentSession.name;
+    const dir = document.getElementById("resume-dir").value.trim();
+    if (!dir) {
+        showToast("Working directory is required", true);
+        return;
+    }
+
+    const modal = document.getElementById("resume-modal");
+    const agentType = modal.dataset.agentType || "claude";
+    const displayName = modal.dataset.displayName || "";
+    const boardCheck = document.getElementById("resume-board-check");
+    const boardNameEl = document.getElementById("resume-board-name");
+    const boardName = (boardCheck && boardCheck.checked && boardNameEl) ? boardNameEl.textContent : "";
+
+    const btn = document.getElementById("btn-resume-launch");
+    if (btn) { btn.disabled = true; btn.textContent = "Resuming..."; }
+
+    try {
+        const payload = {
+            working_dir: dir,
+            agent_type: agentType,
+            resume_session_id: sessionId,
+        };
+        if (displayName) payload.display_name = displayName;
+        if (boardName) payload.board_name = boardName;
+
+        const resp = await fetch("/api/sessions/launch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        if (resp.status === 403) {
+            const err = await resp.json();
+            showToast(err.error || "Demo limit reached", true);
+            return;
+        }
+        const result = await resp.json();
+        if (result.error) {
+            showToast(result.error, true);
+        } else {
+            showToast(`Resumed session as new agent`);
+            hideResumeModal();
+            setTimeout(loadLiveSessions, 2000);
+        }
+    } catch (e) {
+        showToast("Failed to resume session", true);
+        console.error("resumeLaunchNew error:", e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Resume"; }
+    }
 }
 
 // ── Settings Modal ────────────────────────────────────────────────────────

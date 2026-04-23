@@ -468,3 +468,19 @@ func (h *HistoryHandler) GetSessionFiles(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"session_id": sid, "files": files})
 }
 
+// GetResumeInfo returns metadata needed to resume a historical session.
+// GET /api/sessions/history/{sessionID}/resume-info
+func (h *HistoryHandler) GetResumeInfo(w http.ResponseWriter, r *http.Request) {
+	sid := chi.URLParam(r, "sessionID")
+	result := map[string]any{"session_id": sid}
+
+	if ls, err := h.ss.GetLiveSession(r.Context(), sid); err == nil && ls != nil {
+		result["working_dir"] = ls.WorkingDir
+		result["agent_type"] = ls.AgentType
+		result["board_name"] = derefStrPtr(ls.BoardName)
+		result["display_name"] = derefStrPtr(ls.DisplayName)
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+

@@ -236,7 +236,8 @@ export async function selectHistorySession(sessionId) {
     // Show/hide Resume button based on source type
     const resumeBtn = document.getElementById("btn-resume-session");
     if (resumeBtn) {
-        resumeBtn.style.display = (historyEntry && historyEntry.source_type === "claude") ? "" : "none";
+        const resumable = historyEntry && (historyEntry.source_type === "claude" || historyEntry.source_type === "codex");
+        resumeBtn.style.display = resumable ? "" : "none";
     }
 
     // Show board link if session was part of a message board

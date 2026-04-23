@@ -1986,16 +1986,17 @@ func (h *SessionsHandler) SetDisplayName(w http.ResponseWriter, r *http.Request)
 // POST /api/sessions/launch
 func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		WorkingDir   string             `json:"working_dir"`
-		AgentType    string             `json:"agent_type"`
-		DisplayName  string             `json:"display_name"`
-		Flags        []string           `json:"flags"`
-		Prompt       string             `json:"prompt"`
-		BoardName    string             `json:"board_name"`
-		BoardServer  string             `json:"board_server"`
-		Backend      string             `json:"backend"`
-		BoardType    string             `json:"board_type"`
-		Model        string             `json:"model"`
+		WorkingDir      string             `json:"working_dir"`
+		AgentType       string             `json:"agent_type"`
+		DisplayName     string             `json:"display_name"`
+		Flags           []string           `json:"flags"`
+		Prompt          string             `json:"prompt"`
+		BoardName       string             `json:"board_name"`
+		BoardServer     string             `json:"board_server"`
+		Backend         string             `json:"backend"`
+		BoardType       string             `json:"board_type"`
+		Model           string             `json:"model"`
+		ResumeSessionID string             `json:"resume_session_id"`
 		Capabilities *agent.Capabilities      `json:"capabilities"`
 		Tools        []string                `json:"tools"`
 		MCPServers   map[string]any          `json:"mcpServers"`
@@ -2008,6 +2009,15 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	if body.WorkingDir == "" {
 		errBadRequest(w, "working_dir is required")
 		return
+	}
+
+	// Validate resume support
+	if body.ResumeSessionID != "" {
+		agentImpl := agent.GetAgent(body.AgentType)
+		if agentImpl != nil && !agentImpl.SupportsResume() {
+			errBadRequest(w, fmt.Sprintf("Resume not supported for %s", body.AgentType))
+			return
+		}
 	}
 
 	// Edition limits: check max active (non-sleeping) agents
@@ -2030,7 +2040,7 @@ func (h *SessionsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		launchFlags = append(append([]string{}, body.Flags...), "--model", effectiveModel)
 	}
 	result, err := h.launchSession(r.Context(), body.WorkingDir, body.AgentType, body.DisplayName,
-		"", launchFlags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, effectiveModel, body.Capabilities,
+		body.ResumeSessionID, launchFlags, body.Prompt, body.BoardName, body.BoardServer, body.Backend, body.BoardType, effectiveModel, body.Capabilities,
 		body.Tools, body.MCPServers, body.Hooks)
 	if err != nil {
 		errInternalServer(w, err.Error())

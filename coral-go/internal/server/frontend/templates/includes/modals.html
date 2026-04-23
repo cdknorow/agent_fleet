@@ -491,18 +491,38 @@
 
     <!-- Resume Modal -->
     <div id="resume-modal" class="modal" role="dialog" aria-modal="true" style="display:none">
-        <div class="modal-content" style="width:440px">
+        <div class="modal-content" style="width:480px">
             <div class="modal-header">
                 <h3>Resume Session</h3>
             </div>
             <div class="modal-body">
-                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
-                    Select a live agent to restart with this session:
-                </p>
-                <div id="resume-session-list"></div>
+                <div id="resume-launch-form">
+                    <label style="font-size:13px;display:block;margin-bottom:8px">Working Directory:
+                        <div class="dir-input-row" style="margin-top:4px">
+                            <input type="text" id="resume-dir" placeholder="/path/to/project" data-coral-root="{{ .CoralRoot }}" value="{{ .CoralRoot }}">
+                            <button class="btn" onclick="toggleBrowser('resume-dir','resume-dir-browser','resume-browser-list','resume-browser-current-path')">Browse</button>
+                        </div>
+                    </label>
+                    <div id="resume-dir-browser" class="dir-browser" style="display:none">
+                        <div class="dir-browser-header">
+                            <button class="btn btn-small dir-browser-up" onclick="browserNavigateUp()" title="Go up">..</button>
+                            <span class="dir-browser-path" id="resume-browser-current-path">~</span>
+                        </div>
+                        <ul class="dir-browser-list" id="resume-browser-list">
+                            <li class="empty-state">Loading...</li>
+                        </ul>
+                    </div>
+                    <div id="resume-board-row" style="display:none;margin-top:8px">
+                        <label style="font-size:13px;display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" id="resume-board-check" checked>
+                            Rejoin board: <span id="resume-board-name" class="badge board-badge" style="font-size:12px"></span>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="modal-actions modal-footer">
                 <button class="btn" onclick="hideResumeModal()">Cancel</button>
+                <button class="btn btn-primary" id="btn-resume-launch" onclick="resumeLaunchNew()">Resume</button>
             </div>
         </div>
     </div>

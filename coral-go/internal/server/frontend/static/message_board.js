@@ -1,6 +1,7 @@
 /* Message Board: project list, messages, subscribers, posting */
 
 import { escapeHtml, escapeAttr, showView, renderMarkdown, getAgentColor, hexToRgba, showToast } from './utils.js';
+import { state } from './state.js';
 import { loadLiveSessions } from './api.js';
 import { platform } from './platform/detect.js';
 
@@ -270,7 +271,26 @@ function formatTime(iso) {
 
 // ── Subscribers ──────────────────────────────────────────────────────────
 
-async function navigateToAgentHistory(displayName) {
+function navigateToAgentSession(sessionName, displayName) {
+    if (sessionName) {
+        // session_name format is "<agentType>-<uuid>" — extract the UUID
+        const dashIdx = sessionName.indexOf('-');
+        const sessionId = dashIdx >= 0 ? sessionName.substring(dashIdx + 1) : sessionName;
+        // Try live session first, fall back to history
+        const live = (state.liveSessions || []).find(s => s.session_id === sessionId);
+        if (live) {
+            window.selectLiveSession(live.name, live.agent_type, live.session_id);
+        } else {
+            window.selectHistorySession(sessionId);
+        }
+        return;
+    }
+    // Fallback: search by display name
+    navigateToAgentHistoryByName(displayName);
+}
+window.navigateToAgentSession = navigateToAgentSession;
+
+async function navigateToAgentHistoryByName(displayName) {
     const resp = await fetch(`/api/sessions/history?page_size=50`);
     const data = await resp.json();
     const sessions = data.sessions || [];
@@ -281,7 +301,6 @@ async function navigateToAgentHistory(displayName) {
         showToast(`No history found for ${displayName}`);
     }
 }
-window.navigateToAgentHistory = navigateToAgentHistory;
 
 async function loadBoardSubscribers(project) {
     try {
@@ -293,9 +312,10 @@ async function loadBoardSubscribers(project) {
         }
         list.innerHTML = subs.map(s => {
             const displayName = escapeAttr(s.job_title || s.subscriber_id);
+            const sessionName = escapeAttr(s.session_name || '');
             const icon = s.icon ? `<span class="agent-icon">${escapeHtml(s.icon)}</span> ` : '';
             return `<li style="padding:6px 0;border-bottom:1px solid var(--border)">
-                <div style="font-weight:600;font-size:12px">${icon}<a href="javascript:void(0)" class="subscriber-history-link" onclick="navigateToAgentHistory('${displayName}')" title="View chat history">${escapeHtml(s.job_title)}</a></div>
+                <div style="font-weight:600;font-size:12px">${icon}<a href="javascript:void(0)" class="subscriber-history-link" onclick="navigateToAgentSession('${sessionName}', '${displayName}')" title="View chat history">${escapeHtml(s.job_title)}</a></div>
                 <div style="font-size:10px;color:var(--text-muted)">${escapeHtml(s.subscriber_id)}</div>
             </li>`;
         }).join('');
