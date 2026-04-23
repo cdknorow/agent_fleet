@@ -115,7 +115,7 @@ func (m *PTYBackend) Resize(name string, cols, rows uint16) error {
 	return s.resize(cols, rows)
 }
 
-func (m *PTYBackend) Subscribe(name, subscriberID string) (<-chan []byte, error) {
+func (m *PTYBackend) Attach(name, subscriberID string) (<-chan []byte, error) {
 	m.mu.RLock()
 	s, ok := m.sessions[name]
 	m.mu.RUnlock()
@@ -135,14 +135,14 @@ func (m *PTYBackend) Unsubscribe(name, subscriberID string) {
 	s.unsubscribe(subscriberID)
 }
 
-func (m *PTYBackend) CaptureContent(name string) (string, error) {
+func (m *PTYBackend) Replay(name string) ([]byte, error) {
 	m.mu.RLock()
 	s, ok := m.sessions[name]
 	m.mu.RUnlock()
 	if !ok {
-		return "", fmt.Errorf("session %q not found", name)
+		return nil, fmt.Errorf("session %q not found", name)
 	}
-	return s.captureContent(), nil
+	return s.replayBytes(), nil
 }
 
 func (m *PTYBackend) ListSessions() []SessionInfo {

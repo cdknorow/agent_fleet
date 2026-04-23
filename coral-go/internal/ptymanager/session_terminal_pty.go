@@ -51,7 +51,11 @@ func (p *PTYSessionTerminal) FindSession(_ context.Context, name, agentType, ses
 }
 
 func (p *PTYSessionTerminal) CaptureOutput(_ context.Context, name string, _ int, _, _ string) (string, error) {
-	return p.backend.CaptureContent(name)
+	data, err := p.backend.Replay(name)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func (p *PTYSessionTerminal) SendInput(_ context.Context, name, command, _, _ string) error {
@@ -167,17 +171,6 @@ func (p *PTYSessionTerminal) HasSession(_ context.Context, name string) bool {
 	return p.backend.IsRunning(name)
 }
 
-func (p *PTYSessionTerminal) DisplayMessage(_ context.Context, target, _ string) (string, error) {
-	sessions := p.backend.ListSessions()
-	for _, s := range sessions {
-		sessName := naming.SessionName(s.AgentType, s.SessionID)
-		if sessName == target || s.SessionID == target {
-			return filepath.Base(s.WorkingDir), nil
-		}
-	}
-	return "", fmt.Errorf("session %q not found", target)
-}
-
 func (p *PTYSessionTerminal) FindTarget(_ context.Context, name, agentType, sessionID string) (string, error) {
 	pane, err := p.FindSession(context.Background(), name, agentType, sessionID)
 	if err != nil {
@@ -187,10 +180,6 @@ func (p *PTYSessionTerminal) FindTarget(_ context.Context, name, agentType, sess
 		return "", nil
 	}
 	return pane.SessionName, nil
-}
-
-func (p *PTYSessionTerminal) CaptureRawOutput(_ context.Context, target string, _ int, _ bool) (string, error) {
-	return p.backend.CaptureContent(target)
 }
 
 func (p *PTYSessionTerminal) AttachCommand(_ string) string {

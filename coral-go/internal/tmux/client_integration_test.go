@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,24 @@ func newTestClient(t *testing.T) *Client {
 	if err != nil {
 		t.Skip("tmux not available")
 	}
-	sock := filepath.Join(t.TempDir(), "test.sock")
+	// Use a short socket path under os.TempDir — t.TempDir() paths include
+	// the test name and can exceed the Unix socket 104-char limit.
+	dir, err := os.MkdirTemp("", "coral-tmux-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "t.sock")
+
+	// Smoke-test that tmux can actually create a detached session on this
+	// socket. Some CI sandboxes reject new-session with exit 1 — skip rather
+	// than fail on an environmental issue.
+	if out, err := exec.Command(bin, "-S", sock, "new-session", "-d", "-s", "coral-smoke", "sleep 1").CombinedOutput(); err != nil {
+		exec.Command(bin, "-S", sock, "kill-server").Run()
+		t.Skipf("tmux cannot create sessions in this environment: %v (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	exec.Command(bin, "-S", sock, "kill-server").Run()
+
 	c := &Client{
 		TmuxBin:           bin,
 		SocketPath:        sock,

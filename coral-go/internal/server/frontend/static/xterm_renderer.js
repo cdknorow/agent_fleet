@@ -1,7 +1,6 @@
 /* xterm.js terminal renderer — streams raw ANSI output via WebSocket */
 
 import { state } from './state.js';
-import { sendRawKeys } from './controls.js';
 import { dbg } from './utils.js';
 
 let terminal = null;
@@ -51,13 +50,6 @@ export function updateTerminalTheme() {
         terminal.options.theme = _getXtermTheme();
     }
 }
-
-// Buffered content for when updates are paused due to text selection or scroll
-let _pendingContent = null;
-let _xtermSelecting = false;
-let _userScrolledUp = false;
-let _resizing = false;
-let _resizeTimer = null;
 
 // Track which session_id the terminal WS is currently connected to,
 // and a generation counter to suppress stale onclose reconnects.
@@ -116,38 +108,6 @@ function _setDisconnectedBadge(visible) {
     }
 }
 
-function _setPauseBadge(visible, reason) {
-    const badge = document.getElementById("selection-pause-badge");
-    if (badge) {
-        badge.style.display = visible ? "" : "none";
-        if (visible && reason) {
-            badge.textContent = reason === "scroll"
-                ? "Updates paused — scrolled up"
-                : "Updates paused — text selected";
-        }
-        // Allow clicking the badge to resume
-        badge.onclick = () => resumeScroll();
-    }
-}
-
-/** Resume auto-scroll and flush any buffered content. */
-export function resumeScroll() {
-    _userScrolledUp = false;
-    state.autoScroll = true;
-    _setPauseBadge(false);
-    _flushPending();
-}
-
-/** Write buffered content to the terminal (called when selection/scroll clears). */
-function _flushPending() {
-    if (_pendingContent !== null && terminal) {
-        const converted = _pendingContent.replace(/\n/g, '\r\n');
-        terminal.write('\x1b[2J\x1b[H' + converted);
-        terminal.scrollToBottom();
-        _pendingContent = null;
-    }
-}
-
 /** Reuse the existing terminal if possible — just disconnect WS and clear buffer.
  *  Destroying and recreating the xterm canvas causes blank renders in macOS
  *  WebKit webview (webview_go). Only create a new Terminal when none exists. */
@@ -191,40 +151,9 @@ export function createTerminal(containerEl) {
         terminal.loadAddon(webLinksAddon);
     }
 
-    // Track selection state: pause updates while user has text selected
     _selectionDisposable = terminal.onSelectionChange(() => {
-        const hasSelection = terminal.hasSelection();
-        _xtermSelecting = hasSelection;
-        state.isSelecting = hasSelection;
-        _setPauseBadge(hasSelection, "select");
-        if (!hasSelection) {
-            _flushPending();
-        }
+        state.isSelecting = terminal.hasSelection();
     });
-
-    // Track user scroll: mouse wheel up pauses updates, scroll down resumes.
-    const xtermEl = containerEl;
-    let _scrollUpCount = 0;
-    xtermEl.addEventListener("wheel", (e) => {
-        if (_resizing) return; // Don't trigger scroll pause during resize
-        if (e.deltaY < 0) {
-            // Scrolling up — pause after a couple of ticks to avoid accidental triggers
-            _scrollUpCount++;
-            if (_scrollUpCount >= 2 && !_userScrolledUp) {
-                _userScrolledUp = true;
-                state.autoScroll = false;
-                _setPauseBadge(true, "scroll");
-            }
-        } else if (e.deltaY > 0 && _userScrolledUp && terminal) {
-            // Scrolling down — only resume when user reaches the bottom of the buffer
-            _scrollUpCount = 0;
-            const viewport = terminal.buffer.active;
-            const atBottom = viewport.baseY <= terminal.buffer.active.viewportY;
-            if (atBottom) {
-                resumeScroll();
-            }
-        }
-    }, { passive: true });
 
     // Forward all keyboard input via xterm.js onData → WebSocket → tmux.
     // Keystrokes are batched over a short window (12ms) so rapid typing
@@ -254,15 +183,6 @@ export function createTerminal(containerEl) {
 
     _onDataDisposable = terminal.onData((data) => {
         if (!state.currentSession || state.currentSession.type !== "live") return;
-
-        // Clear selection state on any keypress
-        if (_xtermSelecting) {
-            terminal.clearSelection();
-            _xtermSelecting = false;
-            state.isSelecting = false;
-            _setPauseBadge(false);
-            _flushPending();
-        }
 
         // Control chars / escape sequences flush immediately (no batching delay)
         const isControl = data.length === 1 && data.charCodeAt(0) < 32;
@@ -318,11 +238,7 @@ export function createTerminal(containerEl) {
         if (_resizeObserver) _resizeObserver.disconnect();
         _resizeObserver = new ResizeObserver(() => {
             if (fitAddon && containerEl.offsetWidth > 0 && containerEl.offsetHeight > 0) {
-                _resizing = true;
-                clearTimeout(_resizeTimer);
                 fitAddon.fit();
-                if (!_userScrolledUp && terminal) terminal.scrollToBottom();
-                _resizeTimer = setTimeout(() => { _resizing = false; }, 300);
             }
         });
         _resizeObserver.observe(containerEl);
@@ -357,9 +273,6 @@ export function createTerminal(containerEl) {
 
 export function connectTerminalWs(name, agentType, sessionId) {
     dbg('connectTerminalWs', { name, agentType, sessionId, currentConnected: _connectedSessionId });
-    // Always reset scroll-pause state when switching to a session so the
-    // terminal renders immediately instead of buffering into the void.
-    resumeScroll();
 
     // Skip if already connected to this exact session
     if (_connectedSessionId === sessionId && terminalWs && terminalWs.readyState === WebSocket.OPEN) {
@@ -384,6 +297,7 @@ export function connectTerminalWs(name, agentType, sessionId) {
     terminalWs = new WebSocket(
         `${proto}//${location.host}/ws/terminal/${encodeURIComponent(name)}${qs}`
     );
+    terminalWs.binaryType = 'arraybuffer';
 
     terminalWs.onopen = () => {
         dbg('terminalWs OPEN', { sessionId, url: terminalWs.url });
@@ -401,60 +315,32 @@ export function connectTerminalWs(name, agentType, sessionId) {
 
     let _msgCount = 0;
     terminalWs.onmessage = (event) => {
-        const data = JSON.parse(event.data);
         _msgCount++;
+
+        if (event.data instanceof ArrayBuffer) {
+            if (_msgCount <= 3 || _msgCount % 50 === 0) {
+                dbg('terminalWs msg #' + _msgCount, { type: 'binary', hasTerminal: !!terminal,
+                    byteLen: event.data.byteLength,
+                    cols: terminal?.cols, rows: terminal?.rows });
+            }
+            if (terminal) {
+                _paneClosed = false;
+                _restarting = false;
+                _setSessionEndedOverlay(false);
+                terminal.write(new Uint8Array(event.data));
+            }
+            return;
+        }
+
+        const data = JSON.parse(event.data);
         if (_msgCount <= 3 || _msgCount % 50 === 0) {
             dbg('terminalWs msg #' + _msgCount, { type: data.type, hasTerminal: !!terminal,
-                dataLen: (data.data || data.content || '').length,
                 cols: terminal?.cols, rows: terminal?.rows });
         }
         if (data.type === "terminal_closed") {
-            // Server reports the tmux pane is gone (agent killed/done).
-            // Show a session-ended overlay with restart button.
             _paneClosed = true;
             _setDisconnectedBadge(false);
             _setSessionEndedOverlay(true);
-            return;
-        }
-        // PTY streaming mode — incremental raw PTY data
-        if (data.type === "terminal_stream" && terminal) {
-            _paneClosed = false;
-            _restarting = false;
-            _setSessionEndedOverlay(false);
-            terminal.write(data.data);
-            return;
-        }
-        // Poll-based mode — full screen snapshot
-        if (data.type === "terminal_update" && terminal) {
-            _paneClosed = false;
-            _restarting = false;
-            _setSessionEndedOverlay(false);
-            // Buffer the update if user has text selected or scrolled up
-            // But auto-resume if the pause was caused by a resize (buffer reflow)
-            if (_resizing && _userScrolledUp && !_xtermSelecting) {
-                resumeScroll();
-            }
-            if (_xtermSelecting || _userScrolledUp) {
-                _pendingContent = data.content;
-                return;
-            }
-            const converted = data.content.replace(/\n/g, '\r\n');
-            const hasCursor = data.cursor_x != null && data.cursor_y != null;
-            // \x1b[2J = clear visible screen, \x1b[3J = clear scrollback buffer,
-            // \x1b[H = cursor home.
-            if (data.alt_screen && hasCursor) {
-                // Alternate screen (vim/nano/TUI): show xterm's native
-                // blinking cursor. No scrollback in alt screen, so
-                // cursor_y maps directly to xterm rows.
-                const cursorSeq = `\x1b[${data.cursor_y + 1};${data.cursor_x + 1}H`;
-                terminal.write('\x1b[?25h\x1b[2J\x1b[3J\x1b[H' + converted + cursorSeq);
-            } else {
-                // Normal shell: hide xterm cursor, let tmux's reverse-video
-                // in the captured content be the sole cursor. cursorSeq would
-                // be wrong here due to scrollback offset.
-                terminal.write('\x1b[?25l\x1b[2J\x1b[3J\x1b[H' + converted);
-                if (!hasCursor) terminal.scrollToBottom();
-            }
         }
     };
 
@@ -516,9 +402,7 @@ export function disposeTerminal() {
         _onResizeDisposable.dispose();
         _onResizeDisposable = null;
     }
-    _xtermSelecting = false;
     _terminalFocused = false;
-    _pendingContent = null;
     _inputQueue = [];
     if (_resizeObserver) {
         _resizeObserver.disconnect();

@@ -236,29 +236,6 @@ func TestPTYSessionTerminal_NoOpMethods(t *testing.T) {
 	assert.NoError(t, terminal.RenameSession(ctx, "old", "new"))
 }
 
-// ── DisplayMessage ───────────────────────────────────────────────────
-
-func TestPTYSessionTerminal_DisplayMessage_Found(t *testing.T) {
-	skipIfWindows(t)
-	terminal, backend := newTestTerminal(t)
-
-	spawnTestSession(t, backend, "display-test")
-	time.Sleep(100 * time.Millisecond)
-
-	// DisplayMessage returns the folder base name for PTY sessions
-	msg, err := terminal.DisplayMessage(context.Background(), "claude-test-sess-id-000000000000000000000000000000000001", "")
-	require.NoError(t, err)
-	assert.NotEmpty(t, msg)
-}
-
-func TestPTYSessionTerminal_DisplayMessage_NotFound(t *testing.T) {
-	skipIfWindows(t)
-	terminal, _ := newTestTerminal(t)
-
-	_, err := terminal.DisplayMessage(context.Background(), "ghost", "")
-	assert.Error(t, err)
-}
-
 // ── FindTarget ───────────────────────────────────────────────────────
 
 func TestPTYSessionTerminal_FindTarget(t *testing.T) {
@@ -280,24 +257,6 @@ func TestPTYSessionTerminal_FindTarget_NotFound(t *testing.T) {
 	target, err := terminal.FindTarget(context.Background(), "ghost", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, target)
-}
-
-// ── CaptureRawOutput ─────────────────────────────────────────────────
-
-func TestPTYSessionTerminal_CaptureRawOutput(t *testing.T) {
-	skipIfWindows(t)
-	terminal, backend := newTestTerminal(t)
-
-	spawnTestSession(t, backend, "raw-capture")
-	time.Sleep(300 * time.Millisecond)
-
-	err := terminal.SendInput(context.Background(), "raw-capture", "echo raw-test-output", "", "")
-	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
-
-	output, err := terminal.CaptureRawOutput(context.Background(), "raw-capture", 200, false)
-	require.NoError(t, err)
-	assert.Contains(t, output, "raw-test-output")
 }
 
 // ── Concurrent Access ────────────────────────────────────────────────

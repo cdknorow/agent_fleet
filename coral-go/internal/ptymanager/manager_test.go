@@ -70,9 +70,9 @@ func TestPTYBackendSendInputAndRead(t *testing.T) {
 		t.Fatalf("Spawn failed: %v", err)
 	}
 
-	ch, err := backend.Subscribe("echo-test", "ws-1")
+	ch, err := backend.Attach("echo-test", "ws-1")
 	if err != nil {
-		t.Fatalf("Subscribe failed: %v", err)
+		t.Fatalf("Attach failed: %v", err)
 	}
 
 	// Send input
@@ -127,7 +127,7 @@ func TestPTYBackendResize(t *testing.T) {
 	backend.Kill("resize-test")
 }
 
-func TestPTYBackendCaptureContent(t *testing.T) {
+func TestPTYBackendReplay(t *testing.T) {
 	canFork(t)
 	backend := NewPTYBackend()
 	defer backend.Close()
@@ -140,13 +140,13 @@ func TestPTYBackendCaptureContent(t *testing.T) {
 	// Wait for output
 	time.Sleep(500 * time.Millisecond)
 
-	content, err := backend.CaptureContent("capture-test")
+	data, err := backend.Replay("capture-test")
 	if err != nil {
-		t.Fatalf("CaptureContent failed: %v", err)
+		t.Fatalf("Replay failed: %v", err)
 	}
 
-	if !strings.Contains(content, "MARKER_123") {
-		t.Errorf("expected capture to contain 'MARKER_123', got %q", content)
+	if !strings.Contains(string(data), "MARKER_123") {
+		t.Errorf("expected replay to contain 'MARKER_123', got %q", string(data))
 	}
 
 	backend.Kill("capture-test")
@@ -204,7 +204,7 @@ func TestPTYBackendNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent session")
 	}
 
-	_, err = backend.CaptureContent("nonexistent")
+	_, err = backend.Replay("nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent session")
 	}
@@ -228,10 +228,11 @@ func TestPTYBackendRestart(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Capture initial output
-	content, err := backend.CaptureContent("restart-test")
+	data, err := backend.Replay("restart-test")
 	if err != nil {
-		t.Fatalf("CaptureContent failed: %v", err)
+		t.Fatalf("Replay failed: %v", err)
 	}
+	content := string(data)
 	if !strings.Contains(content, "BEFORE") {
 		t.Logf("initial capture: %q", content)
 	}
@@ -250,10 +251,11 @@ func TestPTYBackendRestart(t *testing.T) {
 	}
 
 	// Capture should show new output
-	content, err = backend.CaptureContent("restart-test")
+	data, err = backend.Replay("restart-test")
 	if err != nil {
-		t.Fatalf("CaptureContent after restart failed: %v", err)
+		t.Fatalf("Replay after restart failed: %v", err)
 	}
+	content = string(data)
 	if !strings.Contains(content, "AFTER") {
 		t.Errorf("expected capture to contain 'AFTER' after restart, got %q", content)
 	}
@@ -270,7 +272,7 @@ func TestPTYBackendRestartNotFound(t *testing.T) {
 	}
 }
 
-func TestPTYBackendSubscribeUnsubscribe(t *testing.T) {
+func TestPTYBackendAttachUnsubscribe(t *testing.T) {
 	canFork(t)
 	backend := NewPTYBackend()
 	defer backend.Close()
@@ -281,13 +283,13 @@ func TestPTYBackendSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Subscribe
-	ch1, err := backend.Subscribe("sub-test", "ws-1")
+	ch1, err := backend.Attach("sub-test", "ws-1")
 	if err != nil {
-		t.Fatalf("Subscribe ws-1 failed: %v", err)
+		t.Fatalf("Attach ws-1 failed: %v", err)
 	}
-	ch2, err := backend.Subscribe("sub-test", "ws-2")
+	ch2, err := backend.Attach("sub-test", "ws-2")
 	if err != nil {
-		t.Fatalf("Subscribe ws-2 failed: %v", err)
+		t.Fatalf("Attach ws-2 failed: %v", err)
 	}
 
 	// Send input
@@ -319,10 +321,10 @@ func TestPTYBackendSubscribeUnsubscribe(t *testing.T) {
 	backend.Kill("sub-test")
 }
 
-func TestPTYBackendSubscribeNotFound(t *testing.T) {
+func TestPTYBackendAttachNotFound(t *testing.T) {
 	backend := NewPTYBackend()
 
-	_, err := backend.Subscribe("nonexistent", "ws-1")
+	_, err := backend.Attach("nonexistent", "ws-1")
 	if err == nil {
 		t.Error("expected error subscribing to nonexistent session")
 	}
@@ -456,11 +458,12 @@ func TestPTYBackendRingBufferOverflow(t *testing.T) {
 	// Wait for output to complete
 	time.Sleep(2 * time.Second)
 
-	// Capture should not error even with large output (ring buffer handles overflow)
-	content, err := backend.CaptureContent("overflow-test")
+	// Replay should not error even with large output (ring buffer handles overflow)
+	data, err := backend.Replay("overflow-test")
 	if err != nil {
-		t.Fatalf("CaptureContent failed: %v", err)
+		t.Fatalf("Replay failed: %v", err)
 	}
+	content := string(data)
 
 	// Should have some content (ring buffer may have dropped oldest lines)
 	if len(content) == 0 {
@@ -479,7 +482,7 @@ func TestPTYBackendRingBufferOverflow(t *testing.T) {
 	backend.Kill("overflow-test")
 }
 
-func TestPTYBackendSubscriberFanOut(t *testing.T) {
+func TestPTYBackendAttachFanOut(t *testing.T) {
 	canFork(t)
 	backend := NewPTYBackend()
 	defer backend.Close()
@@ -493,9 +496,9 @@ func TestPTYBackendSubscriberFanOut(t *testing.T) {
 	const numSubs = 5
 	channels := make([]<-chan []byte, numSubs)
 	for i := 0; i < numSubs; i++ {
-		ch, err := backend.Subscribe("fanout-test", fmt.Sprintf("ws-%d", i))
+		ch, err := backend.Attach("fanout-test", fmt.Sprintf("ws-%d", i))
 		if err != nil {
-			t.Fatalf("Subscribe ws-%d failed: %v", i, err)
+			t.Fatalf("Attach ws-%d failed: %v", i, err)
 		}
 		channels[i] = ch
 	}

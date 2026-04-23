@@ -20,10 +20,10 @@ build: sync-docs
 run: dev
 	./coral --host 127.0.0.1 --port 8420
 
-# Test server (accessible from other machines)
+# Test server (accessible from other machines, isolated from production data)
 .PHONY: test-server
 test-server: dev
-	./coral --host 0.0.0.0 --port 8450
+	CORAL_DATA_DIR=/tmp/coral-test ./coral --host 0.0.0.0 --port 8450
 
 # Run all tests
 .PHONY: test

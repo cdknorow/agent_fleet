@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,6 +119,10 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 		ln.Close()
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Apply terminal_replay_bytes setting from user_settings before any
+	// backend touches the replay buffer size.
+	applyReplayBytesFromSettings(ctx, db)
 
 	// Select terminal backend and agent runtime
 	backend, agentRT, terminal := selectBackend(opts.BackendType, cfg.LogDir, cfg.CoralDir())
@@ -304,6 +309,39 @@ func reconcileOrphanedTeams(ctx context.Context, db *store.DB) {
 	if orphaned > 0 {
 		log.Printf("[startup] Marked %d orphaned team(s) as stopped", orphaned)
 	}
+}
+
+// applyReplayBytesFromSettings reads the terminal_replay_bytes value from
+// user_settings and applies it to the ptymanager replay buffer limit. Values
+// outside [4096, 16 MiB] are clamped. Invalid or missing values leave the
+// 256 KiB default in place.
+func applyReplayBytesFromSettings(ctx context.Context, db *store.DB) {
+	ss := store.NewSessionStore(db)
+	settings, err := ss.GetSettings(ctx)
+	if err != nil {
+		return
+	}
+	raw, ok := settings["terminal_replay_bytes"]
+	if !ok || raw == "" {
+		return
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Printf("[startup] ignoring invalid terminal_replay_bytes=%q: %v", raw, err)
+		return
+	}
+	const (
+		minBytes = 4 * 1024
+		maxBytes = 16 * 1024 * 1024
+	)
+	if n < minBytes {
+		n = minBytes
+	}
+	if n > maxBytes {
+		n = maxBytes
+	}
+	ptymanager.SetReplayBytes(n)
+	log.Printf("[startup] terminal_replay_bytes=%d", n)
 }
 
 func selectBackend(backendType, logDir, coralDir string) (ptymanager.TerminalBackend, background.AgentRuntime, ptymanager.SessionTerminal) {

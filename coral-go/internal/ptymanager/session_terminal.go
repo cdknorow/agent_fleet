@@ -50,11 +50,9 @@ type SessionTerminal interface {
 
 	// Query
 	HasSession(ctx context.Context, name string) bool
-	DisplayMessage(ctx context.Context, target, format string) (string, error)
 
-	// Target-level operations (used by WebSocket terminal)
+	// Target-level operations
 	FindTarget(ctx context.Context, name, agentType, sessionID string) (string, error)
-	CaptureRawOutput(ctx context.Context, target string, lines int, visibleOnly bool) (string, error)
 
 	// AttachCommand returns the shell command to attach to a session (includes -S socket if needed).
 	AttachCommand(sessionName string) string

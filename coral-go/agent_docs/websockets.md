@@ -97,12 +97,7 @@ Configurable via `WSPollIntervalS` in server config. Default: **5 seconds**.
 
 ## `/ws/terminal/{name}` — Terminal Streaming
 
-Bidirectional WebSocket for real-time terminal interaction. Supports two backends:
-
-- **PTY streaming**: Zero-polling, real-time output via goroutine fan-out
-- **tmux polling**: Adaptive polling with file-change watching
-
-The server automatically selects the backend based on how the session was launched.
+Bidirectional WebSocket for real-time terminal interaction. Both PTY and tmux backends use the same unified streaming protocol — raw byte output delivered as binary WebSocket frames.
 
 ### Connection
 
@@ -110,14 +105,7 @@ The server automatically selects the backend based on how the session was launch
 ws://localhost:8420/ws/terminal/{name}
 ```
 
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `agent_type` | string | Agent type (e.g., `claude`) |
-| `session_id` | string | Session UUID |
-
-### Client → Server Messages
+### Client → Server Messages (JSON text frames)
 
 **Send terminal input:**
 ```json
@@ -138,45 +126,27 @@ ws://localhost:8420/ws/terminal/{name}
 
 ### Server → Client Messages
 
-**Terminal output (PTY streaming mode):**
+**Stream data (binary frames):**
 
-Incremental output chunks as they arrive:
-```json
-{
-  "type": "terminal_stream",
-  "data": "output text..."
-}
+Raw terminal output bytes sent as binary WebSocket frames (`MessageBinary`). The client should set `ws.binaryType = 'arraybuffer'` and write directly to xterm.js:
+
+```js
+ws.onmessage = (event) => {
+  if (event.data instanceof ArrayBuffer) {
+    terminal.write(new Uint8Array(event.data));
+  } else {
+    // JSON control message
+    const msg = JSON.parse(event.data);
+    // handle terminal_closed, etc.
+  }
+};
 ```
 
-**Terminal update (tmux polling mode):**
+On connect, the server sends an initial replay seed (last ~256 KiB of output, configurable via `terminal_replay_bytes` setting) as a binary frame, prefixed with clear codes (`\x1b[2J\x1b[3J\x1b[H`) to prevent scrollback duplication on reconnect.
 
-Full terminal buffer snapshot with cursor position:
-```json
-{
-  "type": "terminal_update",
-  "content": "full terminal content...",
-  "cursor_x": 42,
-  "cursor_y": 10,
-  "alt_screen": true
-}
-```
+**Terminal closed (JSON text frame):**
 
-- `cursor_x`, `cursor_y`: Cursor position in the terminal grid.
-- `alt_screen`: `true` when a TUI app (vim, htop, etc.) is using the alternate screen buffer. The client can use this to switch rendering modes.
-
-**Initial snapshot:**
-
-Sent immediately on connection — the current terminal content:
-```json
-{
-  "type": "terminal_stream",
-  "data": "initial pane content..."
-}
-```
-
-**Terminal closed:**
-
-Sent when the terminal pane disappears (session ended or killed):
+Sent when the session ends:
 ```json
 {
   "type": "terminal_closed"
@@ -185,29 +155,12 @@ Sent when the terminal pane disappears (session ended or killed):
 
 ### Backend Behavior
 
-#### PTY Streaming
+Both backends implement the same `Attach`/`Replay` interface:
 
-- Uses goroutine fan-out for zero-latency output delivery.
-- Multiple WebSocket clients can subscribe to the same session simultaneously.
-- Initial snapshot is sent on connect via `CaptureContent`.
-- Channel closure signals session termination.
+- **PTY backend** (Windows): In-process fan-out from PTY read loop. 256 KiB ring buffer for replay.
+- **Tmux backend** (macOS/Linux): Tails the pipe-pane log file via fsnotify. Replay reads the last N bytes of the log file.
 
-#### tmux Polling
-
-- Uses adaptive capture with three triggers:
-  1. **Log file change** — fsnotify watches the agent's log file for writes (near-real-time).
-  2. **User input** — captures immediately after the client sends `terminal_input`.
-  3. **Heartbeat** — periodic capture to detect pane disappearance.
-- **fsnotify mode**: Event-driven with 5-second keepalive heartbeat.
-- **Stat polling fallback**: 100ms polling interval when fsnotify is unavailable.
-- Minimum capture interval: 15ms (prevents excessive captures during bursts).
-- If the pane disappears, the server sends `terminal_closed` and enters slow heartbeat mode (3s) to detect if the pane comes back.
-
-### Reconnection
-
-The tmux polling backend supports automatic pane re-resolution. If a pane disappears and reappears (e.g., after a session restart), the WebSocket connection will automatically reconnect to the new pane without requiring a client reconnect.
-
-For freshly launched sessions, the server retries pane resolution up to 15 times (200ms apart) to handle the startup delay.
+Multiple WebSocket clients can attach to the same session simultaneously. Input from any client is serialized to the terminal. Resize is last-writer-wins.
 
 ---
 

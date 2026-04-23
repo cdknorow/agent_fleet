@@ -122,16 +122,8 @@ func (t *TmuxSessionTerminal) HasSession(ctx context.Context, name string) bool 
 	return t.client.HasSession(ctx, name)
 }
 
-func (t *TmuxSessionTerminal) DisplayMessage(ctx context.Context, target, format string) (string, error) {
-	return t.client.DisplayMessage(ctx, target, format)
-}
-
 func (t *TmuxSessionTerminal) FindTarget(ctx context.Context, name, agentType, sessionID string) (string, error) {
 	return t.client.FindPaneTarget(ctx, name, agentType, sessionID)
-}
-
-func (t *TmuxSessionTerminal) CaptureRawOutput(ctx context.Context, target string, lines int, visibleOnly bool) (string, error) {
-	return t.client.CapturePaneRawTarget(ctx, target, lines, visibleOnly)
 }
 
 func (t *TmuxSessionTerminal) AttachCommand(sessionName string) string {

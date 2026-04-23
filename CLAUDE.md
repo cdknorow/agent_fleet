@@ -91,14 +91,17 @@ cd coral-go && go build -tags dev -o coral ./cmd/coral/ && ./coral --host 127.0.
 The `dev` build tag skips EULA and license validation.
 
 ### Test Server
-To spin up a test server for manual verification, use `0.0.0.0` (not `127.0.0.1`) so it's reachable from other machines, and a non-default port to avoid conflicts:
+To spin up a test server for manual verification, use `0.0.0.0` (not `127.0.0.1`) so it's reachable from other machines, and a non-default port to avoid conflicts.
+
+**CRITICAL: Always use a separate data directory for test servers.** The production Coral instance uses `~/.coral/` — running a test server against the same database will corrupt live sessions, kill running agents, and lose state. Use `CORAL_DATA_DIR` to isolate test data:
 ```bash
-cd coral-go && go build -tags dev -o coral ./cmd/coral/ && ./coral --host 0.0.0.0 --port 8450
+cd coral-go && go build -tags dev -o coral ./cmd/coral/ && CORAL_DATA_DIR=/tmp/coral-test ./coral --host 0.0.0.0 --port 8450
 ```
 
 ### Database
 - SQLite with WAL mode, stored at `~/.coral/sessions.db`
 - Message board DB at `~/.coral/messageboard.db`
+- **Never run test servers against the production `~/.coral/` directory.** Always set `CORAL_DATA_DIR` to a temp/test path when running manual test servers or integration tests that start a full server process.
 
 ## Releases
 

@@ -24,6 +24,7 @@ import (
 	"github.com/cdknorow/coral/internal/agenttypes"
 	"github.com/cdknorow/coral/internal/config"
 	"github.com/cdknorow/coral/internal/executil"
+	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
 )
 
@@ -127,6 +128,13 @@ func (h *SystemHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errInternalServer(w, err.Error())
 			return
+		}
+		// Apply select settings live so new WebSocket attaches see the change
+		// without requiring a server restart.
+		if k == "terminal_replay_bytes" {
+			if n, err := strconv.Atoi(s); err == nil {
+				ptymanager.SetReplayBytes(n)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

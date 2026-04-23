@@ -1,5 +1,7 @@
 package ptymanager
 
+import "sync/atomic"
+
 // SessionInfo holds metadata about a running terminal session.
 type SessionInfo struct {
 	AgentName  string `json:"agent_name"`
@@ -7,6 +9,25 @@ type SessionInfo struct {
 	SessionID  string `json:"session_id"`
 	WorkingDir string `json:"working_dir"`
 	Running    bool   `json:"running"`
+}
+
+var replayBytes atomic.Int64
+
+func init() {
+	replayBytes.Store(256 * 1024) // 256 KiB default
+}
+
+// ReplayBytes returns the current replay buffer size limit.
+func ReplayBytes() int {
+	return int(replayBytes.Load())
+}
+
+// SetReplayBytes updates the replay buffer size limit at runtime.
+func SetReplayBytes(n int) {
+	if n <= 0 {
+		n = 256 * 1024
+	}
+	replayBytes.Store(int64(n))
 }
 
 // TerminalBackend abstracts terminal session management.
@@ -27,16 +48,17 @@ type TerminalBackend interface {
 	// Resize changes the terminal dimensions.
 	Resize(name string, cols, rows uint16) error
 
-	// Subscribe registers a WebSocket subscriber for terminal output.
+	// Attach registers a subscriber for live terminal output.
 	// Returns a channel that receives raw PTY output bytes.
-	Subscribe(name, subscriberID string) (<-chan []byte, error)
+	// Never returns a nil channel for a live session.
+	Attach(name, subscriberID string) (<-chan []byte, error)
 
-	// Unsubscribe removes a WebSocket subscriber.
+	// Unsubscribe removes a subscriber.
 	Unsubscribe(name, subscriberID string)
 
-	// CaptureContent returns the current visible terminal content (for initial snapshot).
-	// PTY backend returns recent buffered output; tmux backend calls capture-pane.
-	CaptureContent(name string) (string, error)
+	// Replay returns recent output bytes for reconnect seed.
+	// Returns up to ReplayBytes() of recent output.
+	Replay(name string) ([]byte, error)
 
 	// ListSessions returns info about all active sessions.
 	ListSessions() []SessionInfo

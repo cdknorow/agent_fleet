@@ -23,9 +23,20 @@ func newTmuxTestTerminal(t *testing.T) *TmuxSessionTerminal {
 		t.Skip("tmux not available")
 	}
 
+	sock := shortSocketPath(t)
+
+	// Smoke-test that tmux can create a detached session here. Some sandboxes
+	// reject new-session with exit 1 (no TTY / missing TERM / seccomp); skip
+	// rather than fail on an environmental issue.
+	if out, err := exec.Command("tmux", "-S", sock, "new-session", "-d", "-s", "coral-smoke", "sleep 1").CombinedOutput(); err != nil {
+		exec.Command("tmux", "-S", sock, "kill-server").Run()
+		t.Skipf("tmux cannot create sessions in this environment: %v (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	exec.Command("tmux", "-S", sock, "kill-server").Run()
+
 	// Use NewClient to get a properly initialized client (sessionSockets map, etc.)
 	c := tmux.NewClient()
-	c.SocketPath = filepath.Join(t.TempDir(), "test.sock")
+	c.SocketPath = sock
 	c.FallbackToDefault = false // isolate from real sessions
 
 	t.Cleanup(func() {
@@ -340,24 +351,6 @@ func TestTmuxSessionTerminal_SetPaneTitle(t *testing.T) {
 	assert.Equal(t, "My Custom Title", paneAfter.PaneTitle)
 }
 
-// ── DisplayMessage ───────────────────────────────────────────────────
-
-func TestTmuxSessionTerminal_DisplayMessage(t *testing.T) {
-	terminal := newTmuxTestTerminal(t)
-	ctx := context.Background()
-
-	spawnTmuxSession(t, terminal, "display-tmux", t.TempDir())
-
-	pane, err := terminal.FindSession(ctx, "display-tmux", "", "")
-	require.NoError(t, err)
-	require.NotNil(t, pane)
-
-	// Query the pane's current path
-	msg, err := terminal.DisplayMessage(ctx, pane.Target, "#{pane_current_path}")
-	require.NoError(t, err)
-	assert.NotEmpty(t, msg)
-}
-
 // ── FindTarget ───────────────────────────────────────────────────────
 
 func TestTmuxSessionTerminal_FindTarget(t *testing.T) {
@@ -377,26 +370,6 @@ func TestTmuxSessionTerminal_FindTarget_NotFound(t *testing.T) {
 	target, err := terminal.FindTarget(context.Background(), "ghost", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, target)
-}
-
-// ── CaptureRawOutput ─────────────────────────────────────────────────
-
-func TestTmuxSessionTerminal_CaptureRawOutput(t *testing.T) {
-	terminal := newTmuxTestTerminal(t)
-	ctx := context.Background()
-
-	spawnTmuxSession(t, terminal, "rawcap-tmux", t.TempDir())
-
-	terminal.SendInput(ctx, "rawcap-tmux", "echo RAW_CAPTURE_TEST", "", "")
-	time.Sleep(1 * time.Second)
-
-	pane, err := terminal.FindSession(ctx, "rawcap-tmux", "", "")
-	require.NoError(t, err)
-	require.NotNil(t, pane)
-
-	output, err := terminal.CaptureRawOutput(ctx, pane.Target, 200, false)
-	require.NoError(t, err)
-	assert.Contains(t, output, "RAW_CAPTURE_TEST")
 }
 
 // ── AttachCommand ────────────────────────────────────────────────────

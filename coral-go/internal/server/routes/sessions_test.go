@@ -150,10 +150,6 @@ func (m *mockSessionTerminal) HasSession(_ context.Context, name string) bool {
 	return ok
 }
 
-func (m *mockSessionTerminal) DisplayMessage(_ context.Context, _, _ string) (string, error) {
-	return "", nil
-}
-
 func (m *mockSessionTerminal) FindTarget(_ context.Context, name, _, _ string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -161,10 +157,6 @@ func (m *mockSessionTerminal) FindTarget(_ context.Context, name, _, _ string) (
 		return p.Target, nil
 	}
 	return "", fmt.Errorf("session %q not found", name)
-}
-
-func (m *mockSessionTerminal) CaptureRawOutput(_ context.Context, _ string, _ int, _ bool) (string, error) {
-	return "", nil
 }
 
 func (m *mockSessionTerminal) SetPaneTitle(_ context.Context, _, _ string) {}

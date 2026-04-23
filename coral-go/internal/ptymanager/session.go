@@ -159,11 +159,18 @@ func (s *session) unsubscribe(id string) {
 	s.mu.Unlock()
 }
 
-// captureContent returns the recent buffered output (for initial snapshot).
-func (s *session) captureContent() string {
+// replayBytes returns a copy of the ring buffer for reconnect replay.
+func (s *session) replayBytes() []byte {
 	s.ringMu.Lock()
 	defer s.ringMu.Unlock()
-	return string(s.ring)
+	limit := ReplayBytes()
+	data := s.ring
+	if len(data) > limit {
+		data = data[len(data)-limit:]
+	}
+	out := make([]byte, len(data))
+	copy(out, data)
+	return out
 }
 
 // kill terminates the session and all child processes.

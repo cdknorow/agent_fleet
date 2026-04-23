@@ -20,7 +20,17 @@ func newTestTmuxBackend(t *testing.T) *TmuxBackend {
 		t.Skip("tmux not available")
 	}
 
-	sock := filepath.Join(t.TempDir(), "test.sock")
+	sock := shortSocketPath(t)
+
+	// Smoke-test that tmux can actually create a detached session on this
+	// socket in this environment. Some CI sandboxes reject new-session with
+	// exit 1 (no TTY, missing TERM, seccomp, etc.) — skip rather than fail.
+	if out, err := exec.Command("tmux", "-S", sock, "new-session", "-d", "-s", "coral-smoke", "sleep 1").CombinedOutput(); err != nil {
+		exec.Command("tmux", "-S", sock, "kill-server").Run()
+		t.Skipf("tmux cannot create sessions in this environment: %v (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	exec.Command("tmux", "-S", sock, "kill-server").Run()
+
 	client := tmux.NewClient()
 	client.SocketPath = sock
 	client.FallbackToDefault = false
@@ -35,6 +45,20 @@ func newTestTmuxBackend(t *testing.T) *TmuxBackend {
 	})
 
 	return backend
+}
+
+// shortSocketPath returns a path under os.TempDir short enough to fit within
+// the Unix domain socket path limit (104 bytes on macOS/darwin, 108 on Linux).
+// t.TempDir() paths include the full test name and can exceed this limit,
+// causing tmux new-session to fail with "File name too long".
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "coral-tmux-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "t.sock")
 }
 
 func TestTmuxBackend_SpawnAndKill(t *testing.T) {
@@ -77,25 +101,25 @@ func TestTmuxBackend_SpawnCreatesLogFile(t *testing.T) {
 	}
 }
 
-func TestTmuxBackend_CaptureContent(t *testing.T) {
+func TestTmuxBackend_Replay(t *testing.T) {
 	b := newTestTmuxBackend(t)
 
-	err := b.Spawn("capture-test", "claude", t.TempDir(), "sid-cap", "sh -c 'echo MARKER_CAPTURE_42'", 80, 24)
+	err := b.Spawn("replay-test", "claude", t.TempDir(), "sid-cap", "sh -c 'echo MARKER_REPLAY_42'", 80, 24)
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
-	defer b.Kill("capture-test")
+	defer b.Kill("replay-test")
 
-	// Wait for command output
 	var content string
 	for i := 0; i < 20; i++ {
 		time.Sleep(200 * time.Millisecond)
-		content, _ = b.CaptureContent("capture-test")
-		if strings.Contains(content, "MARKER_CAPTURE_42") {
+		data, _ := b.Replay("replay-test")
+		content = string(data)
+		if strings.Contains(content, "MARKER_REPLAY_42") {
 			return // success
 		}
 	}
-	t.Errorf("expected capture to contain MARKER_CAPTURE_42, got: %q", content)
+	t.Errorf("expected replay to contain MARKER_REPLAY_42, got: %q", content)
 }
 
 func TestTmuxBackend_SendInput(t *testing.T) {
@@ -117,12 +141,13 @@ func TestTmuxBackend_SendInput(t *testing.T) {
 	var content string
 	for i := 0; i < 20; i++ {
 		time.Sleep(200 * time.Millisecond)
-		content, _ = b.CaptureContent("input-test")
+		data, _ := b.Replay("input-test")
+		content = string(data)
 		if strings.Contains(content, "SEND_TEST_MARKER") {
 			return
 		}
 	}
-	t.Errorf("expected capture to contain SEND_TEST_MARKER, got: %q", content)
+	t.Errorf("expected replay to contain SEND_TEST_MARKER, got: %q", content)
 }
 
 func TestTmuxBackend_ListSessions(t *testing.T) {
@@ -182,7 +207,8 @@ func TestTmuxBackend_Restart(t *testing.T) {
 	var content string
 	for i := 0; i < 20; i++ {
 		time.Sleep(200 * time.Millisecond)
-		content, _ = b.CaptureContent("restart-test")
+		data, _ := b.Replay("restart-test")
+		content = string(data)
 		if strings.Contains(content, "RESTARTED_MARKER") {
 			return
 		}
@@ -234,26 +260,24 @@ func TestTmuxBackend_KillNotFound(t *testing.T) {
 	_ = b.Kill("nonexistent-session")
 }
 
-func TestTmuxBackend_CaptureNotFound(t *testing.T) {
+func TestTmuxBackend_ReplayNotFound(t *testing.T) {
 	b := newTestTmuxBackend(t)
 
-	// Capturing a nonexistent session may return error or empty content
-	// depending on tmux behavior — just verify no panic
-	content, _ := b.CaptureContent("nonexistent-session")
-	if content != "" {
-		t.Errorf("expected empty content for nonexistent session, got %q", content)
+	data, err := b.Replay("nonexistent-session")
+	if err == nil {
+		t.Errorf("expected error replaying unknown session, got %d bytes", len(data))
 	}
 }
 
-func TestTmuxBackend_Subscribe(t *testing.T) {
+func TestTmuxBackend_AttachNotFound(t *testing.T) {
 	b := newTestTmuxBackend(t)
 
-	ch, err := b.Subscribe("any", "ws-1")
-	if err != nil {
-		t.Errorf("Subscribe should not error: %v", err)
+	ch, err := b.Attach("any", "ws-1")
+	if err == nil {
+		t.Error("expected error attaching to unknown session")
 	}
 	if ch != nil {
-		t.Error("expected nil channel (polling mode)")
+		t.Error("expected nil channel for unknown session")
 	}
 }
 
@@ -276,6 +300,246 @@ func TestTmuxBackend_Close(t *testing.T) {
 	}
 
 	b.Kill("close-test")
+}
+
+// TestTmuxBackendFanOut verifies TEST_PLAN §2.2 — two attachers on the same
+// session both receive identical live bytes, Unsubscribe isolates one without
+// affecting the other, and no tail goroutines leak after both unsubscribe.
+func TestTmuxBackendFanOut(t *testing.T) {
+	b := newTestTmuxBackend(t)
+
+	err := b.Spawn("fanout", "claude", t.TempDir(), "sid-fan", "cat", 80, 24)
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	defer b.Kill("fanout")
+	time.Sleep(300 * time.Millisecond)
+
+	chA, err := b.Attach("fanout", "subA")
+	if err != nil {
+		t.Fatalf("Attach A failed: %v", err)
+	}
+	chB, err := b.Attach("fanout", "subB")
+	if err != nil {
+		t.Fatalf("Attach B failed: %v", err)
+	}
+	if chA == nil || chB == nil {
+		t.Fatal("expected non-nil channels for live session")
+	}
+	if chA == chB {
+		t.Fatal("expected distinct channels for distinct subscribers")
+	}
+
+	// Trigger output — cat echoes input
+	if err := b.SendInput("fanout", []byte("FANOUT_MARKER\n")); err != nil {
+		t.Fatalf("SendInput failed: %v", err)
+	}
+
+	readUntil := func(ch <-chan []byte, marker string, timeout time.Duration) string {
+		deadline := time.After(timeout)
+		var buf strings.Builder
+		for {
+			select {
+			case data, ok := <-ch:
+				if !ok {
+					return buf.String()
+				}
+				buf.Write(data)
+				if strings.Contains(buf.String(), marker) {
+					return buf.String()
+				}
+			case <-deadline:
+				return buf.String()
+			}
+		}
+	}
+
+	gotA := readUntil(chA, "FANOUT_MARKER", 3*time.Second)
+	gotB := readUntil(chB, "FANOUT_MARKER", 3*time.Second)
+	if !strings.Contains(gotA, "FANOUT_MARKER") {
+		t.Errorf("subscriber A missed FANOUT_MARKER, got %q", gotA)
+	}
+	if !strings.Contains(gotB, "FANOUT_MARKER") {
+		t.Errorf("subscriber B missed FANOUT_MARKER, got %q", gotB)
+	}
+
+	// Unsubscribe A; confirm B still receives.
+	b.Unsubscribe("fanout", "subA")
+	if err := b.SendInput("fanout", []byte("SECOND_MARKER\n")); err != nil {
+		t.Fatalf("SendInput failed: %v", err)
+	}
+	gotB2 := readUntil(chB, "SECOND_MARKER", 3*time.Second)
+	if !strings.Contains(gotB2, "SECOND_MARKER") {
+		t.Errorf("subscriber B lost delivery after A unsubscribed, got %q", gotB2)
+	}
+
+	// Unsubscribe B; tail should be torn down.
+	b.Unsubscribe("fanout", "subB")
+
+	b.mu.RLock()
+	_, tailStillRunning := b.tails["fanout"]
+	b.mu.RUnlock()
+	if tailStillRunning {
+		t.Error("expected tail goroutine to be torn down after last unsubscribe")
+	}
+}
+
+// TestTmuxBackendAttachBytePreservation verifies TEST_PLAN §5.1 — all 256 byte
+// values written to the pipe-pane log reach the Attach subscriber channel
+// byte-identical. This catches any accidental `string(data)` coercion on the
+// server side that would silently substitute invalid bytes with U+FFFD. The
+// test writes directly to the log file because a live shell would interpret
+// control chars (0x03 EOF, 0x1a SIGTSTP, etc.), which would mask the wire-level
+// property we want to verify: the log→tail→subscriber path is byte-transparent.
+func TestTmuxBackendAttachBytePreservation(t *testing.T) {
+	b := newTestTmuxBackend(t)
+
+	if err := b.Spawn("bytes", "claude", t.TempDir(), "sid-bytes", "sleep 60", 80, 24); err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	defer b.Kill("bytes")
+	time.Sleep(300 * time.Millisecond)
+
+	ch, err := b.Attach("bytes", "sub-bytes")
+	if err != nil {
+		t.Fatalf("Attach failed: %v", err)
+	}
+	defer b.Unsubscribe("bytes", "sub-bytes")
+
+	// Build a payload covering the full byte range 0x00..0xff plus a known
+	// ANSI escape — `cat -v` would render these as caret notation, but we
+	// bypass the shell and write to the log directly.
+	payload := make([]byte, 0, 256+len("\x1b[31mRED\x1b[0m"))
+	for i := 0; i < 256; i++ {
+		payload = append(payload, byte(i))
+	}
+	payload = append(payload, []byte("\x1b[31mRED\x1b[0m")...)
+
+	logPath := b.LogPath("bytes")
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	if _, err := f.Write(payload); err != nil {
+		f.Close()
+		t.Fatalf("write log: %v", err)
+	}
+	f.Close()
+
+	// Accumulate bytes from the subscriber channel. fsnotify may deliver the
+	// payload in multiple chunks, so keep reading until we have enough bytes
+	// or time out.
+	received := make([]byte, 0, len(payload))
+	deadline := time.After(5 * time.Second)
+	for len(received) < len(payload) {
+		select {
+		case data, ok := <-ch:
+			if !ok {
+				t.Fatalf("channel closed prematurely, got %d/%d bytes", len(received), len(payload))
+			}
+			received = append(received, data...)
+		case <-deadline:
+			t.Fatalf("timed out: received %d/%d bytes", len(received), len(payload))
+		}
+	}
+
+	if len(received) < len(payload) {
+		t.Fatalf("short read: got %d bytes, want %d", len(received), len(payload))
+	}
+	// The first len(payload) bytes must match exactly. Any trailing bytes are
+	// shell-prompt noise from the sleeping pane and are ignored.
+	if !bytesEqual(received[:len(payload)], payload) {
+		for i := 0; i < len(payload); i++ {
+			if received[i] != payload[i] {
+				t.Fatalf("byte %d differs: got 0x%02x, want 0x%02x", i, received[i], payload[i])
+			}
+		}
+	}
+}
+
+// TestTmuxBackendAttachPartialUTF8Boundary verifies TEST_PLAN §5.2 — a UTF-8
+// codepoint split across two separate writes to the pipe-pane log arrives on
+// the Attach subscriber channel in order and reassembles to the original bytes.
+// This guards against any code path that might try to decode partial UTF-8 and
+// drop the boundary bytes.
+func TestTmuxBackendAttachPartialUTF8Boundary(t *testing.T) {
+	b := newTestTmuxBackend(t)
+
+	if err := b.Spawn("utf8", "claude", t.TempDir(), "sid-utf8", "sleep 60", 80, 24); err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	defer b.Kill("utf8")
+	time.Sleep(300 * time.Millisecond)
+
+	ch, err := b.Attach("utf8", "sub-utf8")
+	if err != nil {
+		t.Fatalf("Attach failed: %v", err)
+	}
+	defer b.Unsubscribe("utf8", "sub-utf8")
+
+	// "✅" (U+2705) encodes as 3 bytes: 0xe2 0x9c 0x85. Split across writes so
+	// the first write ends mid-codepoint. Emit a second full "✅" afterwards so
+	// we can observe two complete emojis reassembled in order.
+	first := []byte{0xe2, 0x9c}
+	second := []byte{0x85}
+	third := []byte("✅")
+	expected := append(append(append([]byte{}, first...), second...), third...)
+
+	logPath := b.LogPath("utf8")
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Write(first); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	// Small gap so fsnotify delivers the first chunk before the rest.
+	time.Sleep(50 * time.Millisecond)
+	if _, err := f.Write(second); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := f.Write(third); err != nil {
+		t.Fatalf("write third: %v", err)
+	}
+
+	received := make([]byte, 0, len(expected))
+	deadline := time.After(5 * time.Second)
+	for len(received) < len(expected) {
+		select {
+		case data, ok := <-ch:
+			if !ok {
+				t.Fatalf("channel closed prematurely, got %d bytes", len(received))
+			}
+			received = append(received, data...)
+		case <-deadline:
+			t.Fatalf("timed out: received %d/%d bytes", len(received), len(expected))
+		}
+	}
+
+	if !bytesEqual(received[:len(expected)], expected) {
+		t.Fatalf("bytes differ: got %x, want %x", received[:len(expected)], expected)
+	}
+	// Sanity: the received bytes should decode to two valid emoji when
+	// concatenated. If the boundary byte was dropped, this would be garbage.
+	got := string(received[:len(expected)])
+	if !strings.Contains(got, "✅✅") {
+		t.Fatalf("expected concatenated bytes to decode to \"✅✅\", got %q", got)
+	}
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestTmuxBackend_ConcurrentSpawnKill(t *testing.T) {

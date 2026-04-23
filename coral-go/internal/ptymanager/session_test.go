@@ -40,7 +40,7 @@ func TestNewSession_SetsEnvironment(t *testing.T) {
 
 	// Wait for output
 	time.Sleep(500 * time.Millisecond)
-	content := s.captureContent()
+	content := string(s.replayBytes())
 
 	if !strings.Contains(content, "TERM=xterm-256color") {
 		t.Errorf("expected TERM=xterm-256color in env output, got: %q", content)
@@ -188,7 +188,7 @@ func TestSession_RingBufferOverflow(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	content := s.captureContent()
+	content := string(s.replayBytes())
 	if len(content) > s.ringMax+1024 {
 		t.Errorf("ring buffer exceeded max: got %d bytes, max %d", len(content), s.ringMax)
 	}
@@ -256,7 +256,7 @@ func TestSession_WorkingDirectory(t *testing.T) {
 	defer s.kill()
 
 	time.Sleep(500 * time.Millisecond)
-	content := s.captureContent()
+	content := string(s.replayBytes())
 
 	// Resolve symlinks for comparison (macOS /tmp → /private/tmp)
 	resolvedTmp, _ := filepath.EvalSymlinks(tmpDir)
