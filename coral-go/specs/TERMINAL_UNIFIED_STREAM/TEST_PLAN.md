@@ -441,10 +441,10 @@ Per spec §Tradeoffs:
 
 Execution order: run unit + integration first (fast-fail gate), then manual browser walks in the order §1 → §9. §10 is a post-merge audit. §11 is reference only.
 
-## Open Questions for Phase A Spike
+## Open Questions for Phase A Spike — Resolved
 
-These will refine specific cases when Lead Dev answers Q1/Q2/Q3 from the spec:
+Answered by Lead Dev spike (memo: board msg #3073):
 
-- **Q1 (log file location / reuse):** if the pipe-pane log is separate from the agent log, case 5.3 should also verify the agent log is unchanged.
-- **Q2 (binary safety of the log file):** §5 is the direct test; encoding choice (base64 vs UTF-8-safe string) should be documented in the final case payload.
-- **Q3 (replay size tuning):** §3.3 currently assumes 256 KiB; update if the default lands elsewhere.
+- **Q1 (log file location / reuse):** existing pipe-pane log is the stream source — no second pipe. `TmuxBackend.Spawn` already writes `naming.LogFile(logDir, agentType, sessionID)` via `pipe-pane -o 'cat >> <path>'` (tmux_backend.go:56). Case 5.3 no longer needs to distinguish stream vs agent log; they are the same file.
+- **Q2 (binary safety of the log file):** wire format is **binary WebSocket frames** for stream data, matching coder's `reconnectingpty`. Client sets `ws.binaryType = 'arraybuffer'` and does `terminal.write(new Uint8Array(event.data))`. JSON text frames remain for control messages only (`terminal_closed`, `resize_ack`, `mode`). Case 5.1/5.2 assertions: bytes arrive byte-identical (no U+FFFD substitution); inspect with `ws.binaryType` set to `'arraybuffer'`.
+- **Q3 (replay size tuning):** default **256 KiB**, exposed as `terminal_replay_bytes` config setting (global, per-session optional). Matches today's PTY ring buffer; no regression. §3.3 case stays as written. Add a variant where the setting is raised to 1 MiB and replay still fits.
