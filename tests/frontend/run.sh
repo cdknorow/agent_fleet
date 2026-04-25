@@ -93,3 +93,4 @@ if [ ! -d node_modules ]; then
 fi
 
 node acf_model_field.test.js
+node terminal_scroll.test.js
