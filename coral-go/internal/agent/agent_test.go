@@ -33,6 +33,7 @@ func TestGetAgent(t *testing.T) {
 		{"claude", "claude"},
 		{"gemini", "gemini"},
 		{"codex", "codex"},
+		{"pi", "pi"},
 		{"unknown-agent", "claude"},
 		{"", "claude"},
 	}
@@ -56,6 +57,7 @@ func TestSupportsResume(t *testing.T) {
 		{"claude", true},
 		{"codex", true},
 		{"gemini", false},
+		{"pi", true},
 	}
 	for _, tt := range tests {
 		a := GetAgent(tt.agentType)
@@ -75,6 +77,7 @@ func TestHistoryGlobPattern(t *testing.T) {
 		{"claude", "*.jsonl"},
 		{"codex", "rollout-*.jsonl"},
 		{"gemini", "session-*.json"},
+		{"pi", "*/*.jsonl"},
 	}
 	for _, tt := range tests {
 		a := GetAgent(tt.agentType)
@@ -87,7 +90,7 @@ func TestHistoryGlobPattern(t *testing.T) {
 // ── CLIInfo Tests ───────────────────────────────────────────
 
 func TestGetCLIInfo(t *testing.T) {
-	for _, agentType := range []string{"claude", "gemini", "codex"} {
+	for _, agentType := range []string{"claude", "gemini", "codex", "pi"} {
 		info := GetCLIInfo(agentType)
 		if info == nil {
 			t.Errorf("GetCLIInfo(%q) returned nil", agentType)

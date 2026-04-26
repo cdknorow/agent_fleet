@@ -8,5 +8,6 @@ const (
 	Claude   = "claude"
 	Gemini   = "gemini"
 	Codex    = "codex"
+	Pi       = "pi"
 	Terminal = "terminal"
 )

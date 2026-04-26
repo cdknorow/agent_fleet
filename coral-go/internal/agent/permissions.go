@@ -129,6 +129,8 @@ func TranslatePermissions(agentType string, caps *Capabilities) any {
 		return TranslateToCodexPermissions(caps)
 	case at.Gemini:
 		return TranslateToGeminiPermissions(caps)
+	case at.Pi:
+		return nil
 	default:
 		return TranslateToClaudePermissions(caps)
 	}

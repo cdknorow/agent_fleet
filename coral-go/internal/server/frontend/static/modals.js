@@ -71,9 +71,10 @@ function _getDefaultModels() {
                     claude: (s.default_model_claude || '').trim(),
                     codex: (s.default_model_codex || '').trim(),
                     gemini: (s.default_model_gemini || '').trim(),
+                    pi: (s.default_model_pi || '').trim(),
                 };
             })
-            .catch(() => ({ claude: '', codex: '', gemini: '' }));
+            .catch(() => ({ claude: '', codex: '', gemini: '', pi: '' }));
     }
     return _defaultModelsPromise;
 }
@@ -583,6 +584,7 @@ const CLI_INSTALL_INSTRUCTIONS = {
     claude: { name: 'claude', cmd: 'npm install -g @anthropic-ai/claude-code' },
     gemini: { name: 'gemini', cmd: 'pip install google-gemini-cli' },
     codex: { name: 'codex', cmd: 'npm install -g @openai/codex' },
+    pi: { name: 'pi', cmd: 'npm install -g @mariozechner/pi-coding-agent' },
 };
 
 let _cliCheckCache = {}; // { type: {available, checkedAt} }
@@ -616,6 +618,7 @@ const PERM_FLAGS = {
     claude: '--dangerously-skip-permissions',
     codex: '--full-auto',
     gemini: '--yolo',
+    pi: '',
 };
 
 const PERMISSION_MODE_DESCRIPTIONS = {
@@ -633,6 +636,7 @@ function _updatePermModeDescription(selectEl) {
 }
 
 function _getPermFlagForAgent(agentType) {
+    if (agentType === 'pi') return '';
     if (agentType === 'claude') {
         const mode = (state.settings && state.settings.default_permission_mode) || 'bypassPermissions';
         return `--permission-mode ${mode}`;
@@ -654,6 +658,9 @@ function _stripPermFlags(flagsStr) {
 function _getPermFlagHelp(agentType) {
     const flag = _getPermFlagForAgent(agentType);
     const agentLabel = getEngineName(agentType || 'claude');
+    if (agentType === 'pi') {
+        return `${agentLabel} runs full-auto by design — no permission flag needed.`;
+    }
     if (agentType === 'claude') {
         const mode = (state.settings && state.settings.default_permission_mode) || 'bypassPermissions';
         return `High-autonomy launch for ${agentLabel}. Coral adds --permission-mode ${mode} so the agent can run without interactive permission prompts.`;
@@ -759,6 +766,7 @@ window._verifyAllCLIs = async function() {
         _checkOneCLI('settings-cli-path-claude', 'cli-result-claude'),
         _checkOneCLI('settings-cli-path-codex', 'cli-result-codex'),
         _checkOneCLI('settings-cli-path-gemini', 'cli-result-gemini'),
+        _checkOneCLI('settings-cli-path-pi', 'cli-result-pi'),
     ]);
     if (btn) { btn.disabled = false; btn.textContent = 'Verify All'; }
 };
@@ -1612,6 +1620,7 @@ function renderAgentConfigForm(containerId, opts = {}) {
                     <option value="claude"${agentTypeVal === 'claude' || !agentTypeVal ? ' selected' : ''}>Claude</option>
                     <option value="gemini"${agentTypeVal === 'gemini' ? ' selected' : ''}>Gemini</option>
                     <option value="codex"${agentTypeVal === 'codex' ? ' selected' : ''}>Codex</option>
+                    <option value="pi"${agentTypeVal === 'pi' ? ' selected' : ''}>Pi</option>
                     <option value="terminal"${agentTypeVal === 'terminal' ? ' selected' : ''}>Terminal</option>
                 </select>
             </label>
@@ -2957,17 +2966,21 @@ export async function showSettingsModal() {
     const cliClaude = document.getElementById("settings-cli-path-claude");
     const cliCodex = document.getElementById("settings-cli-path-codex");
     const cliGemini = document.getElementById("settings-cli-path-gemini");
+    const cliPi = document.getElementById("settings-cli-path-pi");
     if (cliClaude) cliClaude.value = s.cli_path_claude || "";
     if (cliCodex) cliCodex.value = s.cli_path_codex || "";
     if (cliGemini) cliGemini.value = s.cli_path_gemini || "";
+    if (cliPi) cliPi.value = s.cli_path_pi || "";
 
     // Default Models — populate combo inputs + datalists from /api/agent-models
     const defClaude = document.getElementById("settings-default-model-claude");
     const defCodex = document.getElementById("settings-default-model-codex");
     const defGemini = document.getElementById("settings-default-model-gemini");
+    const defPi = document.getElementById("settings-default-model-pi");
     if (defClaude) defClaude.value = s.default_model_claude || "";
     if (defCodex) defCodex.value = s.default_model_codex || "";
     if (defGemini) defGemini.value = s.default_model_gemini || "";
+    if (defPi) defPi.value = s.default_model_pi || "";
     _getAgentModels().then(models => {
         // _getAgentModels swallows errors and resolves with {} on failure; on
         // success it returns the canonical map with an array for each agent type.
@@ -2979,6 +2992,7 @@ export async function showSettingsModal() {
         _fillModelDatalist(document.getElementById("settings-models-claude"), "claude", models);
         _fillModelDatalist(document.getElementById("settings-models-codex"), "codex", models);
         _fillModelDatalist(document.getElementById("settings-models-gemini"), "gemini", models);
+        _fillModelDatalist(document.getElementById("settings-models-pi"), "pi", models);
     });
 
     // Group by Team
@@ -3149,9 +3163,11 @@ export async function applySettings() {
     const cliPathClaude = document.getElementById("settings-cli-path-claude")?.value.trim() || "";
     const cliPathCodex = document.getElementById("settings-cli-path-codex")?.value.trim() || "";
     const cliPathGemini = document.getElementById("settings-cli-path-gemini")?.value.trim() || "";
+    const cliPathPi = document.getElementById("settings-cli-path-pi")?.value.trim() || "";
     const defaultModelClaude = document.getElementById("settings-default-model-claude")?.value.trim() || "";
     const defaultModelCodex = document.getElementById("settings-default-model-codex")?.value.trim() || "";
     const defaultModelGemini = document.getElementById("settings-default-model-gemini")?.value.trim() || "";
+    const defaultModelPi = document.getElementById("settings-default-model-pi")?.value.trim() || "";
     const fitPaneWidth = document.getElementById("settings-fit-pane-width")?.checked || false;
     const notifyNeedsInput = document.getElementById("settings-notify-needs-input")?.checked || false;
     const terminalFontSize = document.getElementById("settings-terminal-font-size")?.value || "13";
@@ -3190,9 +3206,11 @@ export async function applySettings() {
         cli_path_claude: cliPathClaude,
         cli_path_codex: cliPathCodex,
         cli_path_gemini: cliPathGemini,
+        cli_path_pi: cliPathPi,
         default_model_claude: defaultModelClaude,
         default_model_codex: defaultModelCodex,
         default_model_gemini: defaultModelGemini,
+        default_model_pi: defaultModelPi,
         proxy_enabled: proxyEnabled,
         proxy_enabled_claude: proxyEnabled,
         proxy_enabled_codex: proxyEnabledCodex,

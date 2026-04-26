@@ -112,6 +112,8 @@ func GetAgent(agentType string) Agent {
 		return &GeminiAgent{}
 	case at.Codex:
 		return &CodexAgent{}
+	case at.Pi:
+		return &PiAgent{}
 	default:
 		return &ClaudeAgent{}
 	}
@@ -128,6 +130,7 @@ var agentCLIs = map[string]CLIInfo{
 	at.Claude: {Binary: "claude", InstallCommand: "npm install -g @anthropic-ai/claude-code"},
 	at.Gemini: {Binary: "gemini", InstallCommand: "pip install google-gemini-cli"},
 	at.Codex:  {Binary: "codex", InstallCommand: "npm install -g @openai/codex"},
+	at.Pi:     {Binary: "pi", InstallCommand: "npm install -g @mariozechner/pi-coding-agent"},
 }
 
 // GetCLIInfo returns CLI info for an agent type, or nil if unknown.

@@ -332,6 +332,7 @@ const AGENT_DEFAULTS = {
     claude: "xterm",
     gemini: "plain",
     codex: "xterm",
+    pi: "xterm",
 };
 
 /** Per-agent overrides stored at runtime (sessionId -> engineName). */
