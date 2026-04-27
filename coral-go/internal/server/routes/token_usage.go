@@ -207,6 +207,46 @@ func (h *TokenUsageHandler) UsageTimeSeries(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"buckets": result, "interval": interval})
 }
 
+// UsageSummaryByBranch returns per-branch usage breakdown.
+// GET /api/token-usage/by-branch?since=...&branch=...
+func (h *TokenUsageHandler) UsageSummaryByBranch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	since := q.Get("since")
+	branch := q.Get("branch")
+
+	branches, err := h.ts.GetUsageSummaryByBranch(r.Context(), since, branch)
+	if err != nil {
+		errInternalServer(w, err.Error())
+		return
+	}
+
+	var totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens int64
+	var totalCost float64
+	var totalAgents int
+	for _, b := range branches {
+		totalInput += b.InputTokens
+		totalOutput += b.OutputTokens
+		totalCacheRead += b.CacheReadTokens
+		totalCacheWrite += b.CacheWriteTokens
+		totalTokens += b.TotalTokens
+		totalCost += b.CostUSD
+		totalAgents += b.NumAgents
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"branches": branches,
+		"totals": map[string]any{
+			"input_tokens":       totalInput,
+			"output_tokens":      totalOutput,
+			"cache_read_tokens":  totalCacheRead,
+			"cache_write_tokens": totalCacheWrite,
+			"total_tokens":       totalTokens,
+			"cost_usd":           totalCost,
+			"num_agents":         totalAgents,
+		},
+	})
+}
+
 // UsageSummaryByBoard returns per-board/team usage breakdown.
 // GET /api/token-usage/by-team?since=...
 func (h *TokenUsageHandler) UsageSummaryByBoard(w http.ResponseWriter, r *http.Request) {

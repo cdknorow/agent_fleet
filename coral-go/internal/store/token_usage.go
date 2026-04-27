@@ -409,6 +409,58 @@ type BoardUsageSummary struct {
 	NumAgents        int     `db:"num_agents" json:"num_agents"`
 }
 
+// BranchUsageSummary represents aggregated token usage for a git branch.
+type BranchUsageSummary struct {
+	Branch           string  `db:"branch" json:"branch"`
+	InputTokens      int64   `db:"input_tokens" json:"input_tokens"`
+	OutputTokens     int64   `db:"output_tokens" json:"output_tokens"`
+	CacheReadTokens  int64   `db:"cache_read_tokens" json:"cache_read_tokens"`
+	CacheWriteTokens int64   `db:"cache_write_tokens" json:"cache_write_tokens"`
+	TotalTokens      int64   `db:"total_tokens" json:"total_tokens"`
+	CostUSD          float64 `db:"cost_usd" json:"cost_usd"`
+	NumAgents        int     `db:"num_agents" json:"num_agents"`
+}
+
+// GetUsageSummaryByBranch returns per-branch usage aggregates by joining
+// token_usage with git_snapshots on session_id. Only sessions that have
+// at least one git snapshot are included. Each session is attributed to
+// its most recent branch.
+func (s *TokenUsageStore) GetUsageSummaryByBranch(ctx context.Context, since string, branch string) ([]BranchUsageSummary, error) {
+	query := `SELECT gs.branch,
+	          COALESCE(SUM(t.input_tokens), 0) as input_tokens,
+	          COALESCE(SUM(t.output_tokens), 0) as output_tokens,
+	          COALESCE(SUM(t.cache_read_tokens), 0) as cache_read_tokens,
+	          COALESCE(SUM(t.cache_write_tokens), 0) as cache_write_tokens,
+	          COALESCE(SUM(t.total_tokens), 0) as total_tokens,
+	          COALESCE(SUM(t.cost_usd), 0) as cost_usd,
+	          COUNT(DISTINCT t.session_id) as num_agents
+	   FROM token_usage t
+	   INNER JOIN (
+	       SELECT session_id, branch
+	       FROM git_snapshots
+	       WHERE session_id IS NOT NULL
+	       AND id IN (
+	           SELECT MAX(id) FROM git_snapshots
+	           WHERE session_id IS NOT NULL
+	           GROUP BY session_id
+	       )
+	   ) gs ON t.session_id = gs.session_id
+	   WHERE (COALESCE(t.source,'jsonl') = 'jsonl' OR t.session_id NOT IN (SELECT DISTINCT session_id FROM token_usage WHERE source = 'jsonl')) AND 1=1`
+	var args []interface{}
+	if since != "" {
+		query += " AND t.recorded_at >= ?"
+		args = append(args, since)
+	}
+	if branch != "" {
+		query += " AND gs.branch = ?"
+		args = append(args, branch)
+	}
+	query += ` GROUP BY gs.branch ORDER BY cost_usd DESC`
+	var summaries []BranchUsageSummary
+	err := s.db.SelectContext(ctx, &summaries, query, args...)
+	return summaries, err
+}
+
 // GetUsageSummaryByBoard returns per-board (team) usage aggregates since a given time.
 func (s *TokenUsageStore) GetUsageSummaryByBoard(ctx context.Context, since string) ([]BoardUsageSummary, error) {
 	query := `SELECT COALESCE(board_name, '') as board_name,

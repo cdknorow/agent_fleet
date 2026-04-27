@@ -308,6 +308,209 @@ func TestUsageSummary_SumsPerTurnDeltas(t *testing.T) {
 	assert.Equal(t, float64(1), totals["num_sessions"])
 }
 
+func setupTokenUsageTestWithGit(t *testing.T) (*store.TokenUsageStore, *store.GitStore, *TokenUsageHandler, *chi.Mux) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "token_branch_test.db")
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	ts := store.NewTokenUsageStore(db)
+	gs := store.NewGitStore(db)
+	h := NewTokenUsageHandler(db)
+	r := chi.NewRouter()
+	r.Get("/api/token-usage/by-branch", h.UsageSummaryByBranch)
+	return ts, gs, h, r
+}
+
+func TestUsageSummaryByBranch_Empty(t *testing.T) {
+	_, _, _, router := setupTokenUsageTestWithGit(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/token-usage/by-branch", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	if branches, ok := body["branches"].([]any); ok {
+		assert.Len(t, branches, 0)
+	} else {
+		assert.Nil(t, body["branches"])
+	}
+
+	totals := body["totals"].(map[string]any)
+	assert.Equal(t, float64(0), totals["total_tokens"])
+	assert.Equal(t, float64(0), totals["cost_usd"])
+}
+
+func TestUsageSummaryByBranch_GroupsByBranch(t *testing.T) {
+	ts, gs, _, router := setupTokenUsageTestWithGit(t)
+	ctx := t.Context()
+
+	sid1 := "sess-feat-a"
+	sid2 := "sess-feat-b"
+	sid3 := "sess-main"
+
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid1, AgentName: "dev1", AgentType: "claude",
+		InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500, CostUSD: 0.05,
+	}))
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid2, AgentName: "dev2", AgentType: "claude",
+		InputTokens: 2000, OutputTokens: 800, TotalTokens: 2800, CostUSD: 0.08,
+	}))
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid3, AgentName: "dev3", AgentType: "claude",
+		InputTokens: 500, OutputTokens: 200, TotalTokens: 700, CostUSD: 0.01,
+	}))
+
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev1", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-a", CommitHash: "aaa111", SessionID: &sid1,
+	}))
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev2", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-a", CommitHash: "bbb222", SessionID: &sid2,
+	}))
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev3", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "main", CommitHash: "ccc333", SessionID: &sid3,
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/token-usage/by-branch", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	branches := body["branches"].([]any)
+	assert.Len(t, branches, 2)
+
+	// Ordered by cost DESC — feature-a first
+	featureA := branches[0].(map[string]any)
+	assert.Equal(t, "feature-a", featureA["branch"])
+	assert.Equal(t, float64(4300), featureA["total_tokens"])
+	assert.InDelta(t, 0.13, featureA["cost_usd"].(float64), 0.001)
+	assert.Equal(t, float64(2), featureA["num_agents"])
+
+	main := branches[1].(map[string]any)
+	assert.Equal(t, "main", main["branch"])
+	assert.Equal(t, float64(700), main["total_tokens"])
+
+	totals := body["totals"].(map[string]any)
+	assert.Equal(t, float64(5000), totals["total_tokens"])
+	assert.Equal(t, float64(3), totals["num_agents"])
+}
+
+func TestUsageSummaryByBranch_FilterByBranch(t *testing.T) {
+	ts, gs, _, router := setupTokenUsageTestWithGit(t)
+	ctx := t.Context()
+
+	sid1 := "sess-1"
+	sid2 := "sess-2"
+
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid1, AgentName: "dev1", TotalTokens: 1000, CostUSD: 0.05,
+	}))
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid2, AgentName: "dev2", TotalTokens: 2000, CostUSD: 0.10,
+	}))
+
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev1", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-x", CommitHash: "aaa", SessionID: &sid1,
+	}))
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev2", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-y", CommitHash: "bbb", SessionID: &sid2,
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/token-usage/by-branch?branch=feature-x", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	branches := body["branches"].([]any)
+	assert.Len(t, branches, 1)
+	assert.Equal(t, "feature-x", branches[0].(map[string]any)["branch"])
+	assert.Equal(t, float64(1000), branches[0].(map[string]any)["total_tokens"])
+}
+
+func TestUsageSummaryByBranch_UsesLatestBranch(t *testing.T) {
+	ts, gs, _, router := setupTokenUsageTestWithGit(t)
+	ctx := t.Context()
+
+	sid := "sess-switched"
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid, AgentName: "dev1", TotalTokens: 1000, CostUSD: 0.05,
+	}))
+
+	// Agent started on feature-old, then switched to feature-new
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev1", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-old", CommitHash: "old111", SessionID: &sid,
+	}))
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev1", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "feature-new", CommitHash: "new222", SessionID: &sid,
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/token-usage/by-branch", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	branches := body["branches"].([]any)
+	assert.Len(t, branches, 1)
+	assert.Equal(t, "feature-new", branches[0].(map[string]any)["branch"])
+}
+
+func TestUsageSummaryByBranch_IgnoresSessionsWithoutGit(t *testing.T) {
+	ts, gs, _, router := setupTokenUsageTestWithGit(t)
+	ctx := t.Context()
+
+	sid1 := "sess-with-git"
+	sid2 := "sess-no-git"
+
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid1, AgentName: "dev1", TotalTokens: 1000, CostUSD: 0.05,
+	}))
+	require.NoError(t, ts.RecordUsage(ctx, &store.TokenUsage{
+		SessionID: sid2, AgentName: "dev2", TotalTokens: 2000, CostUSD: 0.10,
+	}))
+
+	require.NoError(t, gs.UpsertGitSnapshot(ctx, &store.GitSnapshot{
+		AgentName: "dev1", AgentType: "claude", WorkingDirectory: "/repo",
+		Branch: "main", CommitHash: "aaa", SessionID: &sid1,
+	}))
+	// No git snapshot for sid2
+
+	req := httptest.NewRequest(http.MethodGet, "/api/token-usage/by-branch", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	branches := body["branches"].([]any)
+	assert.Len(t, branches, 1)
+
+	totals := body["totals"].(map[string]any)
+	assert.Equal(t, float64(1000), totals["total_tokens"])
+	assert.Equal(t, float64(1), totals["num_agents"])
+}
+
 func TestTokenUsageHandler_StoreAccessor(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "accessor_test.db")
 	db, err := store.Open(dbPath)

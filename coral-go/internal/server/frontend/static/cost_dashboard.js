@@ -70,6 +70,7 @@ const _sortState = {
     model:   { field: 'cost_usd', asc: false },
     agent:   { field: 'cost_usd', asc: false },
     team:    { field: 'cost_usd', asc: false },
+    branch:  { field: 'cost_usd', asc: false },
     task:    { field: 'cost_usd', asc: false },
     request: { field: 'started_at', asc: false },
 };
@@ -80,7 +81,7 @@ const _colFilters = {};
 
 // Raw data caches — populated on fetch, re-rendered on sort/filter
 const _rawData = {
-    model: [], agent: [], team: [], task: [], request: [],
+    model: [], agent: [], team: [], branch: [], task: [], request: [],
 };
 
 // Currently open dropdown (only one at a time)
@@ -102,6 +103,7 @@ function _rerender(table) {
         case 'model':   _renderModelTable(_rawData.model); break;
         case 'agent':   _renderAgentTable(_rawData.agent); break;
         case 'team':    _renderTeamTable(_rawData.team); break;
+        case 'branch':  _renderBranchTable(_rawData.branch); break;
         case 'task':    _renderTaskTable(_rawData.task); break;
         case 'request': _renderRequestLog(_rawData.request); break;
     }
@@ -280,6 +282,7 @@ function _getFilterExtractor(table, field) {
         'agent:agent_name': r => r.display_name || r.agent_name || '',
         'agent:board_name': r => r.board_name || '',
         'team:board_name': r => r.board_name || '(no team)',
+        'branch:branch': r => r.branch || '(unknown)',
         'task:assigned_to': r => r.assigned_to || '',
         'task:priority': r => r.priority || 'medium',
         'request:model_used': r => r.model_used || '',
@@ -326,12 +329,13 @@ export async function _refreshCostDashboard() {
     _flashLiveIndicator();
 
     try {
-        const [summaryResp, reqResp, taskResp, tsResp, teamResp] = await Promise.all([
+        const [summaryResp, reqResp, taskResp, tsResp, teamResp, branchResp] = await Promise.all([
             fetch(`/api/token-usage/summary${sinceParam}`).catch(() => null),
             fetch('/api/proxy/requests?limit=100').catch(() => null),
             fetch('/api/board/tasks').catch(() => null),
             fetch(`/api/token-usage/timeseries${tsParams}`).catch(() => null),
             fetch(`/api/token-usage/by-team${sinceParam}`).catch(() => null),
+            fetch(`/api/token-usage/by-branch${sinceParam}`).catch(() => null),
         ]);
 
         if (summaryResp && summaryResp.ok) {
@@ -387,6 +391,12 @@ export async function _refreshCostDashboard() {
         if (teamResp && teamResp.ok) {
             const data = await teamResp.json();
             _renderTeamTable(data.teams || []);
+        }
+
+        // Render branch breakdown
+        if (branchResp && branchResp.ok) {
+            const data = await branchResp.json();
+            _renderBranchTable(data.branches || []);
         }
 
         if (reqResp && reqResp.ok) {
@@ -950,6 +960,63 @@ function _renderTeamTable(teams) {
             <td class="cost-col-right">${_formatTokens(t.cache_read_tokens || 0)}</td>
             <td class="cost-col-right">${_formatTokens(t.cache_write_tokens || 0)}</td>
             <td class="cost-col-right cost-cost-cell">${_formatCost(t.cost_usd || 0)}</td>
+            <td class="cost-col-right">
+                <div class="cost-share-bar-wrapper">
+                    <div class="cost-share-bar" style="width:${barWidth}%"></div>
+                    <span class="cost-share-label">${pct}%</span>
+                </div>
+            </td>
+        </tr>`;
+    }
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// ── Branch Table ────────────────────────────────────────────
+
+function _renderBranchTable(branches) {
+    _rawData.branch = branches;
+    const container = document.getElementById('cost-by-branch');
+    if (!container) return;
+
+    const filtered = _applyColFilters(branches, 'branch', { branch: b => b.branch || '(unknown)' });
+    const sorted = _sortRows(filtered, 'branch', (b, f) => {
+        if (f === 'branch') return b.branch || '';
+        return b[f] || 0;
+    });
+
+    if (sorted.length === 0) {
+        container.innerHTML = '<div class="cost-empty">No branch data yet</div>';
+        return;
+    }
+
+    let html = `<table class="cost-table">
+        <thead><tr>
+            ${_sortHeader('branch', 'branch', 'Branch', '', true)}
+            ${_sortHeader('branch', 'num_agents', 'Agents', 'cost-col-right')}
+            ${_sortHeader('branch', 'input_tokens', 'Input', 'cost-col-right')}
+            ${_sortHeader('branch', 'output_tokens', 'Output', 'cost-col-right')}
+            ${_sortHeader('branch', 'cache_read_tokens', 'Cache Read', 'cost-col-right')}
+            ${_sortHeader('branch', 'cache_write_tokens', 'Cache Write', 'cost-col-right')}
+            ${_sortHeader('branch', 'cost_usd', 'Cost', 'cost-col-right')}
+            <th class="cost-col-right" style="width:100px">Share</th>
+        </tr></thead><tbody>`;
+
+    const totalCost = branches.reduce((s, b) => s + (b.cost_usd || 0), 0) || 1;
+
+    for (const b of sorted) {
+        const name = b.branch || '(unknown)';
+        const pct = ((b.cost_usd / totalCost) * 100).toFixed(1);
+        const barWidth = Math.max(2, (b.cost_usd / totalCost) * 100);
+        html += `<tr>
+            <td class="cost-agent-name">${escapeHtml(name)}</td>
+            <td class="cost-col-right">${b.num_agents || 0}</td>
+            <td class="cost-col-right">${_formatTokens(b.input_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(b.output_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(b.cache_read_tokens || 0)}</td>
+            <td class="cost-col-right">${_formatTokens(b.cache_write_tokens || 0)}</td>
+            <td class="cost-col-right cost-cost-cell">${_formatCost(b.cost_usd || 0)}</td>
             <td class="cost-col-right">
                 <div class="cost-share-bar-wrapper">
                     <div class="cost-share-bar" style="width:${barWidth}%"></div>
