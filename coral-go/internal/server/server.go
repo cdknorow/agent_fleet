@@ -817,14 +817,14 @@ const activationPage = `<!DOCTYPE html>
       <div class="price-badge">Early Adopter</div>
       <h3>Pro</h3>
       <p class="price-desc">Early adopter pricing for individual developers</p>
-      <div class="price-amount">$69/yr</div>
-      <p class="price-note">Price increases as we add features</p>
+      <div class="price-amount">$49.99</div>
+      <p class="price-note">One-time purchase &middot; price increases as we add features</p>
       <ul class="price-features">
         <li>1 machine activation</li>
         <li>Unlimited Teams &amp; Agents</li>
         <li>Agent team templates &amp; sharing</li>
         <li>Search chat history</li>
-        <li>Priority auto-updates for one year</li>
+        <li>Lifetime access with updates</li>
         <li>Email support</li>
       </ul>
       <p style="font-size:11px;color:#484f58;margin-top:0;margin-bottom:12px;text-align:center;">Lock in early adopter pricing today.</p>
