@@ -138,19 +138,29 @@ export async function resendInputPrompt() {
         return;
     }
     const s = state.currentSession;
-    try {
-        const resp = await fetch(`/api/sessions/live/${encodeURIComponent(s.name)}/info?session_id=${encodeURIComponent(s.session_id)}`);
-        const info = await resp.json();
-        if (!info.prompt) {
-            showToast("No prompt found for this session", true);
-            return;
-        }
-        const input = document.getElementById("command-input");
-        input.value = info.prompt;
-        await sendCommand();
-    } catch (err) {
-        showToast("Failed to fetch session prompt", true);
+    const boardName = s.board_project || "";
+    if (!boardName) {
+        showToast("No board found for this session", true);
+        return;
     }
+    const isOrch = _isOrchestratorSession(s);
+    let defaults = {};
+    try {
+        const res = await fetch("/api/settings/default-prompts");
+        defaults = await res.json();
+    } catch { /* use fallbacks below */ }
+    const settings = state.settings || {};
+    const promptTemplate = isOrch
+        ? (settings.default_prompt_orchestrator || defaults.default_prompt_orchestrator || "")
+        : (settings.default_prompt_worker || defaults.default_prompt_worker || "");
+    if (!promptTemplate) {
+        showToast("No default prompt configured", true);
+        return;
+    }
+    const prompt = promptTemplate.replace(/\{board_name\}/g, boardName);
+    const input = document.getElementById("command-input");
+    input.value = prompt;
+    await sendCommand();
 }
 
 const DEFAULT_MACROS = [

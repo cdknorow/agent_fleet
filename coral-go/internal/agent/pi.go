@@ -159,9 +159,27 @@ func (a *PiAgent) BuildLaunchCommand(params LaunchParams) string {
 
 	parts = append(parts, bin)
 
-	// Resume via --session
-	if params.ResumeSessionID != "" {
-		parts = append(parts, "--session", params.ResumeSessionID)
+	// Use a per-session directory so Pi's internal sessions map to Coral sessions.
+	// On resume, point to the old session dir and use --continue.
+	coralDir := params.CoralDir
+	if coralDir == "" {
+		if v := os.Getenv("CORAL_DATA_DIR"); v != "" {
+			coralDir = v
+		} else if home, err := os.UserHomeDir(); err == nil {
+			coralDir = filepath.Join(home, ".coral")
+		}
+	}
+	if coralDir != "" {
+		effectiveID := params.SessionID
+		if params.ResumeSessionID != "" {
+			effectiveID = params.ResumeSessionID
+		}
+		sessionDir := filepath.Join(coralDir, "pi-sessions", effectiveID)
+		os.MkdirAll(sessionDir, 0755)
+		parts = append(parts, "--session-dir", sessionDir)
+		if params.ResumeSessionID != "" {
+			parts = append(parts, "--continue")
+		}
 	}
 
 	// Pass through user flags, dropping ones Pi doesn't understand
@@ -169,6 +187,7 @@ func (a *PiAgent) BuildLaunchCommand(params LaunchParams) string {
 		"--permission-mode": true, "--settings": true, "--session-id": true,
 		"--dangerously-skip-permissions": true, "--full-auto": true,
 		"--approval-mode": true, "--sandbox": true, "--yolo": true,
+		"--session": true, "--session-dir": true,
 	}
 	skipNext := false
 	for _, flag := range params.Flags {
@@ -177,7 +196,7 @@ func (a *PiAgent) BuildLaunchCommand(params LaunchParams) string {
 			continue
 		}
 		if unsupportedFlags[flag] {
-			if flag == "--permission-mode" || flag == "--approval-mode" || flag == "--sandbox" {
+			if flag == "--permission-mode" || flag == "--approval-mode" || flag == "--sandbox" || flag == "--session" || flag == "--session-id" || flag == "--session-dir" {
 				skipNext = true
 			}
 			continue

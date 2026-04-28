@@ -78,6 +78,8 @@ func (p *TokenPoller) pollOnce(ctx context.Context) {
 			p.pollCodexSession(ctx, &ls)
 		case at.Claude:
 			p.pollClaudeSession(ctx, &ls)
+		case at.Pi:
+			p.pollPiSession(ctx, &ls)
 		}
 	}
 }
@@ -630,6 +632,203 @@ func resolveClaudeTranscriptPath(sessionID, workingDir string) string {
 		}
 	}
 	return ""
+}
+
+// ── Pi JSONL token tracking ─────────────────────────────────
+
+type piCallData struct {
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	TotalTokens      int
+	CostUSD          float64
+	Model            string
+	Timestamp        string
+}
+
+type piUsageData struct {
+	Calls          []piCallData
+	SessionStartAt string
+}
+
+func (p *TokenPoller) pollPiSession(ctx context.Context, ls *store.LiveSession) {
+	jsonlPath, ok := p.sessionPaths[ls.SessionID]
+	if !ok {
+		jsonlPath = resolvePiSessionPath(ls.SessionID)
+		if jsonlPath == "" {
+			return
+		}
+		p.logger.Info("matched JSONL file for Pi session",
+			"session_id", ls.SessionID[:8],
+			"path", filepath.Base(jsonlPath))
+		p.sessionPaths[ls.SessionID] = jsonlPath
+	}
+
+	info, err := os.Stat(jsonlPath)
+	if err != nil {
+		return
+	}
+	if lastMtime, ok := p.lastMtime[jsonlPath]; ok && !info.ModTime().After(lastMtime) {
+		return
+	}
+	p.lastMtime[jsonlPath] = info.ModTime()
+
+	usage := extractPiUsage(jsonlPath)
+	if usage == nil || len(usage.Calls) == 0 {
+		return
+	}
+
+	alreadyProcessed := p.lastEntryCount[ls.SessionID]
+	if len(usage.Calls) <= alreadyProcessed {
+		return
+	}
+	newCalls := usage.Calls[alreadyProcessed:]
+
+	agentName := ""
+	if ls.DisplayName != nil {
+		agentName = *ls.DisplayName
+	}
+
+	for _, call := range newCalls {
+		if call.InputTokens == 0 && call.OutputTokens == 0 {
+			continue
+		}
+
+		record := &store.TokenUsage{
+			SessionID:        ls.SessionID,
+			AgentName:        agentName,
+			AgentType:        at.Pi,
+			TeamID:           ls.TeamID,
+			BoardName:        ls.BoardName,
+			InputTokens:      call.InputTokens,
+			OutputTokens:     call.OutputTokens,
+			CacheReadTokens:  call.CacheReadTokens,
+			CacheWriteTokens: call.CacheWriteTokens,
+			TotalTokens:      call.TotalTokens,
+			CostUSD:          call.CostUSD,
+			SessionStartAt:   usage.SessionStartAt,
+			LastActivityAt:   call.Timestamp,
+			RecordedAt:       call.Timestamp,
+			Source:           "jsonl",
+		}
+
+		if err := p.usageStore.RecordUsage(ctx, record); err != nil {
+			p.logger.Error("failed to record Pi usage", "session_id", ls.SessionID, "error", err)
+			continue
+		}
+
+		p.logger.Debug("recorded Pi turn",
+			"session_id", ls.SessionID[:8],
+			"model", call.Model,
+			"input", call.InputTokens,
+			"output", call.OutputTokens,
+			"cost_usd", call.CostUSD,
+			"timestamp", call.Timestamp)
+	}
+
+	p.lastEntryCount[ls.SessionID] = len(usage.Calls)
+}
+
+func extractPiUsage(path string) *piUsageData {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil
+	}
+
+	result := &piUsageData{}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry struct {
+			Type      string `json:"type"`
+			Timestamp string `json:"timestamp"`
+			Message   struct {
+				Role  string `json:"role"`
+				Model string `json:"model"`
+				Usage struct {
+					Input       int `json:"input"`
+					Output      int `json:"output"`
+					CacheRead   int `json:"cacheRead"`
+					CacheWrite  int `json:"cacheWrite"`
+					TotalTokens int `json:"totalTokens"`
+					Cost        struct {
+						Total float64 `json:"total"`
+					} `json:"cost"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+
+		if entry.Timestamp != "" && result.SessionStartAt == "" {
+			result.SessionStartAt = entry.Timestamp
+		}
+
+		if entry.Type == "message" && entry.Message.Role == "assistant" && entry.Message.Usage.Input > 0 {
+			result.Calls = append(result.Calls, piCallData{
+				InputTokens:      entry.Message.Usage.Input,
+				OutputTokens:     entry.Message.Usage.Output,
+				CacheReadTokens:  entry.Message.Usage.CacheRead,
+				CacheWriteTokens: entry.Message.Usage.CacheWrite,
+				TotalTokens:      entry.Message.Usage.TotalTokens,
+				CostUSD:          entry.Message.Usage.Cost.Total,
+				Model:            entry.Message.Model,
+				Timestamp:        entry.Timestamp,
+			})
+		}
+	}
+
+	if len(result.Calls) == 0 {
+		return nil
+	}
+	return result
+}
+
+// resolvePiSessionPath finds the Pi JSONL file for a Coral session.
+// With --session-dir, Pi stores sessions under ~/.coral/pi-sessions/<session-id>/.
+// Falls back to searching Pi's default session directory.
+func resolvePiSessionPath(sessionID string) string {
+	home, _ := os.UserHomeDir()
+
+	// Strategy 1: Check Coral-managed pi-sessions dir
+	coralDir := os.Getenv("CORAL_DATA_DIR")
+	if coralDir == "" {
+		coralDir = filepath.Join(home, ".coral")
+	}
+	piSessionDir := filepath.Join(coralDir, "pi-sessions", sessionID)
+	if matches, err := filepath.Glob(filepath.Join(piSessionDir, "*.jsonl")); err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+
+	// Strategy 2: Search Pi's default session directories for a matching session ID
+	piBase := os.Getenv("PI_CODING_AGENT_DIR")
+	if piBase == "" {
+		piBase = filepath.Join(home, ".pi", "agent", "sessions")
+	}
+	var found string
+	filepath.Walk(piBase, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || found != "" {
+			return nil
+		}
+		if strings.HasSuffix(path, ".jsonl") && strings.Contains(filepath.Base(path), sessionID) {
+			found = path
+		}
+		return nil
+	})
+	return found
 }
 
 // estimateCost calculates estimated cost based on model pricing.
