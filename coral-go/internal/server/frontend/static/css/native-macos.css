@@ -8,3 +8,11 @@
 .native-macos .top-bar {
     padding-left: 78px;                 /* Space for macOS window controls */
 }
+
+.native-macos .layout {
+    height: calc(100vh - 43px - 6px);   /* Extra bottom margin to prevent clipping */
+}
+
+.native-macos .live-left-column {
+    margin-bottom: 8px;
+}
