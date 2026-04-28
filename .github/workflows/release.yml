@@ -310,6 +310,8 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_NAME="Coral.v${VERSION}.dmg"
           VOLICON_ARGS=""
           [ -f Coral.icns ] && VOLICON_ARGS="--volicon Coral.icns"
           create-dmg \
@@ -318,7 +320,8 @@ jobs:
             --window-pos 200 120 --window-size 600 400 \
             --icon-size 100 --icon "Coral.app" 175 190 \
             --app-drop-link 425 190 --no-internet-enable \
-            "dist/Coral.dmg" "dist/Coral.app"
+            "dist/${DMG_NAME}" "dist/Coral.app"
+          echo "DMG_NAME=${DMG_NAME}" >> "$GITHUB_ENV"
 
       - name: Sign DMG
         if: env.MACOS_CERTIFICATE != ''
@@ -326,7 +329,7 @@ jobs:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
-          codesign --force --sign "$SIGNING_IDENTITY" "dist/Coral.dmg"
+          codesign --force --sign "$SIGNING_IDENTITY" "dist/$DMG_NAME"
 
       - name: Notarize DMG
         if: env.MACOS_CERTIFICATE != ''
@@ -336,14 +339,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          SUBMIT_OUT=$(xcrun notarytool submit "dist/Coral.dmg" \
+          SUBMIT_OUT=$(xcrun notarytool submit "dist/$DMG_NAME" \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" --output-format json)
           SUBMISSION_ID=$(echo "$SUBMIT_OUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           xcrun notarytool wait "$SUBMISSION_ID" \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" --timeout 30m
-          xcrun stapler staple "dist/Coral.dmg"
+          xcrun stapler staple "dist/$DMG_NAME"
 
       - name: Cleanup keychain
         if: always() && env.KEYCHAIN_PATH != ''
@@ -353,7 +356,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coral-macos-dmg
-          path: dist/Coral.dmg
+          path: dist/${{ env.DMG_NAME }}
 
   # ── Create GitHub Release with all assets ──────────────────────
   release:
@@ -396,12 +399,18 @@ jobs:
           name: coral-macos-dmg
           path: artifacts
 
-      - name: Publish DMG to subgentic/coral-app
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coral-linux-amd64
+          path: artifacts
+
+      - name: Publish to subgentic/coral-app
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          echo "Publishing $TAG to subgentic/coral-app (DMG only)"
+          echo "Publishing $TAG to subgentic/coral-app"
 
           # Create the release on the public repo
           gh release create "$TAG" \
@@ -410,17 +419,33 @@ jobs:
             --generate-notes \
             || true
 
-          # Upload only the DMG
+          # Upload the versioned DMG and a stable Coral.dmg for releases/latest/download URLs
           for f in artifacts/*.dmg; do
             if [ -f "$f" ]; then
               echo "Uploading $(basename "$f")..."
               gh release upload "$TAG" "$f" \
                 --repo subgentic/coral-app \
                 --clobber
+              cp "$f" artifacts/Coral.dmg
+              echo "Uploading stable Coral.dmg..."
+              gh release upload "$TAG" artifacts/Coral.dmg \
+                --repo subgentic/coral-app \
+                --clobber
             fi
           done
 
-          # Delete auto-generated source archives (we only distribute the DMG)
+          # Upload the Linux tarball with a stable name for releases/latest/download URLs
+          for f in artifacts/coral-linux-amd64-*.tar.gz; do
+            if [ -f "$f" ]; then
+              cp "$f" artifacts/coral-linux-amd64.tar.gz
+              echo "Uploading coral-linux-amd64.tar.gz..."
+              gh release upload "$TAG" artifacts/coral-linux-amd64.tar.gz \
+                --repo subgentic/coral-app \
+                --clobber
+            fi
+          done
+
+          # Delete auto-generated source archives (we only distribute binaries)
           gh release delete-asset "$TAG" "${TAG}.zip" --repo subgentic/coral-app --yes 2>/dev/null || true
           gh release delete-asset "$TAG" "${TAG}.tar.gz" --repo subgentic/coral-app --yes 2>/dev/null || true
 
