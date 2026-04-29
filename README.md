@@ -1,5 +1,3 @@
-<h1 align="center">Coral</h1>
-
 <p align="center">
   <strong>Multi-agent orchestration for AI coding tools.</strong>
 </p>
