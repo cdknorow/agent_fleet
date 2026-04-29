@@ -125,32 +125,6 @@ Frameworks like AutoGen and CrewAI help developers build agent pipelines in code
 | Process-level isolation | ✓ | ✓ | ✓ | — | — |
 | Open source | ✓ | — | — | ✓ | ✓ |
 
-## Advanced Usage
-
-<details>
-<summary><strong>Bulk agent launcher</strong></summary>
-
-```bash
-# Launch agents for every worktree subdirectory + start the dashboard
-launch-coral
-
-# Specify path and agent type
-launch-coral <path-to-root> gemini
-```
-
-</details>
-
-<details>
-<summary><strong>Remote server (SSH port forwarding)</strong></summary>
-
-```bash
-ssh -L 8420:localhost:8420 user@remote-host
-```
-
-Then open `http://localhost:8420` locally. Add to `~/.ssh/config` for persistence.
-
-</details>
-
 ## Documentation
 
 Full documentation at **[cdknorow.github.io/coral](https://cdknorow.github.io/coral/)**.
