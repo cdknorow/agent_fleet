@@ -3,7 +3,7 @@
 # Sync agent_docs to the static embed dir before any build
 .PHONY: sync-docs
 sync-docs:
-	@../scripts/sync-agent-docs.sh
+	@../tools/sync-agent-docs.sh
 
 # Dev build (skips EULA + license)
 .PHONY: dev

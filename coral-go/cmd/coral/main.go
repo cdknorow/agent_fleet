@@ -65,16 +65,11 @@ func main() {
 	cfg := config.Load(*homeDir)
 	setupCrashLogging(cfg.CoralDir())
 
-	// Apply trial limits from cached license variant (prod tier only).
-	// Beta tier limits are already set via TierDemoLimits build tag.
+	// Resolve license variant name for logging (no feature gating).
 	variantName := ""
 	if cfg.LicenseRequired() {
 		lm := license.NewManager(cfg.CoralDir())
 		variantName = lm.VariantName()
-		if variantName != "Coral Pro" {
-			cfg.MaxLiveTeams = 2
-			cfg.MaxLiveAgents = 8
-		}
 	}
 
 	log.Printf("[STARTUP] build tier=%s eula=%v license=%v demo_limits=%v variant=%q max_teams=%d max_agents=%d",

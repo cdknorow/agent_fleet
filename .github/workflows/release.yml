@@ -21,7 +21,7 @@ jobs:
           cache-dependency-path: coral-go/go.sum
 
       - name: Sync agent docs
-        run: bash scripts/sync-agent-docs.sh
+        run: bash tools/sync-agent-docs.sh
 
       - name: Build Linux binaries (amd64)
         working-directory: coral-go
@@ -74,7 +74,7 @@ jobs:
         run: choco install mingw -y
 
       - name: Sync agent docs
-        run: bash scripts/sync-agent-docs.sh
+        run: bash tools/sync-agent-docs.sh
 
       - name: Build Windows binaries (amd64)
         working-directory: coral-go
@@ -140,7 +140,7 @@ jobs:
           $binDir = (Resolve-Path "dist\windows\bin").Path
           $buildDir = (Resolve-Path "dist\windows").Path
           $msiPath = Join-Path $buildDir "Coral-$version-x64.msi"
-          wix build scripts\coral.wxs -d "Version=$version" -d "BinDir=$binDir" -d "BuildDir=$buildDir" -o $msiPath
+          wix build tools\coral.wxs -d "Version=$version" -d "BinDir=$binDir" -d "BuildDir=$buildDir" -o $msiPath
           echo "MSI_PATH=$msiPath" >> $env:GITHUB_ENV
           echo "VERSION=$version" >> $env:GITHUB_ENV
 
@@ -187,7 +187,7 @@ jobs:
           cache-dependency-path: coral-go/go.sum
 
       - name: Sync agent docs
-        run: bash scripts/sync-agent-docs.sh
+        run: bash tools/sync-agent-docs.sh
 
       - name: Build universal binaries
         working-directory: coral-go
@@ -238,7 +238,7 @@ jobs:
       - name: Bundle frontend JS/CSS
         run: |
           brew install esbuild
-          bash scripts/bundle-frontend.sh
+          bash tools/bundle-frontend.sh
 
       - name: Create Coral.app bundle
         run: |
@@ -250,15 +250,15 @@ jobs:
             cp "$cmd" "$APP/Contents/MacOS/$bin"
             chmod +x "$APP/Contents/MacOS/$bin"
           done
-          sed "s/VERSION_PLACEHOLDER/${VERSION}/g" scripts/Info.plist > "$APP/Contents/Info.plist"
+          sed "s/VERSION_PLACEHOLDER/${VERSION}/g" tools/Info.plist > "$APP/Contents/Info.plist"
           [ -f Coral.icns ] && cp Coral.icns "$APP/Contents/Resources/AppIcon.icns"
           cp installers/install-cli.sh "$APP/Contents/MacOS/install-cli.sh"
           chmod +x "$APP/Contents/MacOS/install-cli.sh"
 
       - name: Smoke test Coral.app
         run: |
-          chmod +x scripts/test-macos-app.sh
-          CI=true scripts/test-macos-app.sh dist/Coral.app
+          chmod +x tools/test-macos-app.sh
+          CI=true tools/test-macos-app.sh dist/Coral.app
 
       - name: Import signing certificate
         if: env.MACOS_CERTIFICATE != ''
@@ -305,7 +305,7 @@ jobs:
           codesign --verify --deep --verbose=2 "$APP"
 
       - name: Smoke test Coral.app
-        run: scripts/test-macos-app.sh dist/Coral.app
+        run: tools/test-macos-app.sh dist/Coral.app
 
       - name: Create DMG
         run: |

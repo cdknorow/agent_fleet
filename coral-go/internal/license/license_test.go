@@ -188,7 +188,7 @@ func TestMachineFingerprint_Stable(t *testing.T) {
 	}
 }
 
-func TestMiddleware_BlocksWithoutLicense(t *testing.T) {
+func TestMiddleware_PassesThroughWithoutLicense(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager(dir)
 
@@ -196,35 +196,13 @@ func TestMiddleware_BlocksWithoutLicense(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// API request should be blocked
-	req := httptest.NewRequest("GET", "/api/sessions/live", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d", rec.Code)
-	}
-
-	// License endpoint should pass through
-	req = httptest.NewRequest("GET", "/api/license/status", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for license endpoint, got %d", rec.Code)
-	}
-
-	// Static assets should pass through
-	req = httptest.NewRequest("GET", "/static/app.js", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for static asset, got %d", rec.Code)
-	}
-
-	// Root page should pass through
-	req = httptest.NewRequest("GET", "/", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for root page, got %d", rec.Code)
+	// All requests pass through regardless of license status
+	for _, path := range []string{"/api/sessions/live", "/api/license/status", "/static/app.js", "/"} {
+		req := httptest.NewRequest("GET", path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", path, rec.Code)
+		}
 	}
 }

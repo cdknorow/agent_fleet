@@ -47,6 +47,7 @@ type Server struct {
 	backend         ptymanager.TerminalBackend
 	terminal        ptymanager.SessionTerminal
 	licenseMgr      *license.Manager
+	launchCounter   *license.LaunchCounter
 	keyStore        *auth.KeyStore
 	router          chi.Router
 	indexTmpl       *template.Template
@@ -85,6 +86,11 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		licenseMgr.Revalidate()
 	}
 
+	// Track launch count for nag screen frequency
+	launchCounter := license.NewLaunchCounter(cfg.CoralDir())
+	launchCount := launchCounter.Increment()
+	log.Printf("Launch count: %d (nag=%v)", launchCount, launchCounter.IsNagLaunch())
+
 	// Initialize API key auth
 	keyStore, err := auth.NewKeyStore(cfg.CoralDir())
 	if err != nil {
@@ -98,8 +104,9 @@ func New(cfg *config.Config, db *store.DB, backend ptymanager.TerminalBackend, t
 		boardStore: boardStore,
 		backend:    backend,
 		terminal:   terminal,
-		licenseMgr: licenseMgr,
-		keyStore:   keyStore,
+		licenseMgr:    licenseMgr,
+		launchCounter: launchCounter,
+		keyStore:      keyStore,
 	}
 
 	// Parse Go templates from embedded FS
@@ -235,9 +242,8 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(auth.Middleware(s.keyStore))
 	}
 
-	// License gate — gates all API access behind a valid license key.
-	// Activation and static asset paths are always accessible.
-	// Skipped in dev and beta tiers (compile-time build tags).
+	// License middleware — tracks license state but does not gate any routes.
+	// Skipped entirely in dev and beta tiers (compile-time build tags).
 	if s.cfg.LicenseRequired() {
 		r.Use(license.Middleware(s.licenseMgr))
 	}
@@ -645,8 +651,10 @@ func noCacheHandler(h http.Handler) http.Handler {
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Show activation page if no valid license (skip when license not required)
-	if s.cfg.LicenseRequired() && !s.licenseMgr.IsValid() {
+	// Show activation nag screen if: license required, not yet licensed,
+	// it's a nag launch (every 3rd), and user hasn't clicked "skip".
+	if s.cfg.LicenseRequired() && !s.licenseMgr.IsValid() &&
+		s.launchCounter.IsNagLaunch() && r.URL.Query().Get("skip_activation") != "1" {
 		s.serveActivation(w, r)
 		return
 	}
@@ -779,6 +787,17 @@ const activationPage = `<!DOCTYPE html>
   .error { color: #f85149; font-size: 13px; margin-top: 10px; display: none; }
   .success { color: #3fb950; font-size: 13px; margin-top: 10px; display: none; }
 
+  .skip-btn {
+    display: block; width: 100%; text-align: center;
+    padding: 11px; margin-top: 12px;
+    background: transparent; color: #8b949e;
+    border: 1px solid #30363d; border-radius: 8px;
+    font-size: 13px; cursor: pointer;
+    text-decoration: none;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .skip-btn:hover { color: #c9d1d9; border-color: #484f58; }
+
   .footer-link { text-align: center; margin-top: 20px; }
   .footer-link a { color: #8b949e; font-size: 13px; text-decoration: none; }
   .footer-link a:hover { color: #58a6ff; }
@@ -843,6 +862,7 @@ const activationPage = `<!DOCTYPE html>
     </form>
     <div class="error" id="error-msg"></div>
     <div class="success" id="success-msg"></div>
+    <a href="/?skip_activation=1" class="skip-btn">Continue without license</a>
     <p style="font-size:12px;color:#484f58;margin-top:16px;">Need help? <a href="https://coralai.ai/support.html" target="_blank" style="color:#58a6ff;">Contact Support</a></p>
   </div>
 
