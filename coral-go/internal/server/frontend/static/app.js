@@ -669,11 +669,19 @@ document.addEventListener("DOMContentLoaded", () => {
     initMessageBoard();
     initMobile();
 
-    // Hide connected apps in prod builds (feature is dev/beta only)
+    // Hide connected apps in prod builds (feature is dev/beta only),
+    // and surface a banner if tmux is missing so the user knows agents
+    // can't be launched yet.
     fetch('/api/system/status').then(r => r.json()).then(data => {
         if (data.tier_name === 'prod' || data.tier_name === 'staging') {
             const btn = document.getElementById('connected-apps-menu-btn');
             if (btn) btn.style.display = 'none';
+        }
+        if (data.tmux_available === false) {
+            const banner = document.getElementById('tmux-missing-banner');
+            const cmd = document.getElementById('tmux-missing-banner-cmd-text');
+            if (cmd && data.tmux_install_command) cmd.textContent = data.tmux_install_command;
+            if (banner) banner.style.display = '';
         }
     }).catch(() => {});
 

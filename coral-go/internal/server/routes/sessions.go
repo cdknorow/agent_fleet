@@ -34,6 +34,7 @@ import (
 	"github.com/cdknorow/coral/internal/pulse"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
+	"github.com/cdknorow/coral/internal/tmux"
 	"github.com/cdknorow/coral/internal/tracking"
 )
 
@@ -2895,6 +2896,14 @@ func (h *SessionsHandler) launchSession(ctx context.Context, workDir, agentType,
 	} else {
 		// Tmux backend: create session, pipe-pane, send keys
 		backend = "tmux" // normalize if pty requested but no backend available
+
+		// Only check real tmux availability when the terminal is the real
+		// tmux terminal — tests inject a mock that should bypass this.
+		if _, isTmux := h.terminal.(*ptymanager.TmuxSessionTerminal); isTmux {
+			if _, ok := tmux.IsAvailable(); !ok {
+				return nil, fmt.Errorf("tmux is required to launch agents but was not found on this system. Install tmux (e.g. 'brew install tmux' on macOS), then try again")
+			}
+		}
 
 		// Create empty log file
 		os.WriteFile(logFile, []byte{}, 0644)

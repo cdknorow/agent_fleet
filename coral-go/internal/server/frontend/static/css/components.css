@@ -3388,3 +3388,51 @@
     vertical-align: -2px;
     margin-right: 2px;
 }
+
+/* Tmux missing banner — shown across the top when tmux can't be found.
+   Agents need tmux to run, so we surface install instructions instead of
+   silently failing on launch. */
+.tmux-missing-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--warning) 18%, var(--bg-secondary));
+    border-bottom: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+    color: var(--text-primary);
+    font-size: 13px;
+}
+.tmux-missing-banner-icon {
+    color: var(--warning);
+    font-size: 20px;
+    flex-shrink: 0;
+}
+.tmux-missing-banner-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    flex: 1;
+    align-items: baseline;
+}
+.tmux-missing-banner-body strong {
+    color: var(--warning);
+}
+.tmux-missing-banner-cmd code {
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+.tmux-missing-banner-close {
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    opacity: 0.7;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    flex-shrink: 0;
+}
+.tmux-missing-banner-close:hover { opacity: 1; }

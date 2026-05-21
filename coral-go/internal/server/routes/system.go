@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/cdknorow/coral/internal/executil"
 	"github.com/cdknorow/coral/internal/ptymanager"
 	"github.com/cdknorow/coral/internal/store"
+	"github.com/cdknorow/coral/internal/tmux"
 )
 
 // Indexer is the interface for triggering an index refresh.
@@ -176,13 +178,29 @@ func (h *SystemHandler) GetAgentModels(w http.ResponseWriter, r *http.Request) {
 // Status returns server status.
 // GET /api/system/status
 func (h *SystemHandler) Status(w http.ResponseWriter, r *http.Request) {
+	tmuxPath, tmuxAvailable := tmux.IsAvailable()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"startup_complete": true,
-		"version":          config.Version,
-		"store_url":        config.StoreURL,
-		"skip_license":     config.TierSkipLicense,
-		"tier_name":        config.TierName,
+		"startup_complete":     true,
+		"version":              config.Version,
+		"store_url":            config.StoreURL,
+		"skip_license":         config.TierSkipLicense,
+		"tier_name":            config.TierName,
+		"tmux_available":       tmuxAvailable,
+		"tmux_path":            tmuxPath,
+		"tmux_install_command": tmuxInstallCommand(),
 	})
+}
+
+// tmuxInstallCommand returns the platform-appropriate install command for tmux.
+func tmuxInstallCommand() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "brew install tmux"
+	case "linux":
+		return "sudo apt install tmux  (or your distro's package manager)"
+	default:
+		return "install tmux for your platform"
+	}
 }
 
 var githubReleasesAPI = "https://api.github.com/repos/cdknorow/coral/releases/latest"

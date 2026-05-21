@@ -88,20 +88,12 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*RunningServe
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Check if tmux is available when using tmux backend
+	// Check if tmux is available when using tmux backend. We don't fail
+	// startup if it's missing — the dashboard still loads and the UI shows
+	// install instructions. Agent launch will fail until tmux is installed.
 	if opts.BackendType == "tmux" {
-		if _, err := exec.LookPath("tmux"); err != nil {
-			// Try common install locations
-			found := false
-			for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
-				if _, err := os.Stat(p); err == nil {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil, fmt.Errorf("tmux is required but not found. Install it with: brew install tmux")
-			}
+		if _, ok := tmux.IsAvailable(); !ok {
+			log.Printf("[startup] tmux not found — agents cannot be launched until tmux is installed (brew install tmux)")
 		}
 	}
 

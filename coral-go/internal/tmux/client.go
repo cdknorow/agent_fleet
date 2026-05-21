@@ -44,6 +44,25 @@ type Client struct {
 	socketsMu      sync.RWMutex
 }
 
+// commonTmuxPaths are checked when tmux is not on PATH (native app bundles
+// may not inherit a shell PATH that includes Homebrew).
+var commonTmuxPaths = []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"}
+
+// IsAvailable reports whether tmux can be found on PATH or in a common
+// install location. The returned path is the resolved binary (or "tmux"
+// if it was found on PATH).
+func IsAvailable() (string, bool) {
+	if p, err := exec.LookPath("tmux"); err == nil {
+		return p, true
+	}
+	for _, p := range commonTmuxPaths {
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
 // NewClient creates a new tmux Client.
 // coralDir is the root data directory (e.g. ~/.coral). The tmux socket is
 // placed at <coralDir>/tmux.sock. Pass "" to use CORAL_TMUX_SOCKET env var
@@ -53,7 +72,7 @@ func NewClient(coralDir ...string) *Client {
 
 	// Find tmux binary if not on PATH (native app may not have /opt/homebrew/bin)
 	if _, err := exec.LookPath(c.TmuxBin); err != nil {
-		for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
+		for _, p := range commonTmuxPaths {
 			if _, err := os.Stat(p); err == nil {
 				c.TmuxBin = p
 				break
